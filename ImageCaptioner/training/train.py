@@ -8,7 +8,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import torch
 from torch import nn
-from torch.cuda.amp import GradScaler, autocast
+from torch import amp
 from torch.optim import Adamax
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
@@ -38,7 +38,7 @@ def main() -> None:
     model = ImageCaptionerV1(len(vocab.itos), vocab.pad_id, cfg["word_dim"], cfg["hidden_dim"], cfg["max_regions"], cfg["question_dim"]).to(device)
     opt = Adamax(model.parameters(), lr=cfg["learning_rate"])
     sch = StepLR(opt, step_size=cfg["lr_decay_every"], gamma=cfg["lr_decay_factor"])
-    scaler = GradScaler(enabled=cfg["use_amp"] and device.type=="cuda")
+    scaler = amp.GradScaler("cuda", enabled=cfg["use_amp"] and device.type=="cuda")
     crit = nn.CrossEntropyLoss(ignore_index=0)
 
     best = 1e9
@@ -52,7 +52,7 @@ def main() -> None:
         for i,b in enumerate(tr_loader):
             images = b["images"].to(device)
             caps = b["captions"].to(device)
-            with autocast(enabled=cfg["use_amp"] and device.type=="cuda"):
+            with amp.autocast("cuda", enabled=cfg["use_amp"] and device.type=="cuda"):
                 logits = model.forward_train(images, caps)
                 loss = crit(logits.reshape(-1, logits.size(-1)), caps[:,1:].reshape(-1))
             scaler.scale(loss / cfg["grad_accum_steps"]).backward()

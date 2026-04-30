@@ -24,6 +24,7 @@ class ImageCaptionerV1(BaseImageCaptioner):
         self.detector = det
         for p in self.detector.parameters():
             p.requires_grad = False
+        self.detector.eval()
         self.local_proj = nn.Linear(1024, hidden_dim)
 
         self.q_proj = nn.Linear(question_dim, hidden_dim)
@@ -32,6 +33,12 @@ class ImageCaptionerV1(BaseImageCaptioner):
 
         self.lstm = nn.LSTMCell(word_dim + hidden_dim, hidden_dim)
         self.out = nn.Linear(hidden_dim, vocab_size)
+
+    def train(self, mode: bool = True) -> "ImageCaptionerV1":
+        """Keep detector frozen in eval mode while training other modules."""
+        super().train(mode)
+        self.detector.eval()
+        return self
 
     @torch.no_grad()
     def _regions(self, images: torch.Tensor) -> torch.Tensor:
