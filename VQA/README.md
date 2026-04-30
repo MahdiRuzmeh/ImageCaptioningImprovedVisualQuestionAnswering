@@ -1,11 +1,14 @@
 # VQA
 
 ## Setup (first step)
-1. Create environment:
-   - `conda env create -f env.yml`
-2. Activate environment:
-   - `conda activate vqa_caption_fusion`
-3. Install requirements:
+1. Create virtual environment (from repo root):
+   - `python -m venv .venv`
+2. Activate virtual environment (Windows PowerShell):
+   - `.venv\Scripts\Activate.ps1`
+3. Install requirements for both projects once:
+   - `pip install -r ImageCaptioner/requirements.txt -r VQA/requirements.txt`
+
+If you want to install only VQA dependencies:
    - `pip install -r requirements.txt`
 
 ## Implemented architecture

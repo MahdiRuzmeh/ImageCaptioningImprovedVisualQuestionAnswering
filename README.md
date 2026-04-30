@@ -11,20 +11,19 @@ Both are implemented from the paper architecture with deterministic split on ava
 - Split: 80% train / 20% test
 - Seed: `42`
 
+## Setup (Python + venv)
+1. Create one shared virtual environment at repo root:
+   - `python -m venv .venv`
+2. Activate it (Windows PowerShell):
+   - `.venv\Scripts\Activate.ps1`
+3. Upgrade pip and install dependencies once:
+   - `python -m pip install --upgrade pip`
+   - `pip install -r ImageCaptioner/requirements.txt -r VQA/requirements.txt`
+
 ## Run
-1. Create and activate environment for captioner
-   - `cd ImageCaptioner`
-   - `conda env create -f env.yml`
-   - `conda activate image_captioner`
-   - `pip install -r requirements.txt`
-2. Train captioner
+1. Train captioner
    - `cd ImageCaptioner`
    - `python training/train.py --config configs/default.yaml`
-3. Create and activate environment for VQA
-   - `cd ../VQA`
-   - `conda env create -f env.yml`
-   - `conda activate vqa_caption_fusion`
-   - `pip install -r requirements.txt`
-4. Train VQA
+2. Train VQA
    - `cd ../VQA`
    - `python training/train.py --config configs/default.yaml`
