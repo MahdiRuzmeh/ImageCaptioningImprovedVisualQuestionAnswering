@@ -12,6 +12,7 @@ from torch import amp
 from torch.optim import Adamax
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from datasets.coco_caption_dataset import CocoCaptionDataset, build_vocab, collate, load_caps, split_ids
 from models.captioner_v1 import ImageCaptionerV1
@@ -44,12 +45,15 @@ def main() -> None:
     best = 1e9
     out = Path(cfg["save_dir"])
     out.mkdir(parents=True, exist_ok=True)
+    print(f"Starting training on device={device}, epochs={cfg['epochs']}, train_steps={len(tr_loader)}, val_steps={len(va_loader)}")
 
     for ep in range(1, cfg["epochs"]+1):
+        print(f"\n[Epoch {ep}/{cfg['epochs']}]")
         model.train()
         tr_loss = 0.0
         opt.zero_grad(set_to_none=True)
-        for i,b in enumerate(tr_loader):
+        tr_pbar = tqdm(enumerate(tr_loader), total=len(tr_loader), desc=f"Train {ep}", leave=False)
+        for i,b in tr_pbar:
             images = b["images"].to(device)
             caps = b["captions"].to(device)
             with amp.autocast("cuda", enabled=cfg["use_amp"] and device.type=="cuda"):
@@ -61,16 +65,19 @@ def main() -> None:
                 scaler.update()
                 opt.zero_grad(set_to_none=True)
             tr_loss += float(loss.item())
+            tr_pbar.set_postfix(batch_loss=f"{loss.item():.4f}", avg_loss=f"{tr_loss / (i + 1):.4f}")
 
         model.eval()
         va_loss = 0.0
         with torch.no_grad():
-            for b in va_loader:
+            va_pbar = tqdm(va_loader, total=len(va_loader), desc=f"Val   {ep}", leave=False)
+            for i, b in enumerate(va_pbar):
                 images = b["images"].to(device)
                 caps = b["captions"].to(device)
                 logits = model.forward_train(images, caps)
                 loss = crit(logits.reshape(-1, logits.size(-1)), caps[:,1:].reshape(-1))
                 va_loss += float(loss.item())
+                va_pbar.set_postfix(batch_loss=f"{loss.item():.4f}", avg_loss=f"{va_loss / (i + 1):.4f}")
 
         sch.step()
         tr_loss /= max(1,len(tr_loader))
