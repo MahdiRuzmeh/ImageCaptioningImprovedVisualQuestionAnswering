@@ -33,8 +33,18 @@ def main() -> None:
 
     tr = CocoCaptionDataset(cfg["dataset_root"], tr_ids, vocab, cfg["max_caption_len"])
     va = CocoCaptionDataset(cfg["dataset_root"], va_ids, vocab, cfg["max_caption_len"])
-    tr_loader = DataLoader(tr, batch_size=cfg["batch_size"], shuffle=True, num_workers=cfg["num_workers"], collate_fn=collate)
-    va_loader = DataLoader(va, batch_size=cfg["batch_size"], shuffle=False, num_workers=cfg["num_workers"], collate_fn=collate)
+    loader_kwargs = {
+        "batch_size": cfg["batch_size"],
+        "num_workers": cfg["num_workers"],
+        "collate_fn": collate,
+        "pin_memory": bool(cfg.get("pin_memory", False)) and device.type == "cuda",
+    }
+    if cfg["num_workers"] > 0:
+        loader_kwargs["persistent_workers"] = bool(cfg.get("persistent_workers", False))
+        loader_kwargs["prefetch_factor"] = int(cfg.get("prefetch_factor", 2))
+
+    tr_loader = DataLoader(tr, shuffle=True, **loader_kwargs)
+    va_loader = DataLoader(va, shuffle=False, **loader_kwargs)
 
     model = ImageCaptionerV1(len(vocab.itos), vocab.pad_id, cfg["word_dim"], cfg["hidden_dim"], cfg["max_regions"], cfg["question_dim"]).to(device)
     opt = Adamax(model.parameters(), lr=cfg["learning_rate"])
@@ -54,8 +64,8 @@ def main() -> None:
         opt.zero_grad(set_to_none=True)
         tr_pbar = tqdm(enumerate(tr_loader), total=len(tr_loader), desc=f"Train {ep}", leave=False)
         for i,b in tr_pbar:
-            images = b["images"].to(device)
-            caps = b["captions"].to(device)
+            images = b["images"].to(device, non_blocking=device.type == "cuda")
+            caps = b["captions"].to(device, non_blocking=device.type == "cuda")
             with amp.autocast("cuda", enabled=cfg["use_amp"] and device.type=="cuda"):
                 logits = model.forward_train(images, caps)
                 loss = crit(logits.reshape(-1, logits.size(-1)), caps[:,1:].reshape(-1))
@@ -72,8 +82,8 @@ def main() -> None:
         with torch.no_grad():
             va_pbar = tqdm(va_loader, total=len(va_loader), desc=f"Val   {ep}", leave=False)
             for i, b in enumerate(va_pbar):
-                images = b["images"].to(device)
-                caps = b["captions"].to(device)
+                images = b["images"].to(device, non_blocking=device.type == "cuda")
+                caps = b["captions"].to(device, non_blocking=device.type == "cuda")
                 logits = model.forward_train(images, caps)
                 loss = crit(logits.reshape(-1, logits.size(-1)), caps[:,1:].reshape(-1))
                 va_loss += float(loss.item())

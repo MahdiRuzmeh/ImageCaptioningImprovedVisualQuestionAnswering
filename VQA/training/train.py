@@ -38,8 +38,18 @@ def main() -> None:
 
     tr = VQADataset(cfg["dataset_root"], tr_qids, qv, av, cfg["max_question_len"], cfg["max_answer_len"])
     va = VQADataset(cfg["dataset_root"], va_qids, qv, av, cfg["max_question_len"], cfg["max_answer_len"])
-    tr_loader = DataLoader(tr, batch_size=cfg["batch_size"], shuffle=True, num_workers=cfg["num_workers"], collate_fn=collate)
-    va_loader = DataLoader(va, batch_size=cfg["batch_size"], shuffle=False, num_workers=cfg["num_workers"], collate_fn=collate)
+    loader_kwargs = {
+        "batch_size": cfg["batch_size"],
+        "num_workers": cfg["num_workers"],
+        "collate_fn": collate,
+        "pin_memory": bool(cfg.get("pin_memory", False)) and device.type == "cuda",
+    }
+    if cfg["num_workers"] > 0:
+        loader_kwargs["persistent_workers"] = bool(cfg.get("persistent_workers", False))
+        loader_kwargs["prefetch_factor"] = int(cfg.get("prefetch_factor", 2))
+
+    tr_loader = DataLoader(tr, shuffle=True, **loader_kwargs)
+    va_loader = DataLoader(va, shuffle=False, **loader_kwargs)
 
     captioner = load_captioner(cfg, len(qv.itos), qv.pad_id, device)
     model = VQAModel(len(qv.itos), len(av.itos), qv.pad_id, captioner, cfg["word_dim"], cfg["hidden_dim"], cfg["question_dim"], cfg["max_regions"], cfg["fuse_mode"]).to(device)
@@ -60,9 +70,9 @@ def main() -> None:
         n=0
         opt.zero_grad(set_to_none=True)
         for i,b in enumerate(tr_loader):
-            images = b["images"].to(device)
-            q = b["q"].to(device)
-            a = b["a"].to(device)
+            images = b["images"].to(device, non_blocking=device.type == "cuda")
+            q = b["q"].to(device, non_blocking=device.type == "cuda")
+            a = b["a"].to(device, non_blocking=device.type == "cuda")
             with autocast(enabled=cfg["use_amp"] and device.type=="cuda"):
                 logits = model(images, q, a_ids=a)
                 loss = crit(logits.reshape(-1, logits.size(-1)), a[:,1:].reshape(-1))
@@ -81,9 +91,9 @@ def main() -> None:
         m=0
         with torch.no_grad():
             for b in va_loader:
-                images = b["images"].to(device)
-                q = b["q"].to(device)
-                a = b["a"].to(device)
+                images = b["images"].to(device, non_blocking=device.type == "cuda")
+                q = b["q"].to(device, non_blocking=device.type == "cuda")
+                a = b["a"].to(device, non_blocking=device.type == "cuda")
                 logits = model(images, q, a_ids=a)
                 loss = crit(logits.reshape(-1, logits.size(-1)), a[:,1:].reshape(-1))
                 va_loss += float(loss.item())
