@@ -33,5 +33,7 @@ Switch captioner through config only:
 VQA core code remains unchanged when swapping captioners.
 
 ## Run
-- Train: `python training/train.py --config configs/default.yaml`
+- Train (from scratch): `python training/train.py --config configs/default.yaml --fresh`
+- Continue training (auto-resume from `save_dir/last.pt`): `python training/train.py --config configs/default.yaml --continue`
+- Continue training (resume from a specific checkpoint): `python training/train.py --config configs/default.yaml --resume outputs/last.pt`
 - Evaluate: `python evaluation/evaluate.py --config configs/default.yaml --ckpt outputs/best.pt`

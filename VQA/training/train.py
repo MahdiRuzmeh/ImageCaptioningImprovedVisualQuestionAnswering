@@ -27,6 +27,9 @@ def vqa_acc(pred: torch.Tensor, gts: List[List[str]], vocab: object) -> float:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--resume", default=None, help="Path to checkpoint (.pt) to resume from")
+    parser.add_argument("--continue", dest="do_continue", action="store_true", help="Resume from save_dir/last.pt (or --resume if provided)")
+    parser.add_argument("--fresh", action="store_true", help="Start training from scratch (ignore any resume settings)")
     args = parser.parse_args()
     cfg = load_config(args.config)
     set_seed(cfg["seed"])
@@ -60,10 +63,47 @@ def main() -> None:
     crit = nn.CrossEntropyLoss(ignore_index=0)
 
     best = 0.0
+    start_epoch = 1
     out = Path(cfg["save_dir"])
     out.mkdir(parents=True, exist_ok=True)
 
-    for ep in range(1, cfg["epochs"]+1):
+    if args.fresh and args.do_continue:
+        raise SystemExit("Choose only one: --fresh or --continue")
+
+    resume_path = None
+    if not args.fresh:
+        resume_path = args.resume
+        if resume_path is None and args.do_continue:
+            resume_path = str(out / "last.pt")
+        if resume_path is None:
+            resume_path = cfg.get("resume_from")
+
+    if resume_path:
+        ckpt_path = Path(resume_path)
+        if ckpt_path.exists():
+            ckpt = torch.load(ckpt_path, map_location=device)
+            if isinstance(ckpt, dict) and "model" in ckpt:
+                model.load_state_dict(ckpt["model"])
+                if "optimizer" in ckpt:
+                    opt.load_state_dict(ckpt["optimizer"])
+                if "scheduler" in ckpt:
+                    sch.load_state_dict(ckpt["scheduler"])
+                if "scaler" in ckpt and scaler is not None:
+                    try:
+                        scaler.load_state_dict(ckpt["scaler"])
+                    except Exception:
+                        pass
+                if "best" in ckpt:
+                    best = float(ckpt["best"])
+                if "epoch" in ckpt:
+                    start_epoch = int(ckpt["epoch"]) + 1
+                print(f"Resumed from {ckpt_path} (next_epoch={start_epoch}, best_val_acc={best:.4f})")
+            else:
+                print(f"Checkpoint at {ckpt_path} is not compatible; starting fresh.")
+        else:
+            print(f"Resume checkpoint not found at {ckpt_path}; starting fresh.")
+
+    for ep in range(start_epoch, cfg["epochs"]+1):
         model.train()
         tr_loss=0.0
         tr_acc=0.0
@@ -103,10 +143,21 @@ def main() -> None:
         sch.step()
         tr_loss/=max(1,n); tr_acc/=max(1,n); va_loss/=max(1,m); va_acc_score/=max(1,m)
         print(f"Epoch {ep}: train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} val_loss={va_loss:.4f} val_acc={va_acc_score:.4f}")
-        state={"model":model.state_dict(),"q_vocab":qv.itos,"a_vocab":av.itos,"config":cfg}
+        state = {
+            "epoch": ep,
+            "best": best,
+            "model": model.state_dict(),
+            "optimizer": opt.state_dict(),
+            "scheduler": sch.state_dict(),
+            "scaler": scaler.state_dict() if scaler is not None else None,
+            "q_vocab": qv.itos,
+            "a_vocab": av.itos,
+            "config": cfg,
+        }
         torch.save(state, out / "last.pt")
         if va_acc_score > best:
             best = va_acc_score
+            state["best"] = best
             torch.save(state, out / "best.pt")
 
 if __name__ == "__main__":

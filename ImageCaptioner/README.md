@@ -28,5 +28,7 @@ If you want to install only captioner dependencies:
 - Question-guided captioning is supported by API; standalone captioner training uses image-caption pairs.
 
 ## Run
-- Train: `python training/train.py --config configs/default.yaml`
+- Train (from scratch): `python training/train.py --config configs/default.yaml --fresh`
+- Continue training (auto-resume from `save_dir/last.pt`): `python training/train.py --config configs/default.yaml --continue`
+- Continue training (resume from a specific checkpoint): `python training/train.py --config configs/default.yaml --resume outputs/last.pt`
 - Evaluate: `python evaluation/evaluate.py --config configs/default.yaml --ckpt outputs/best.pt`
