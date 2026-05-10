@@ -1,3 +1,36 @@
+"""Hold-out evaluation for trained ``VQAModel`` checkpoints.
+
+Paper alignment (*Image captioning improved visual question answering*)
+-----------------------------------------------------------------------
+Reports validation accuracy using **greedy decoding** of answer tokens (``a_ids=None`` path in
+``VQAModel.forward``). Metrics mirror ``training.train.vqa_acc`` aggregation—cite evaluation
+subsection alongside qualitative caption fusion discussion.
+
+Split consistency
+-----------------
+Rebuilds vocabs using the **training** partition of ``split_qids`` then evaluates on validation IDs,
+matching how checkpoints expect embedding sizes and avoiding accidental vocab drift.
+
+CLI Examples
+------------
+::
+
+    cd VQA
+    python evaluation/evaluate.py --config configs/default.yaml --ckpt outputs/best.pt
+
+Examples (shape sanity)
+-----------------------
+::
+
+    logits = model(images, q_ids, a_ids=None, max_answer_len=cfg["max_answer_len"])
+    pred = logits.argmax(dim=-1)  # (batch, time)
+
+Notes
+-----
+Ensure ``captioner_ckpt`` / paths in YAML match those used during training; mismatched captioner
+weights compromise fusion branch despite identical answer checkpoint loading.
+"""
+
 import argparse
 
 import torch
@@ -11,6 +44,7 @@ from utils.common import load_config
 
 
 def main() -> None:
+    """Load config + checkpoint, iterate loader, print mean batch accuracy."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--ckpt", default="outputs/best.pt")
@@ -39,6 +73,7 @@ def main() -> None:
             total += vqa_acc(logits.argmax(dim=-1), b["answers"], av)
             n += 1
     print(f"Validation VQA accuracy: {total / max(1, n):.4f}")
+
 
 if __name__ == "__main__":
     main()

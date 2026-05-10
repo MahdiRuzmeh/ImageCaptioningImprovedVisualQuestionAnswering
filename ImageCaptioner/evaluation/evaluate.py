@@ -1,3 +1,35 @@
+"""Minimal caption checkpoint smoke test after stage-one training.
+
+Purpose
+-------
+Not a full MSCOCO caption benchmark—loads ``best.pt`` / ``last.pt``, runs **one** greedy decoding
+batch from validation split, prints token IDs. Use BLEU/CIDEr notebooks for thesis-quality metrics.
+
+Paper reference (*Image captioning improved visual question answering*)
+------------------------------------------------------------------------
+Point readers from qualitative subsection here; quantitative caption scores belong in evaluation
+tables referencing MSCOCO caption metrics **before** reporting VQA uplift.
+
+CLI Examples
+------------
+::
+
+    cd ImageCaptioner
+    python evaluation/evaluate.py --config configs/default.yaml --ckpt outputs/best.pt
+
+Examples (decode manually)
+--------------------------
+::
+
+    ids = pred[0].tolist()
+    words = [vocab.itos[i] for i in ids if i > 2]
+
+Notes
+-----
+Greedy decoding ignores beam search used in some papers—extend script if thesis compares decoding
+strategies.
+"""
+
 import argparse
 from pathlib import Path
 import sys
@@ -15,6 +47,7 @@ from utils.common import load_config
 
 
 def main() -> None:
+    """Instantiate loader + model, emit preview tokens."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--ckpt", default="outputs/best.pt")
@@ -39,6 +72,7 @@ def main() -> None:
             pred = model.generate_caption(b["images"].to(device), max_len=cfg["max_caption_len"])
             print("Preview generated caption token IDs:", pred[0].tolist())
             break
+
 
 if __name__ == "__main__":
     main()

@@ -1,3 +1,43 @@
+"""End-to-end training loop for caption-augmented VQA (*thesis implementation*).
+
+Experimental protocol (map to PDF sections on training / optimization)
+-----------------------------------------------------------------------
+1. Build question & answer vocabs from train split (avoid leakage).
+2. Instantiate frozen caption weights via ``load_captioner`` (**stage-two** uses caption signal).
+3. Optimize ``VQAModel`` with Adamax + StepLR + optional AMP + gradient accumulation.
+4. Track ``vqa_acc`` (soft VQA score) alongside cross-entropy.
+
+Paper references
+----------------
+- **Objective** — Combine caption-derived embeddings with attended ROI features; cite fusion equation.
+- **Metrics** — ``vqa_acc`` mirrors standard min(agreement/3,1) averaging described in VQA literature.
+
+CLI Examples
+------------
+Fresh run::
+
+    cd VQA
+    python training/train.py --config configs/default.yaml
+
+Resume after interruption::
+
+    python training/train.py --config configs/default.yaml --continue
+
+Explicit checkpoint::
+
+    python training/train.py --resume outputs/last.pt
+
+Checkpoint contents
+-------------------
+``last.pt`` always saved; ``best.pt`` updates when validation ``vqa_acc`` improves. Dict stores
+``model``, ``optimizer``, ``scheduler``, ``scaler``, vocabs, ``config`` snapshot.
+
+Examples (metric intuition)
+-----------------------------
+If ground-truth answers contain ``"yes"`` three times and model predicts token sequence decoding to
+``"yes"``, per-sample score ``min(3/3,1)=1``. Partial matches contribute proportionally before batch mean.
+"""
+
 import argparse
 from pathlib import Path
 from typing import List
@@ -16,15 +56,38 @@ from utils.common import load_config, set_seed
 
 
 def vqa_acc(pred: torch.Tensor, gts: List[List[str]], vocab: object) -> float:
+    """Soft accuracy for one batch (mean over samples).
+
+    Steps per sample:
+
+    #. Decode predicted token ids with ``vocab.itos`` (skip specials with index ``<=2``).
+    #. Count how many of the ten reference answers exactly match the decoded string (case-folded).
+    #. Score ``min(count / 3, 1)``.
+
+    Args:
+        pred: Argmax ids ``(batch, answer_len)``.
+        gts: Parallel list of ten raw answer strings from annotations.
+        vocab: Answer ``Vocab`` instance exposing ``itos``.
+
+    Examples:
+        Suppose ``pred`` decodes to ``"cat"`` and five annotators wrote ``"cat"``::
+
+            score_i = min(5 / 3, 1) == 1.0
+
+    Paper reference
+    ---------------
+    Align with VQA v2 evaluation explanations cited in thesis experiments chapter.
+    """
     score = 0.0
-    for p,ans in zip(pred.tolist(), gts):
+    for p, ans in zip(pred.tolist(), gts):
         s = " ".join([vocab.itos[i] for i in p if i < len(vocab.itos) and i > 2]).strip().lower()
         c = sum(1 for x in ans if x.strip().lower() == s)
-        score += min(c/3.0, 1.0)
+        score += min(c / 3.0, 1.0)
     return score / max(1, len(gts))
 
 
 def main() -> None:
+    """Parse CLI, build loaders, train epochs, emit checkpoints."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--resume", default=None, help="Path to checkpoint (.pt) to resume from")
@@ -34,10 +97,10 @@ def main() -> None:
     cfg = load_config(args.config)
     set_seed(cfg["seed"])
 
-    device = torch.device("cuda" if torch.cuda.is_available() and cfg["device"]=="cuda" else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() and cfg["device"] == "cuda" else "cpu")
     qids = all_qids(cfg["dataset_root"])
     tr_qids, va_qids = split_qids(qids, seed=cfg["seed"])
-    qv,av = build_vocabs(cfg["dataset_root"], tr_qids, cfg["vocab_min_freq"])
+    qv, av = build_vocabs(cfg["dataset_root"], tr_qids, cfg["vocab_min_freq"])
 
     tr = VQADataset(cfg["dataset_root"], tr_qids, qv, av, cfg["max_question_len"], cfg["max_answer_len"])
     va = VQADataset(cfg["dataset_root"], va_qids, qv, av, cfg["max_question_len"], cfg["max_answer_len"])
@@ -59,7 +122,7 @@ def main() -> None:
 
     opt = Adamax(model.parameters(), lr=cfg["learning_rate"])
     sch = StepLR(opt, step_size=cfg["lr_decay_every"], gamma=cfg["lr_decay_factor"])
-    scaler = GradScaler(enabled=cfg["use_amp"] and device.type=="cuda")
+    scaler = GradScaler(enabled=cfg["use_amp"] and device.type == "cuda")
     crit = nn.CrossEntropyLoss(ignore_index=0)
 
     best = 0.0
@@ -103,21 +166,21 @@ def main() -> None:
         else:
             print(f"Resume checkpoint not found at {ckpt_path}; starting fresh.")
 
-    for ep in range(start_epoch, cfg["epochs"]+1):
+    for ep in range(start_epoch, cfg["epochs"] + 1):
         model.train()
-        tr_loss=0.0
-        tr_acc=0.0
-        n=0
+        tr_loss = 0.0
+        tr_acc = 0.0
+        n = 0
         opt.zero_grad(set_to_none=True)
-        for i,b in enumerate(tr_loader):
+        for i, b in enumerate(tr_loader):
             images = b["images"].to(device, non_blocking=device.type == "cuda")
             q = b["q"].to(device, non_blocking=device.type == "cuda")
             a = b["a"].to(device, non_blocking=device.type == "cuda")
-            with autocast(enabled=cfg["use_amp"] and device.type=="cuda"):
+            with autocast(enabled=cfg["use_amp"] and device.type == "cuda"):
                 logits = model(images, q, a_ids=a)
-                loss = crit(logits.reshape(-1, logits.size(-1)), a[:,1:].reshape(-1))
+                loss = crit(logits.reshape(-1, logits.size(-1)), a[:, 1:].reshape(-1))
             scaler.scale(loss / cfg["grad_accum_steps"]).backward()
-            if (i+1) % cfg["grad_accum_steps"] == 0:
+            if (i + 1) % cfg["grad_accum_steps"] == 0:
                 scaler.step(opt)
                 scaler.update()
                 opt.zero_grad(set_to_none=True)
@@ -126,22 +189,25 @@ def main() -> None:
             n += 1
 
         model.eval()
-        va_loss=0.0
-        va_acc_score=0.0
-        m=0
+        va_loss = 0.0
+        va_acc_score = 0.0
+        m = 0
         with torch.no_grad():
             for b in va_loader:
                 images = b["images"].to(device, non_blocking=device.type == "cuda")
                 q = b["q"].to(device, non_blocking=device.type == "cuda")
                 a = b["a"].to(device, non_blocking=device.type == "cuda")
                 logits = model(images, q, a_ids=a)
-                loss = crit(logits.reshape(-1, logits.size(-1)), a[:,1:].reshape(-1))
+                loss = crit(logits.reshape(-1, logits.size(-1)), a[:, 1:].reshape(-1))
                 va_loss += float(loss.item())
                 va_acc_score += vqa_acc(logits.argmax(dim=-1), b["answers"], av)
                 m += 1
 
         sch.step()
-        tr_loss/=max(1,n); tr_acc/=max(1,n); va_loss/=max(1,m); va_acc_score/=max(1,m)
+        tr_loss /= max(1, n)
+        tr_acc /= max(1, n)
+        va_loss /= max(1, m)
+        va_acc_score /= max(1, m)
         print(f"Epoch {ep}: train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} val_loss={va_loss:.4f} val_acc={va_acc_score:.4f}")
         state = {
             "epoch": ep,
@@ -159,6 +225,7 @@ def main() -> None:
             best = va_acc_score
             state["best"] = best
             torch.save(state, out / "best.pt")
+
 
 if __name__ == "__main__":
     main()

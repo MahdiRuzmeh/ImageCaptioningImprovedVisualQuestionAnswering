@@ -1,3 +1,48 @@
+"""Train ``ImageCaptionerV1`` — stage one of *Image captioning improved visual question answering*.
+
+Thesis narrative
+----------------
+Stage **(A)** learns to describe MSCOCO images using supervised captions; stage **(B)** freezes these
+weights inside ``VQAModel`` so caption embeddings augment ROI attention. Reference PDF sections that
+introduce **auxiliary caption pathway** / **pre-training**.
+
+Optimization recipe
+-------------------
+Adamax + StepLR + AMP (CUDA) + gradient accumulation + CE loss ignoring PAD index ``0``.
+
+CLI Examples
+------------
+::
+
+    cd ImageCaptioner
+    python training/train.py --config configs/default.yaml
+
+Resume::
+
+    python training/train.py --continue
+
+Checkpoint schema
+-----------------
+Matches VQA side for tooling familiarity::
+
+    {
+        "epoch", "best", "model", "optimizer", "scheduler", "scaler",
+        "vocab": [...], "config": {...}
+    }
+
+Examples (forward contract)
+---------------------------
+::
+
+    logits = model.forward_train(images, captions, question_ids=None)
+    # logits[t] predicts captions[:, t+1]
+
+Paper tie-in
+------------
+Describe hyperparameters (hidden dim, regions, lr schedule) in thesis replication tables referencing
+this script's YAML defaults.
+"""
+
 import argparse
 from pathlib import Path
 import sys
@@ -20,6 +65,7 @@ from utils.common import load_config, set_seed
 
 
 def main() -> None:
+    """CLI driver — identical UX flags as ``VQA/training/train.py`` where sensible."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--resume", default=None, help="Path to checkpoint (.pt) to resume from")
@@ -52,7 +98,7 @@ def main() -> None:
     model = ImageCaptionerV1(len(vocab.itos), vocab.pad_id, cfg["word_dim"], cfg["hidden_dim"], cfg["max_regions"], cfg["question_dim"]).to(device)
     opt = Adamax(model.parameters(), lr=cfg["learning_rate"])
     sch = StepLR(opt, step_size=cfg["lr_decay_every"], gamma=cfg["lr_decay_factor"])
-    scaler = amp.GradScaler("cuda", enabled=cfg["use_amp"] and device.type=="cuda")
+    scaler = amp.GradScaler("cuda", enabled=cfg["use_amp"] and device.type == "cuda")
     crit = nn.CrossEntropyLoss(ignore_index=0)
 
     best = 1e9
@@ -66,7 +112,6 @@ def main() -> None:
 
     resume_path = None
     if not args.fresh:
-        # Priority: explicit CLI path > CLI continue mode (save_dir/last.pt) > YAML config
         resume_path = args.resume
         if resume_path is None and args.do_continue:
             resume_path = str(out / "last.pt")
@@ -100,20 +145,20 @@ def main() -> None:
 
     print(f"Starting training on device={device}, epochs={cfg['epochs']}, start_epoch={start_epoch}, train_steps={len(tr_loader)}, val_steps={len(va_loader)}")
 
-    for ep in range(start_epoch, cfg["epochs"]+1):
+    for ep in range(start_epoch, cfg["epochs"] + 1):
         print(f"\n[Epoch {ep}/{cfg['epochs']}]")
         model.train()
         tr_loss = 0.0
         opt.zero_grad(set_to_none=True)
         tr_pbar = tqdm(enumerate(tr_loader), total=len(tr_loader), desc=f"Train {ep}", leave=False)
-        for i,b in tr_pbar:
+        for i, b in tr_pbar:
             images = b["images"].to(device, non_blocking=device.type == "cuda")
             caps = b["captions"].to(device, non_blocking=device.type == "cuda")
-            with amp.autocast("cuda", enabled=cfg["use_amp"] and device.type=="cuda"):
+            with amp.autocast("cuda", enabled=cfg["use_amp"] and device.type == "cuda"):
                 logits = model.forward_train(images, caps)
-                loss = crit(logits.reshape(-1, logits.size(-1)), caps[:,1:].reshape(-1))
+                loss = crit(logits.reshape(-1, logits.size(-1)), caps[:, 1:].reshape(-1))
             scaler.scale(loss / cfg["grad_accum_steps"]).backward()
-            if (i+1) % cfg["grad_accum_steps"] == 0:
+            if (i + 1) % cfg["grad_accum_steps"] == 0:
                 scaler.step(opt)
                 scaler.update()
                 opt.zero_grad(set_to_none=True)
@@ -128,13 +173,13 @@ def main() -> None:
                 images = b["images"].to(device, non_blocking=device.type == "cuda")
                 caps = b["captions"].to(device, non_blocking=device.type == "cuda")
                 logits = model.forward_train(images, caps)
-                loss = crit(logits.reshape(-1, logits.size(-1)), caps[:,1:].reshape(-1))
+                loss = crit(logits.reshape(-1, logits.size(-1)), caps[:, 1:].reshape(-1))
                 va_loss += float(loss.item())
                 va_pbar.set_postfix(batch_loss=f"{loss.item():.4f}", avg_loss=f"{va_loss / (i + 1):.4f}")
 
         sch.step()
-        tr_loss /= max(1,len(tr_loader))
-        va_loss /= max(1,len(va_loader))
+        tr_loss /= max(1, len(tr_loader))
+        va_loss /= max(1, len(va_loader))
         print(f"Epoch {ep}: train={tr_loss:.4f} val={va_loss:.4f}")
         state = {
             "epoch": ep,
@@ -148,9 +193,10 @@ def main() -> None:
         }
         torch.save(state, out / "last.pt")
         if va_loss < best:
-            best=va_loss
+            best = va_loss
             state["best"] = best
             torch.save(state, out / "best.pt")
+
 
 if __name__ == "__main__":
     main()
