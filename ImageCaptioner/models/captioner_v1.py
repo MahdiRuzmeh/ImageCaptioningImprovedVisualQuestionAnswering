@@ -55,8 +55,8 @@ class ImageCaptionerV1(BaseImageCaptioner):
         hidden_dim: Region/context/LSTM hidden size (must align with ``VQAModel.hidden_dim`` when
             sharing dims for fusion).
         max_regions: Number of ROI vectors retained per image.
-        question_dim: Intermediate dimension when projecting pooled question embeddings (unused when
-            ``question_ids`` is omitted—training typically passes ``None``).
+        question_dim: Width fed into ``q_proj`` when ``_qctx`` projects pooled questions to
+            ``hidden_dim`` (use ``word_dim`` if ``word_dim != hidden_dim``; ignored when widths match).
 
     Examples:
         Instantiate like ``training/train.py``::
@@ -65,13 +65,53 @@ class ImageCaptionerV1(BaseImageCaptioner):
                                  hidden_dim=512, max_regions=32, question_dim=1280)
     """
 
-    def __init__(self, vocab_size: int, pad_id: int, word_dim: int = 512, hidden_dim: int = 512, max_regions: int = 32, question_dim: int = 1280) -> None:
+    def __init__(
+            self,
+            vocab_size: int,
+            pad_id: int,
+            word_dim: int = 512,
+            hidden_dim: int = 512,
+            max_regions: int = 32,
+            question_dim: int = 1280
+    ) -> None:
+        """Register submodules and freeze the detection backbone.
+
+        **Data flow (batch ``N``)** — This method only *builds* layers; the live path is
+        ``_visual`` → ``_qctx`` / ``_attend`` → ``LSTMCell`` in ``forward_train`` /
+        ``generate_caption``.
+
+        1. **``emb``** — Maps token ids ``(N, T)`` to ``(N, T, word_dim)``. Captions and optional
+           ``question_ids`` share this table. ``padding_idx`` stops PAD from receiving gradients.
+
+        2. **ResNet-101** — ``resnet101`` loads pretrained weights. ``list(rn.children())[:-2]``
+           removes the last two modules (global pool + classifier), so you keep a **4D** feature
+           map ``(N, 2048, h, w)`` instead of 1000 class scores. ``pool`` + ``global_proj`` produce
+           a global vector ``(N, hidden_dim)``. Call sites use ``_, local = self._visual(...)``, so
+           that global vector is **not** fed into the caption LSTM today; only ROI attention does.
+
+        3. **Faster R-CNN FPN** — Full detector (backbone, RPN, ROI heads). ``_regions`` reads
+           1024-D ROI features, then ``local_proj`` maps each to ``hidden_dim`` and pads/truncates
+           to ``max_regions`` → ``(N, max_regions, hidden_dim)``. ``requires_grad = False`` and
+           ``eval()`` freeze weights and BatchNorm stats while caption layers train.
+           ``super().__init__()`` runs first so every ``nn.*`` is registered for ``.parameters()``.
+
+        4. **Attention** — ``_qctx`` mean-pools question embeddings to ``(N, word_dim)``; if that
+           width differs from ``hidden_dim``, ``q_proj`` maps ``(N, question_dim)`` →
+           ``(N, hidden_dim)`` (set ``question_dim`` equal to the pooled width you actually pass in,
+           typically ``word_dim``). ``attn`` / ``attn_score`` softmax over regions → ``ctx``
+           ``(N, hidden_dim)`` reused at every caption step.
+
+        5. **Decoder** — ``LSTMCell`` input is ``cat(word_emb, ctx)`` → length ``word_dim +
+           hidden_dim``; ``out`` maps hidden state to logits ``(N, vocab_size)`` per step.
+        """
         super().__init__()
         self.hidden_dim = hidden_dim
         self.max_regions = max_regions
+        # ids (N, T) -> (N, T, word_dim); shared for caption tokens and optional question_ids.
         self.emb = nn.Embedding(vocab_size, word_dim, padding_idx=pad_id)
 
         rn = resnet101(weights=ResNet101_Weights.DEFAULT)
+        # Keep conv trunk only: drop global pool + ImageNet classifier (children [-2:]).
         self.resnet = nn.Sequential(*list(rn.children())[:-2])
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
         self.global_proj = nn.Linear(2048, hidden_dim)
@@ -81,6 +121,7 @@ class ImageCaptionerV1(BaseImageCaptioner):
         for p in self.detector.parameters():
             p.requires_grad = False
         self.detector.eval()
+        # Faster R-CNN box head outputs 1024-D per ROI before projection to hidden_dim.
         self.local_proj = nn.Linear(1024, hidden_dim)
 
         self.q_proj = nn.Linear(question_dim, hidden_dim)
@@ -123,7 +164,8 @@ class ImageCaptionerV1(BaseImageCaptioner):
         for c in chunks:
             c = c[: self.max_regions]
             if c.size(0) < self.max_regions:
-                pad = torch.zeros((self.max_regions - c.size(0), c.size(1)), device=c.device)
+                pad = torch.zeros(
+                    (self.max_regions - c.size(0), c.size(1)), device=c.device)
                 c = torch.cat([c, pad], dim=0)
             out.append(c)
         return self.local_proj(torch.stack(out, dim=0))
@@ -188,8 +230,10 @@ class ImageCaptionerV1(BaseImageCaptioner):
                 loss = crit(logits.reshape(-1, V), caps[:, 1:].reshape(-1))
         """
         _, local = self._visual(images)
-        ctx = self._attend(local, self._qctx(question_ids, images.size(0), images.device))
-        h = torch.zeros((images.size(0), self.hidden_dim), device=images.device)
+        ctx = self._attend(local, self._qctx(
+            question_ids, images.size(0), images.device))
+        h = torch.zeros((images.size(0), self.hidden_dim),
+                        device=images.device)
         c = torch.zeros_like(h)
         logits = []
         for t in range(caption_ids.size(1) - 1):
@@ -214,10 +258,12 @@ class ImageCaptionerV1(BaseImageCaptioner):
             Used internally by ``get_caption_embedding`` during VQA fusion.
         """
         _, local = self._visual(image)
-        ctx = self._attend(local, self._qctx(question_ids, image.size(0), image.device))
+        ctx = self._attend(local, self._qctx(
+            question_ids, image.size(0), image.device))
         h = torch.zeros((image.size(0), self.hidden_dim), device=image.device)
         c = torch.zeros_like(h)
-        tok = torch.full((image.size(0),), 1, dtype=torch.long, device=image.device)
+        tok = torch.full((image.size(0),), 1,
+                         dtype=torch.long, device=image.device)
         out = [tok]
         for _ in range(max_len - 1):
             w = self.emb(tok)
