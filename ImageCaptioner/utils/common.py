@@ -20,7 +20,7 @@ See Also
 import os
 import random
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 
 import numpy as np
 import torch
@@ -38,6 +38,18 @@ def load_config(path: str) -> Dict[str, Any]:
     """
     with Path(path).open("r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def resolve_path_fields(cfg: Dict[str, Any], keys: Iterable[str]) -> None:
+    """Expand ``~`` and resolve relative paths against the process cwd (in-place).
+
+    Use absolute paths in YAML on Kaggle (e.g. ``/kaggle/input/...``); local runs typically
+    ``cd ImageCaptioner`` so ``../dataset`` keeps prior layout semantics.
+    """
+    for k in keys:
+        v = cfg.get(k)
+        if isinstance(v, str) and v:
+            cfg[k] = str(Path(v).expanduser().resolve())
 
 
 def set_seed(seed: int) -> None:

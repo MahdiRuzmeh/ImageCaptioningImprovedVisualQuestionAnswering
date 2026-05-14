@@ -41,9 +41,9 @@ if str(PROJECT_ROOT) not in sys.path:
 import torch
 from torch.utils.data import DataLoader
 
-from datasets.coco_caption_dataset import CocoCaptionDataset, build_vocab, collate, load_caps, split_ids
+from datasets.coco_caption_dataset import CocoCaptionDataset, build_vocab, collate
 from models.captioner_v1 import ImageCaptionerV1
-from utils.common import load_config
+from utils.common import load_config, resolve_path_fields
 
 
 def main() -> None:
@@ -54,16 +54,30 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    resolve_path_fields(
+        cfg,
+        (
+            "train_captions_json",
+            "val_captions_json",
+            "train_images_dir",
+            "val_images_dir",
+        ),
+    )
     device = torch.device("cuda" if torch.cuda.is_available() and cfg["device"] == "cuda" else "cpu")
 
-    ids = list(load_caps(cfg["dataset_root"]).keys())
-    tr, va = split_ids(ids, seed=cfg["seed"])
-    vocab = build_vocab(cfg["dataset_root"], tr, cfg["vocab_min_freq"])
-    ds = CocoCaptionDataset(cfg["dataset_root"], va, vocab, cfg["max_caption_len"])
+    vocab = build_vocab(cfg["train_captions_json"], cfg["vocab_min_freq"])
+    ds = CocoCaptionDataset(
+        cfg["val_images_dir"],
+        cfg["val_captions_json"],
+        vocab,
+        cfg["max_caption_len"],
+        cfg["val_image_filename_template"],
+    )
     dl = DataLoader(ds, batch_size=cfg["batch_size"], shuffle=False, num_workers=cfg["num_workers"], collate_fn=collate)
 
     model = ImageCaptionerV1(len(vocab.itos), vocab.pad_id, cfg["word_dim"], cfg["hidden_dim"], cfg["max_regions"], cfg["question_dim"]).to(device)
-    st = torch.load(args.ckpt, map_location=device)
+    ckpt_path = Path(args.ckpt).expanduser().resolve()
+    st = torch.load(ckpt_path, map_location=device)
     model.load_state_dict(st.get("model", st), strict=False)
     model.eval()
 

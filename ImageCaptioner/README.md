@@ -24,8 +24,8 @@ If you want to install only captioner dependencies:
 - Max region features per image: `32`
 
 ## Assumptions
-- Paper includes Flickr30k results, but local dataset availability is MSCOCO val only; training is restricted to this data.
-- Question-guided captioning is supported by API; standalone captioner training uses image-caption pairs.
+- Paths for MSCOCO images and captions (train/val) are set in ``configs/default.yaml`` (use absolute paths on Kaggle, e.g. under ``/kaggle/input/``).
+- VQA stage uses official train/val question and annotation JSON files from the same config.
 
 ## Run
 - Train (from scratch): `python training/train.py --config configs/default.yaml --fresh`

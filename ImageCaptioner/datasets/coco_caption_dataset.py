@@ -7,13 +7,11 @@ The captioner is later frozen inside ``VQAModel`` so its sentence embedding supp
 semantics for VQA — cite the thesis subsection that introduces the **two-stage** pipeline:
 **(A)** caption pre-training, **(B)** VQA fine-tuning / joint inference with frozen caption weights.
 
-Layout (legacy flat root)
--------------------------
-::
-
-    dataset_root/
-      captions_val2014.json   # or captions_train2014.json when you extend paths
-      val2014/COCO_val2014_<image_id>.jpg
+Layout (config-driven)
+----------------------
+Paths come from YAML (``train_captions_json``, ``val_captions_json``, ``train_images_dir``,
+``val_images_dir``, filename templates). Official MSCOCO **train** and **validation** JSON + image
+folders are expected; no random 80/20 split over one split.
 
 Each JSON follows MSCOCO caption format: ``annotations[].image_id`` and ``annotations[].caption``.
 One training row is created **per caption sentence**, so popular images appear multiple times.
@@ -26,15 +24,19 @@ question-conditioned captioning is described in ``ImageCaptionerV1`` docstrings.
 
 Examples
 --------
-Load captions and split images::
+Load captions and build datasets (paths from config)::
 
-    from datasets.coco_caption_dataset import load_caps, split_ids, build_vocab, CocoCaptionDataset
+    from datasets.coco_caption_dataset import load_caps, build_vocab, CocoCaptionDataset
 
-    caps = load_caps("./dataset")  # image_id -> list of caption strings
-    image_ids = list(caps.keys())
-    tr_ids, va_ids = split_ids(image_ids, seed=42)
-    vocab = build_vocab("./dataset", tr_ids, min_freq=4)
-    ds = CocoCaptionDataset("./dataset", tr_ids, vocab, max_len=20)
+    caps = load_caps("/path/to/captions_train2014.json")
+    vocab = build_vocab("/path/to/captions_train2014.json", min_freq=4)
+    ds = CocoCaptionDataset(
+        images_dir="/path/to/train2014",
+        captions_json="/path/to/captions_train2014.json",
+        vocab=vocab,
+        max_len=20,
+        image_filename_template="COCO_train2014_{image_id:012d}.jpg",
+    )
 
 Inspect one sample::
 
@@ -44,10 +46,9 @@ Inspect one sample::
 """
 
 import json
-import random
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from PIL import Image
@@ -67,41 +68,18 @@ def tok(text: str) -> List[str]:
     return TOKEN_RE.findall(text.lower())
 
 
-def load_caps(dataset_root: str) -> Dict[int, List[str]]:
-    """Load ``captions_val2014.json`` into ``image_id -> [caption str, ...]``.
+def load_caps(captions_json: str) -> Dict[int, List[str]]:
+    """Load a MSCOCO captions JSON into ``image_id -> [caption str, ...]``.
 
     Args:
-        dataset_root: Folder containing the caption JSON.
-
-    Examples:
-        >>> # caps = load_caps("/coco") ; len(caps) > 0
+        captions_json: Path to ``captions_train2014.json`` or ``captions_val2014.json``.
     """
-    with Path(dataset_root, "captions_val2014.json").open("r", encoding="utf-8") as f:
+    with Path(captions_json).open("r", encoding="utf-8") as f:
         data = json.load(f)
     out: Dict[int, List[str]] = {}
     for ann in data["annotations"]:
         out.setdefault(int(ann["image_id"]), []).append(ann["caption"])
     return out
-
-
-def split_ids(ids: List[int], seed: int = 42) -> Tuple[List[int], List[int]]:
-    """Deterministic 80/20 split over **unique image ids**.
-
-    Args:
-        ids: Iterable of COCO ``image_id`` values (deduplicated internally).
-        seed: Align with thesis reproducibility table / YAML ``seed``.
-
-    Returns:
-        ``(train_image_ids, val_image_ids)``.
-
-    Examples:
-        ``tr, va = split_ids(list(load_caps(root).keys()), seed=cfg["seed"])``
-    """
-    ids = sorted(set(ids))
-    rng = random.Random(seed)
-    rng.shuffle(ids)
-    n = int(0.8 * len(ids))
-    return ids[:n], ids[n:]
 
 
 class Vocab:
@@ -141,15 +119,11 @@ class Vocab:
         return self.stoi[self.PAD]
 
 
-def build_vocab(dataset_root: str, train_ids: List[int], min_freq: int) -> Vocab:
-    """Collect tokens from captions belonging to ``train_ids`` only.
-
-    Examples:
-        >>> # vocab = build_vocab(root, tr_ids, cfg["vocab_min_freq"])
-    """
-    caps = load_caps(dataset_root)
+def build_vocab(captions_json: str, min_freq: int) -> Vocab:
+    """Collect tokens from all captions in the **training** captions JSON."""
+    caps = load_caps(captions_json)
     words: List[str] = []
-    for i in train_ids:
+    for i in caps:
         for cap in caps.get(i, []):
             words.extend(tok(cap))
     return Vocab(words, min_freq=min_freq)
@@ -169,21 +143,33 @@ class CocoCaptionDataset(Dataset):
                 # caption tokens align with logits[:, t, :] predicting caption[:, t+1]
     """
 
-    def __init__(self, dataset_root: str, image_ids: List[int], vocab: Vocab, max_len: int = 20) -> None:
-        """Index all captions for ``image_ids`` and attach ImageNet-normalized transforms.
+    def __init__(
+        self,
+        images_dir: str,
+        captions_json: str,
+        vocab: Vocab,
+        max_len: int = 20,
+        image_filename_template: str = "COCO_train2014_{image_id:012d}.jpg",
+        image_ids: Optional[List[int]] = None,
+    ) -> None:
+        """Index captions from ``captions_json`` under ``images_dir``.
 
         Args:
-            dataset_root: COCO root with ``captions_val2014.json`` and ``val2014/`` JPEGs.
-            image_ids: Split subset of COCO ``image_id`` values.
+            images_dir: Folder containing COCO JPEGs (e.g. ``train2014`` or ``val2014``).
+            captions_json: MSCOCO captions file for this split.
             vocab: Caption vocabulary (specials aligned with VQA).
             max_len: Max caption length in tokens including BOS/EOS framing.
+            image_filename_template: ``str.format`` pattern with ``image_id`` (MSCOCO id integer).
+            image_ids: Optional subset of image ids; default is every id present in the JSON.
         """
-        self.root = Path(dataset_root)
+        self.images_dir = Path(images_dir)
         self.vocab = vocab
         self.max_len = max_len
+        self.image_filename_template = image_filename_template
         self.samples: List[Tuple[int, str]] = []
-        caps = load_caps(dataset_root)
-        for i in image_ids:
+        caps = load_caps(captions_json)
+        ids = sorted(image_ids) if image_ids is not None else sorted(caps.keys())
+        for i in ids:
             for c in caps.get(i, []):
                 self.samples.append((i, c))
         self.tf = transforms.Compose(
@@ -205,7 +191,8 @@ class CocoCaptionDataset(Dataset):
             Dict with ``image`` (CHW float) and ``caption_ids`` (1D long tensor).
         """
         image_id, cap = self.samples[idx]
-        image_path = self.root / "val2014" / f"COCO_val2014_{image_id:012d}.jpg"
+        name = self.image_filename_template.format(image_id=image_id)
+        image_path = self.images_dir / name
         image = self.tf(Image.open(image_path).convert("RGB"))
         ids = [1] + self.vocab.encode(tok(cap)[: self.max_len - 2]) + [2]
         return {"image": image, "caption_ids": torch.tensor(ids, dtype=torch.long)}

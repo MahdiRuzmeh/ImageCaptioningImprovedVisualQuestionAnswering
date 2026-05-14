@@ -43,30 +43,31 @@ Describe hyperparameters (hidden dim, regions, lr schedule) in thesis replicatio
 this script's YAML defaults.
 """
 
-from utils.common import load_config, set_seed
-from models.captioner_v1 import ImageCaptionerV1
-from datasets.coco_caption_dataset import CocoCaptionDataset, build_vocab, collate, load_caps, split_ids
-from tqdm import tqdm
-from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import StepLR
-from torch.optim import Adamax
-from torch import amp
-from torch import nn
-import torch
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from datasets.coco_caption_dataset import CocoCaptionDataset, build_vocab, collate
+from models.captioner_v1 import ImageCaptionerV1
+from utils.common import load_config, resolve_path_fields, set_seed
+from tqdm import tqdm
+from torch import amp
+from torch import nn
+import torch
+from torch.optim import Adamax
+from torch.optim.lr_scheduler import StepLR
+from torch.utils.data import DataLoader
+
 
 def main() -> None:
     """Run stage-one caption training and write checkpoints under ``cfg["save_dir"]``.
 
-    Flow: prepend ``ImageCaptioner`` to ``sys.path`` → load YAML and seed → COCO image ids,
-    80/20 split, caption vocab from train ids only → ``CocoCaptionDataset`` loaders →
+    Flow: prepend ``ImageCaptioner`` to ``sys.path`` → load YAML and seed → resolve paths →
+    caption vocab from ``train_captions_json`` → train/val ``CocoCaptionDataset`` loaders →
     ``ImageCaptionerV1`` + Adamax + StepLR + AMP (optional) + gradient accumulation → each epoch:
     teacher-forced CE on captions, validation loss, step LR, save ``last.pt`` and ``best.pt`` when
     validation loss **decreases** (lower is better; ``best`` tracks min val loss).
@@ -87,18 +88,38 @@ def main() -> None:
                         help="Start training from scratch (ignore any resume settings)")
     args = parser.parse_args()
     cfg = load_config(args.config)
+    resolve_path_fields(
+        cfg,
+        (
+            "train_captions_json",
+            "val_captions_json",
+            "train_images_dir",
+            "val_images_dir",
+            "save_dir",
+        ),
+    )
+    if isinstance(cfg.get("resume_from"), str) and cfg["resume_from"]:
+        resolve_path_fields(cfg, ("resume_from",))
     set_seed(cfg["seed"])
 
     device = torch.device("cuda" if torch.cuda.is_available()
                           and cfg["device"] == "cuda" else "cpu")
-    ids = list(load_caps(cfg["dataset_root"]).keys())
-    tr_ids, va_ids = split_ids(ids, seed=cfg["seed"])
-    vocab = build_vocab(cfg["dataset_root"], tr_ids, cfg["vocab_min_freq"])
+    vocab = build_vocab(cfg["train_captions_json"], cfg["vocab_min_freq"])
 
-    tr = CocoCaptionDataset(cfg["dataset_root"],
-                            tr_ids, vocab, cfg["max_caption_len"])
-    va = CocoCaptionDataset(cfg["dataset_root"],
-                            va_ids, vocab, cfg["max_caption_len"])
+    tr = CocoCaptionDataset(
+        cfg["train_images_dir"],
+        cfg["train_captions_json"],
+        vocab,
+        cfg["max_caption_len"],
+        cfg["train_image_filename_template"],
+    )
+    va = CocoCaptionDataset(
+        cfg["val_images_dir"],
+        cfg["val_captions_json"],
+        vocab,
+        cfg["max_caption_len"],
+        cfg["val_image_filename_template"],
+    )
     loader_kwargs = {
         "batch_size": cfg["batch_size"],
         "num_workers": cfg["num_workers"],
