@@ -119,6 +119,12 @@ class Vocab:
     UNK = "<unk>"
 
     def __init__(self, words: List[str], min_freq: int = 4) -> None:
+        """Build ``itos``/``stoi`` from token counts (PAD/BOS/EOS/UNK first, then frequent words).
+
+        Args:
+            words: Flat list of caption tokens (e.g. from ``tok`` over training captions).
+            min_freq: Minimum count for a word to be included; rarer tokens map to UNK.
+        """
         from collections import Counter
 
         c = Counter(words)
@@ -126,10 +132,12 @@ class Vocab:
         self.stoi = {w: i for i, w in enumerate(self.itos)}
 
     def encode(self, words: List[str]) -> List[int]:
+        """Map tokens to indices; unknown words use the UNK index."""
         return [self.stoi.get(w, self.stoi[self.UNK]) for w in words]
 
     @property
     def pad_id(self) -> int:
+        """Padding index (0) for labels and batch padding, aligned with VQA vocabs."""
         return self.stoi[self.PAD]
 
 
@@ -162,6 +170,14 @@ class CocoCaptionDataset(Dataset):
     """
 
     def __init__(self, dataset_root: str, image_ids: List[int], vocab: Vocab, max_len: int = 20) -> None:
+        """Index all captions for ``image_ids`` and attach ImageNet-normalized transforms.
+
+        Args:
+            dataset_root: COCO root with ``captions_val2014.json`` and ``val2014/`` JPEGs.
+            image_ids: Split subset of COCO ``image_id`` values.
+            vocab: Caption vocabulary (specials aligned with VQA).
+            max_len: Max caption length in tokens including BOS/EOS framing.
+        """
         self.root = Path(dataset_root)
         self.vocab = vocab
         self.max_len = max_len
@@ -179,9 +195,15 @@ class CocoCaptionDataset(Dataset):
         )
 
     def __len__(self) -> int:
+        """Number of (image, caption) rows (one per caption sentence, not per unique image)."""
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """Load image tensor and BOS/EOS-framed caption token ids up to ``max_len``.
+
+        Returns:
+            Dict with ``image`` (CHW float) and ``caption_ids`` (1D long tensor).
+        """
         image_id, cap = self.samples[idx]
         image_path = self.root / "val2014" / f"COCO_val2014_{image_id:012d}.jpg"
         image = self.tf(Image.open(image_path).convert("RGB"))

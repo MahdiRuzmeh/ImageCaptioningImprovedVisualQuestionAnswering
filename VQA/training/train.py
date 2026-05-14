@@ -87,7 +87,19 @@ def vqa_acc(pred: torch.Tensor, gts: List[List[str]], vocab: object) -> float:
 
 
 def main() -> None:
-    """Parse CLI, build loaders, train epochs, emit checkpoints."""
+    """Run the full VQA training pipeline and write checkpoints under ``cfg["save_dir"]``.
+
+    Flow: load YAML and seed → build train/val question splits and vocabs → ``DataLoader``s with
+    ``collate`` → frozen ``load_captioner`` + ``VQAModel`` → Adamax + StepLR + optional AMP and
+    gradient accumulation → each epoch: train (CE + batch ``vqa_acc``), validate, step LR,
+    save ``last.pt`` and ``best.pt`` when validation accuracy improves.
+
+    CLI (see also module docstring): ``--config``, ``--resume`` / ``--continue``, ``--fresh``.
+    Mutually exclusive: ``--fresh`` vs ``--continue``.
+
+    Raises:
+        SystemExit: If both ``--fresh`` and ``--continue`` are passed.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--resume", default=None, help="Path to checkpoint (.pt) to resume from")

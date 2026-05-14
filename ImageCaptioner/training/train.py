@@ -65,7 +65,20 @@ from utils.common import load_config, set_seed
 
 
 def main() -> None:
-    """CLI driver — identical UX flags as ``VQA/training/train.py`` where sensible."""
+    """Run stage-one caption training and write checkpoints under ``cfg["save_dir"]``.
+
+    Flow: prepend ``ImageCaptioner`` to ``sys.path`` → load YAML and seed → COCO image ids,
+    80/20 split, caption vocab from train ids only → ``CocoCaptionDataset`` loaders →
+    ``ImageCaptionerV1`` + Adamax + StepLR + AMP (optional) + gradient accumulation → each epoch:
+    teacher-forced CE on captions, validation loss, step LR, save ``last.pt`` and ``best.pt`` when
+    validation loss **decreases** (lower is better; ``best`` tracks min val loss).
+
+    Resume UX matches ``VQA/training/train.py``: ``--config``, ``--resume`` / ``--continue``,
+    ``--fresh``. Mutually exclusive: ``--fresh`` vs ``--continue``.
+
+    Raises:
+        SystemExit: If both ``--fresh`` and ``--continue`` are passed.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--resume", default=None, help="Path to checkpoint (.pt) to resume from")

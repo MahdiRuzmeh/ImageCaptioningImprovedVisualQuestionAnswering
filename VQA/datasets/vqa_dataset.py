@@ -116,6 +116,12 @@ class Vocab:
     UNK = "<unk>"
 
     def __init__(self, words: List[str], min_freq: int = 4) -> None:
+        """Build token tables from a flat word list and frequency threshold.
+
+        Args:
+            words: All tokens contributing to counts (questions or answers).
+            min_freq: Minimum occurrences required to keep a word out of UNK.
+        """
         from collections import Counter
 
         c = Counter(words)
@@ -207,6 +213,16 @@ class VQADataset(Dataset):
     """
 
     def __init__(self, dataset_root: str, qids: List[int], qv: Vocab, av: Vocab, max_q: int = 14, max_a: int = 6) -> None:
+        """Load JSON annotations and build the in-memory sample list.
+
+        Args:
+            dataset_root: Directory with VQA questions/annotations JSON and ``val2014/`` images.
+            qids: Question IDs to include (e.g. train or validation split from ``split_qids``).
+            qv: Question vocabulary for encoding token ids.
+            av: Answer vocabulary for the mode-answer supervision target.
+            max_q: Max question tokens between BOS/EOS (caps raw tokens at ``max_q - 2``).
+            max_a: Max answer tokens between BOS/EOS (caps at ``max_a - 2``).
+        """
         self.root = Path(dataset_root)
         self.qv = qv
         self.av = av
@@ -235,9 +251,19 @@ class VQADataset(Dataset):
         )
 
     def __len__(self) -> int:
+        """Number of (image, question, answers) samples in this split."""
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """Return one sample: resized/normalized image, padded token tensors, and raw answer list.
+
+        Args:
+            idx: Index into ``self.samples`` (0 .. ``len(self)-1``).
+
+        Returns:
+            Dict with keys ``image`` (CHW float), ``q`` and ``a`` (1D long tensors), and
+            ``answers`` (list of ten annotator strings for ``vqa_acc``).
+        """
         s = self.samples[idx]
         p = self.root / "val2014" / f"COCO_val2014_{s['image_id']:012d}.jpg"
         image = self.tf(Image.open(p).convert("RGB"))
