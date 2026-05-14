@@ -49,10 +49,10 @@ from torch.optim import Adamax
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 
-from datasets.vqa_dataset import VQADataset, all_qids, build_vocabs, collate, split_qids
+from datasets.vqa_dataset import VQADataset, all_qids, build_vocabs, collate
 from models.captioner_adapter import load_captioner
 from models.vqa_model import VQAModel
-from utils.common import load_config, set_seed
+from utils.common import load_config, resolve_path_fields, set_seed
 
 
 def vqa_acc(pred: torch.Tensor, gts: List[List[str]], vocab: object) -> float:
@@ -89,7 +89,7 @@ def vqa_acc(pred: torch.Tensor, gts: List[List[str]], vocab: object) -> float:
 def main() -> None:
     """Run the full VQA training pipeline and write checkpoints under ``cfg["save_dir"]``.
 
-    Flow: load YAML and seed → build train/val question splits and vocabs → ``DataLoader``s with
+    Flow: load YAML and seed → resolve paths → official train/val question ids and vocabs → ``DataLoader``s with
     ``collate`` → frozen ``load_captioner`` + ``VQAModel`` → Adamax + StepLR + optional AMP and
     gradient accumulation → each epoch: train (CE + batch ``vqa_acc``), validate, step LR,
     save ``last.pt`` and ``best.pt`` when validation accuracy improves.
@@ -107,15 +107,51 @@ def main() -> None:
     parser.add_argument("--fresh", action="store_true", help="Start training from scratch (ignore any resume settings)")
     args = parser.parse_args()
     cfg = load_config(args.config)
+    resolve_path_fields(
+        cfg,
+        (
+            "train_questions_json",
+            "train_annotations_json",
+            "val_questions_json",
+            "val_annotations_json",
+            "train_images_dir",
+            "val_images_dir",
+            "captioner_project_root",
+            "captioner_ckpt",
+            "save_dir",
+        ),
+    )
+    if isinstance(cfg.get("resume_from"), str) and cfg["resume_from"]:
+        resolve_path_fields(cfg, ("resume_from",))
     set_seed(cfg["seed"])
 
     device = torch.device("cuda" if torch.cuda.is_available() and cfg["device"] == "cuda" else "cpu")
-    qids = all_qids(cfg["dataset_root"])
-    tr_qids, va_qids = split_qids(qids, seed=cfg["seed"])
-    qv, av = build_vocabs(cfg["dataset_root"], tr_qids, cfg["vocab_min_freq"])
+    tr_qids = all_qids(cfg["train_questions_json"])
+    va_qids = all_qids(cfg["val_questions_json"])
+    qv, av = build_vocabs(cfg["train_questions_json"], cfg["train_annotations_json"], cfg["vocab_min_freq"])
 
-    tr = VQADataset(cfg["dataset_root"], tr_qids, qv, av, cfg["max_question_len"], cfg["max_answer_len"])
-    va = VQADataset(cfg["dataset_root"], va_qids, qv, av, cfg["max_question_len"], cfg["max_answer_len"])
+    tr = VQADataset(
+        cfg["train_questions_json"],
+        cfg["train_annotations_json"],
+        cfg["train_images_dir"],
+        cfg["train_image_filename_template"],
+        qv,
+        av,
+        cfg["max_question_len"],
+        cfg["max_answer_len"],
+        qids=tr_qids,
+    )
+    va = VQADataset(
+        cfg["val_questions_json"],
+        cfg["val_annotations_json"],
+        cfg["val_images_dir"],
+        cfg["val_image_filename_template"],
+        qv,
+        av,
+        cfg["max_question_len"],
+        cfg["max_answer_len"],
+        qids=va_qids,
+    )
     loader_kwargs = {
         "batch_size": cfg["batch_size"],
         "num_workers": cfg["num_workers"],

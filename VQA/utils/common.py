@@ -22,7 +22,7 @@ Examples
 import os
 import random
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 
 import numpy as np
 import torch
@@ -44,6 +44,18 @@ def load_config(path: str) -> Dict[str, Any]:
     """
     with Path(path).open("r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def resolve_path_fields(cfg: Dict[str, Any], keys: Iterable[str]) -> None:
+    """Expand ``~`` and resolve relative paths against the process cwd (in-place).
+
+    Kaggle notebooks should set absolute paths under ``/kaggle/input/...``; for local use,
+    ``cd VQA`` keeps ``../dataset``-style entries consistent with earlier versions.
+    """
+    for k in keys:
+        v = cfg.get(k)
+        if isinstance(v, str) and v:
+            cfg[k] = str(Path(v).expanduser().resolve())
 
 
 def set_seed(seed: int) -> None:

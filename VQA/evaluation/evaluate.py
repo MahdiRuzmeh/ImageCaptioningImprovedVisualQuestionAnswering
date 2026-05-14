@@ -8,8 +8,8 @@ subsection alongside qualitative caption fusion discussion.
 
 Split consistency
 -----------------
-Rebuilds vocabs using the **training** partition of ``split_qids`` then evaluates on validation IDs,
-matching how checkpoints expect embedding sizes and avoiding accidental vocab drift.
+Rebuilds vocabs from the **training** questions/annotations JSON files, then evaluates on the
+official validation JSON and images so checkpoint vocab sizes match training.
 
 CLI Examples
 ------------
@@ -32,15 +32,16 @@ weights compromise fusion branch despite identical answer checkpoint loading.
 """
 
 import argparse
+from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
 
-from datasets.vqa_dataset import VQADataset, all_qids, build_vocabs, collate, split_qids
+from datasets.vqa_dataset import VQADataset, all_qids, build_vocabs, collate
 from models.captioner_adapter import load_captioner
 from models.vqa_model import VQAModel
 from training.train import vqa_acc
-from utils.common import load_config
+from utils.common import load_config, resolve_path_fields
 
 
 def main() -> None:
@@ -51,17 +52,39 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    resolve_path_fields(
+        cfg,
+        (
+            "train_questions_json",
+            "train_annotations_json",
+            "val_questions_json",
+            "val_annotations_json",
+            "train_images_dir",
+            "val_images_dir",
+            "captioner_project_root",
+            "captioner_ckpt",
+        ),
+    )
     device = torch.device("cuda" if torch.cuda.is_available() and cfg["device"] == "cuda" else "cpu")
 
-    qids = all_qids(cfg["dataset_root"])
-    tr, va = split_qids(qids, seed=cfg["seed"])
-    qv, av = build_vocabs(cfg["dataset_root"], tr, cfg["vocab_min_freq"])
-    ds = VQADataset(cfg["dataset_root"], va, qv, av, cfg["max_question_len"], cfg["max_answer_len"])
+    qv, av = build_vocabs(cfg["train_questions_json"], cfg["train_annotations_json"], cfg["vocab_min_freq"])
+    va_qids = all_qids(cfg["val_questions_json"])
+    ds = VQADataset(
+        cfg["val_questions_json"],
+        cfg["val_annotations_json"],
+        cfg["val_images_dir"],
+        cfg["val_image_filename_template"],
+        qv,
+        av,
+        cfg["max_question_len"],
+        cfg["max_answer_len"],
+        qids=va_qids,
+    )
     dl = DataLoader(ds, batch_size=cfg["batch_size"], shuffle=False, num_workers=cfg["num_workers"], collate_fn=collate)
 
     captioner = load_captioner(cfg, len(qv.itos), qv.pad_id, device)
     model = VQAModel(len(qv.itos), len(av.itos), qv.pad_id, captioner, cfg["word_dim"], cfg["hidden_dim"], cfg["question_dim"], cfg["max_regions"], cfg["fuse_mode"]).to(device)
-    st = torch.load(args.ckpt, map_location=device)
+    st = torch.load(Path(args.ckpt).expanduser().resolve(), map_location=device)
     model.load_state_dict(st.get("model", st), strict=False)
     model.eval()
 
