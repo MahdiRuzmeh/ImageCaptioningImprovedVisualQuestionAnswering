@@ -1,5 +1,6 @@
 dataset/
 .venv/
+Paper/
 
 # Python bytecode / caches
 __pycache__/
