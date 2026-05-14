@@ -113,8 +113,14 @@ def main() -> None:
     tr_loader = DataLoader(tr, shuffle=True, **loader_kwargs)
     va_loader = DataLoader(va, shuffle=False, **loader_kwargs)
 
-    model = ImageCaptionerV1(len(vocab.itos), vocab.pad_id,
-                             cfg["word_dim"], cfg["hidden_dim"], cfg["max_regions"], cfg["question_dim"]).to(device)
+    model = ImageCaptionerV1(
+        len(vocab.itos),
+        vocab.pad_id,
+        cfg["word_dim"],
+        cfg["hidden_dim"],
+        cfg["max_regions"],
+        cfg["question_dim"]
+    ).to(device)
     opt = Adamax(model.parameters(), lr=cfg["learning_rate"])
     sch = StepLR(opt, step_size=cfg["lr_decay_every"],
                  gamma=cfg["lr_decay_factor"])
