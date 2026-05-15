@@ -11,9 +11,9 @@ num_workers: 2
 prefetch_factor: 2
 pin_memory: true
 persistent_workers: true
-batch_size: 4
-grad_accum_steps: 4
-epochs: 25
+batch_size: 8
+grad_accum_steps: 2
+epochs: 2
 learning_rate: 0.0005
 lr_decay_every: 4
 lr_decay_factor: 0.6
@@ -23,7 +23,7 @@ max_question_len: 14
 max_caption_len: 20
 vocab_min_freq: 4
 use_amp: true
-max_regions: 32
+max_regions: 8
 device: cuda
 hidden_dim: 512
 word_dim: 512
