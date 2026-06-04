@@ -28,4 +28,4 @@ device: cuda
 hidden_dim: 512
 word_dim: 512
 question_dim: 1280
-save_dir: outputs_smoke
+save_dir: outputs/smoke

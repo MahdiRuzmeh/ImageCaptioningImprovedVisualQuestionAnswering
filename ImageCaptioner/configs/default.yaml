@@ -28,7 +28,7 @@ device: cuda
 hidden_dim: 512
 word_dim: 512
 question_dim: 1280
-save_dir: outputs
+save_dir: outputs/default
 # Optional caps on unique images (null = full split). Each image still yields multiple caption rows.
 max_train_images: null
 max_val_images: null
