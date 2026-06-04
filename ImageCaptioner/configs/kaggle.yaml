@@ -30,5 +30,5 @@ hidden_dim: 512
 word_dim: 512
 question_dim: 1280
 save_dir: outputs/kaggle
-max_train_images: null
-max_val_images: null
+max_train_images: 10
+max_val_images: 10
