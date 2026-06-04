@@ -34,3 +34,4 @@ If you want to install only captioner dependencies:
 - Continue training (auto-resume from `save_dir/last.pt`): `python training/train.py --config configs/default.yaml --continue`
 - Continue training (resume from a specific checkpoint): `python training/train.py --config configs/default.yaml --resume outputs/last.pt`
 - Evaluate: `python evaluation/evaluate.py --config configs/default.yaml --ckpt outputs/best.pt`
+- Evaluate with image previews: `python evaluation/evaluate.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --num-samples 3 --save-dir outputs/smoke/previews --show`

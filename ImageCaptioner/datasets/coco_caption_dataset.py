@@ -119,6 +119,14 @@ class Vocab:
         return self.stoi[self.PAD]
 
 
+def vocab_from_itos(itos: List[str]) -> Vocab:
+    """Restore a ``Vocab`` from checkpoint ``vocab`` field (list of token strings)."""
+    v = object.__new__(Vocab)
+    v.itos = list(itos)
+    v.stoi = {w: i for i, w in enumerate(v.itos)}
+    return v
+
+
 def select_image_ids(captions_json: str, max_images: Optional[int]) -> Optional[List[int]]:
     """Pick up to ``max_images`` ids from a captions JSON (sorted, deterministic).
 

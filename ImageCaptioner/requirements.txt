@@ -6,3 +6,4 @@ tqdm
 pyyaml
 nltk
 scikit-learn
+matplotlib
