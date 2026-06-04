@@ -5,8 +5,8 @@ train_images_dir: ../dataset/val2014
 val_images_dir: ../dataset/val2014
 train_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
-max_train_images: null
-max_val_images: null
+max_train_images: 10
+max_val_images: 10
 num_workers: 0
 prefetch_factor: 2
 pin_memory: false
