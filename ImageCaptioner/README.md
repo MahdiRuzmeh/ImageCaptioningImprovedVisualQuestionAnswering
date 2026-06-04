@@ -29,6 +29,8 @@ If you want to install only captioner dependencies:
 
 ## Run
 - Train (from scratch): `python training/train.py --config configs/default.yaml --fresh`
+- Smoke test (10 images, 1 epoch): `python training/train.py --config configs/smoke.yaml --fresh`
+- Limit images in any config: set `max_train_images` / `max_val_images` (unique image ids, sorted; all captions per image are kept)
 - Continue training (auto-resume from `save_dir/last.pt`): `python training/train.py --config configs/default.yaml --continue`
 - Continue training (resume from a specific checkpoint): `python training/train.py --config configs/default.yaml --resume outputs/last.pt`
 - Evaluate: `python evaluation/evaluate.py --config configs/default.yaml --ckpt outputs/best.pt`

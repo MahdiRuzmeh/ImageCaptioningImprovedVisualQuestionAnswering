@@ -41,7 +41,12 @@ if str(PROJECT_ROOT) not in sys.path:
 import torch
 from torch.utils.data import DataLoader
 
-from datasets.coco_caption_dataset import CocoCaptionDataset, build_vocab, collate
+from datasets.coco_caption_dataset import (
+    CocoCaptionDataset,
+    build_vocab,
+    collate,
+    select_image_ids,
+)
 from models.captioner_v1 import ImageCaptionerV1
 from utils.common import load_config, resolve_path_fields
 
@@ -65,13 +70,18 @@ def main() -> None:
     )
     device = torch.device("cuda" if torch.cuda.is_available() and cfg["device"] == "cuda" else "cpu")
 
-    vocab = build_vocab(cfg["train_captions_json"], cfg["vocab_min_freq"])
+    tr_ids = select_image_ids(
+        cfg["train_captions_json"], cfg.get("max_train_images"))
+    va_ids = select_image_ids(cfg["val_captions_json"], cfg.get("max_val_images"))
+    vocab = build_vocab(
+        cfg["train_captions_json"], cfg["vocab_min_freq"], image_ids=tr_ids)
     ds = CocoCaptionDataset(
         cfg["val_images_dir"],
         cfg["val_captions_json"],
         vocab,
         cfg["max_caption_len"],
         cfg["val_image_filename_template"],
+        image_ids=va_ids,
     )
     dl = DataLoader(ds, batch_size=cfg["batch_size"], shuffle=False, num_workers=cfg["num_workers"], collate_fn=collate)
 

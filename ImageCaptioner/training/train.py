@@ -51,7 +51,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from datasets.coco_caption_dataset import CocoCaptionDataset, build_vocab, collate
+from datasets.coco_caption_dataset import (
+    CocoCaptionDataset,
+    build_vocab,
+    collate,
+    select_image_ids,
+)
 from models.captioner_v1 import ImageCaptionerV1
 from utils.common import load_config, resolve_path_fields, set_seed
 from tqdm import tqdm
@@ -104,7 +109,11 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available()
                           and cfg["device"] == "cuda" else "cpu")
-    vocab = build_vocab(cfg["train_captions_json"], cfg["vocab_min_freq"])
+    tr_ids = select_image_ids(
+        cfg["train_captions_json"], cfg.get("max_train_images"))
+    va_ids = select_image_ids(cfg["val_captions_json"], cfg.get("max_val_images"))
+    vocab = build_vocab(
+        cfg["train_captions_json"], cfg["vocab_min_freq"], image_ids=tr_ids)
 
     tr = CocoCaptionDataset(
         cfg["train_images_dir"],
@@ -112,6 +121,7 @@ def main() -> None:
         vocab,
         cfg["max_caption_len"],
         cfg["train_image_filename_template"],
+        image_ids=tr_ids,
     )
     va = CocoCaptionDataset(
         cfg["val_images_dir"],
@@ -119,7 +129,13 @@ def main() -> None:
         vocab,
         cfg["max_caption_len"],
         cfg["val_image_filename_template"],
+        image_ids=va_ids,
     )
+    if tr_ids is not None or va_ids is not None:
+        print(
+            f"Image subset: train_images={len(tr_ids) if tr_ids else 'all'} "
+            f"({len(tr)} caption rows), val_images={len(va_ids) if va_ids else 'all'} "
+            f"({len(va)} caption rows)")
     loader_kwargs = {
         "batch_size": cfg["batch_size"],
         "num_workers": cfg["num_workers"],

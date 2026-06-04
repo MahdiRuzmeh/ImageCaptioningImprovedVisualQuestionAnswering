@@ -119,11 +119,37 @@ class Vocab:
         return self.stoi[self.PAD]
 
 
-def build_vocab(captions_json: str, min_freq: int) -> Vocab:
-    """Collect tokens from all captions in the **training** captions JSON."""
+def select_image_ids(captions_json: str, max_images: Optional[int]) -> Optional[List[int]]:
+    """Pick up to ``max_images`` ids from a captions JSON (sorted, deterministic).
+
+    Args:
+        captions_json: MSCOCO captions file.
+        max_images: Cap on unique images; ``None`` or non-positive means no limit.
+
+    Returns:
+        Sorted image ids, or ``None`` when unlimited.
+    """
+    if max_images is None:
+        return None
+    try:
+        n = int(max_images)
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return None
+    return sorted(load_caps(captions_json).keys())[:n]
+
+
+def build_vocab(
+    captions_json: str,
+    min_freq: int,
+    image_ids: Optional[List[int]] = None,
+) -> Vocab:
+    """Collect tokens from captions in the **training** captions JSON."""
     caps = load_caps(captions_json)
+    ids = image_ids if image_ids is not None else sorted(caps.keys())
     words: List[str] = []
-    for i in caps:
+    for i in ids:
         for cap in caps.get(i, []):
             words.extend(tok(cap))
     return Vocab(words, min_freq=min_freq)
