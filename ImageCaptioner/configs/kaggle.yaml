@@ -13,7 +13,7 @@ pin_memory: true
 persistent_workers: true
 batch_size: 8
 grad_accum_steps: 2
-epochs: 2
+epochs: 25
 learning_rate: 0.0005
 lr_decay_every: 4
 lr_decay_factor: 0.6
@@ -29,5 +29,5 @@ hidden_dim: 512
 word_dim: 512
 question_dim: 1280
 save_dir: outputs/kaggle
-max_train_images: 10
-max_val_images: 10
+max_train_images: null
+max_val_images: null
