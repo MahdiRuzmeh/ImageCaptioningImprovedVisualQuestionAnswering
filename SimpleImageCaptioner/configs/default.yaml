@@ -1,0 +1,23 @@
+seed: 42
+# Run from SimpleImageCaptioner/ so ../dataset resolves under src/
+train_captions_json: ../dataset/captions_val2014.json
+val_captions_json: ../dataset/captions_val2014.json
+train_images_dir: ../dataset/val2014
+val_images_dir: ../dataset/val2014
+train_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
+val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
+save_dir: outputs/default
+num_workers: 0
+batch_size: 10
+epochs: 25
+learning_rate: 0.0005
+max_caption_len: 20
+vocab_min_freq: 4
+max_regions: 32
+word_dim: 512
+lstm_hidden: 512
+embed_dim: 512
+region_dim: 2048
+device: cuda
+max_train_images: null
+max_val_images: null
