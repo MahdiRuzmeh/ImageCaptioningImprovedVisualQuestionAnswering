@@ -41,9 +41,6 @@ from torchvision.models.detection import (
 )
 from tqdm import tqdm
 
-# mahdi helper methods
-from helper
-
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 TOKEN_RE = re.compile(r"[a-z0-9']+")
