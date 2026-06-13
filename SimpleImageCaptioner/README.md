@@ -85,10 +85,20 @@ python train.py --config configs/kaggle.yaml
 
 ## vs `ImageCaptioner/`
 
-| | SimpleImageCaptioner | ImageCaptioner |
-|--|----------------------|----------------|
-| Files | One (`train.py`) + `configs/` | Modules + YAML |
-| Attention | Per step from `h_{t-1}` | Often one vector from question |
-| Config | YAML via `--config` | YAML + AMP / resume |
+| | SimpleImageCaptioner | ImageCaptioner (legacy) |
+|--|----------------------|-------------------------|
+| Files | `train.py` + `models/captioner_v1.py` | Many modules |
+| Attention | Per step from `h_{t-1}` (paper §3.3) | Static question-guided context |
+| VQA | Yes — `generate_caption`, `encode_caption`, `get_caption_embedding` | Yes |
 
-Use `ImageCaptioner` for full replication and VQA; use this folder to study the §3.3 caption flow with paper dimensions spelled out.
+## VQA integration
+
+After caption training, point `VQA/configs/default.yaml` at this folder (already set):
+
+```yaml
+captioner_project_root: ../SimpleImageCaptioner
+captioner_ckpt: ../SimpleImageCaptioner/outputs/default/best.pt
+captioner_class: SimpleImageCaptioner
+```
+
+VQA loads `models/captioner_v1.py` via `captioner_adapter.load_captioner`, freezes weights, and calls `get_caption_embedding(images, q_ids)`.

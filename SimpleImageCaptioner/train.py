@@ -24,6 +24,7 @@ import json
 import os
 import random
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -35,13 +36,13 @@ from torch import nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
-from torchvision.models.detection import (
-    FasterRCNN_ResNet50_FPN_Weights,
-    fasterrcnn_resnet50_fpn,
-)
 from tqdm import tqdm
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from models.captioner_v1 import SimpleImageCaptioner
 
 TOKEN_RE = re.compile(r"[a-z0-9']+")
 
@@ -238,305 +239,7 @@ def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     return {"images": images, "captions": captions}
 
 
-# ---------------------------------------------------------------------------
-# Step 1 — Frozen Faster R-CNN region features  [R × V]
-    """
-    In class marboot be Encoder-e image captioning hast.
-    Vazifash ine ke tasvir ro begire va vizhegi-haye mantaghe-i (ROI vectors) ro extract kone.
-
-    - Faster R-CNN: Az in model (ke pretrained hast) estefade mikonim va weights-esho
-      'freeze' mikonim (requires_grad=False). Yani detector training nemishe, faghat
-      feature extractore.
-    - Dimension Mapping: Faster R-CNN khoroji 1024-D mide, vali paper-e asli 2048-D
-      mikhad, baraye hamin ye layer `roi_to_region` (Linear) darim ke dimension-ha ro
-      be 2048 map mikone.
-    - Padding: Tedad-e object-haye toye har tasvir motafavete. Inja ma tedad ro be
-      `max_regions` (default 32) limit mikonim. Agar kamtar bood, padding zero
-      mikonim ta shape-e hame sample-ha yeksan bashe.
-    """
-# ---------------------------------------------------------------------------
-
-
-class RegionEncoder(nn.Module):
-    """Extract up to ``max_regions`` ROI vectors per image (weights frozen).
-
-    Paper §3.1: each local region feature ``v_i ∈ ℝ^L`` with ``L = 2048`` from ResNet-101
-    (last conv / bottom-up style features). §3.1 also uses Faster R-CNN for ROI pooling.
-
-    Torchvision Faster R-CNN outputs 1024-D ROI vectors; we learn ``roi_to_region`` to map
-    them to ``region_dim`` (default 2048) so notation matches the paper.
-    """
-
-    ROI_FEAT_DIM = 1024
-
-    def __init__(self, max_regions: int = 32, region_dim: int = 2048) -> None:
-        super().__init__()
-        self.max_regions = max_regions
-        self.region_dim = region_dim
-        det = fasterrcnn_resnet50_fpn(
-            weights=FasterRCNN_ResNet50_FPN_Weights.DEFAULT)
-        self.detector = det
-
-        # inja mige faster rcnn garar nist train beshe.
-        for p in self.detector.parameters():
-            p.requires_grad = False
-
-        self.detector.eval()
-        self.roi_to_region = nn.Linear(self.ROI_FEAT_DIM, region_dim)
-
-    # keep Faster‑RCNN frozen
-    def train(self, mode: bool = True) -> "RegionEncoder":
-        super().train(mode)
-        self.detector.eval()
-        return self
-
-    #
-    """""
-    Forward pass baraye extract kardan region features az tasavir ba estefade az FasterRCNN.
-
-    Input:
-        images: tensor ba shape (N, 3, H, W)
-        N = batch size
-
-    Process:
-        1. tasavir be format list tabdil mishan chon FasterRCNN input ra be surat list migirad.
-        2. detector.transform preprocessing anjam midahad (resize, normalize, batching).
-        3. backbone CNN feature map haye tasvir ra extract mikonad.
-        4. RPN (Region Proposal Network) bounding box haye ehtemali baraye object ha tolid mikonad.
-        5. ROI Pooling az rooye feature map ha bar asas proposal ha region feature migirad.
-        6. box_head in ROI ha ra be vector haye feature tabdil mikonad.
-        7. region ha bar asas har image dar batch joda mishavand.
-        8. ta max_regions region baraye har tasvir negah dashte mishavad.
-        9. agar tedad region ha kamtar az max_regions bashad, padding ba zero anjam mishavad.
-        10. region ha be tensor ba shape (N, max_regions, feature_dim) stack mishavand.
-        11. dar enteha ba yek linear layer dimension az ROI feature be region_dim map mishavad.
-
-    Output:
-        regions: tensor ba shape (N, max_regions, region_dim)
-        ke baraye marhale attention dar model captioning estefade mishavad.
-
-    Note:
-        @torch.no_grad() sabeb mishavad gradient baraye FasterRCNN mohasebe nashavad
-        chon detector freeze shode va faghat baraye feature extraction estefade mishavad.
-    """
-    #
-    @torch.no_grad()
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
-        """``images`` (N,3,H,W) -> regions (N, max_regions, region_dim)."""
-        img_list = list(images)
-
-        # transform mikonim be abaad mored niyaz (N*3*448×448)
-        transformed, _ = self.detector.transform(img_list, None)
-
-        # img feature extract mikone.
-        feats = self.detector.backbone(transformed.tensors)
-
-        # RPN region haro dar miyare.
-        proposals, _ = self.detector.rpn(transformed, feats, None)
-
-        # region feature extract mikone.
-        roi = self.detector.roi_heads.box_roi_pool(
-            feats, proposals, transformed.image_sizes
-        )
-        roi = self.detector.roi_heads.box_head(roi)
-
-        counts = [len(p) for p in proposals]
-        chunks = torch.split(roi, counts)
-        batch_regions: List[torch.Tensor] = []
-
-        for chunk in chunks:
-            r = chunk[: self.max_regions]
-            if r.size(0) < self.max_regions:
-                pad = torch.zeros(
-                    (self.max_regions - r.size(0), r.size(1)), device=r.device
-                )
-                r = torch.cat([r, pad], dim=0)
-            batch_regions.append(r)
-
-        # (N, max_regions, feature_dim)
-        regions = torch.stack(batch_regions, dim=0)
-
-        # baraye inke khorouji 1024 d faster RCNN be 2048 tabdil beshe ye layer fully connected
-        #  be akhar model ezafe mikonim ke bayad train beshe.
-        return self.roi_to_region(regions)
-
-
-# ---------------------------------------------------------------------------
-# Step 2 — Attention: map h_{t-1} and regions to same space, then sum regions
-    """
-    RegionAttention: mekanism baraye focus kardan model rooye region haye mohem tasvir
-    dar har timestep az caption generation.
-
-    Idea:
-        dar har ghadam t, model bayad tashkhis dahad kodam region az tasvir
-        baraye kalame baadi mohem tar ast. baraye in kar az soft attention
-        rooye region feature ha estefade mishavad.
-
-    Input ha:
-        regions : tensor ba shape (N, R, region_dim)
-            N = batch size
-            R = tedad region ha (max_regions)
-            region_dim = 2048 (feature haye khorooji FasterRCNN)
-            exp: (16*32*2048)
-
-        h_prev : tensor ba shape (N, lstm_hidden)
-            hidden state LSTM dar timestep ghabl (h_{t-1})
-
-    Process:
-        1. hidden state LSTM (h_{t-1}) ba yek linear layer be fazaye 512-D
-        project mishavad (h_proj).
-
-        2. har region feature v_i niz ba yek linear layer be hamin fazaye
-        512-D project mishavad (v_proj).
-
-        3. baraye har region yek attention score hesab mishavad:
-            score_i = (v_i_proj ⋅ h_proj) => yani moshabehat region i om be caption dar lahze t chegadre?
-
-        in score neshan midahad in region cheghadr baraye timestep
-        feli mohem ast.
-
-        4. score ha ba softmax normal mishavand ta attention weight
-        ha (α_ti) bed
-    """
-# ---------------------------------------------------------------------------
-
-
-class RegionAttention(nn.Module):
-    """Per-timestep soft attention(paper §3.3 eq. 5–7, §5 setup).
-
-    Paper §5: *"Dimensions of hidden layer of LSTM, visual features, vector representing
-    word embedding and attended features, are all converted to 512."* (Table 2: LSTM 512,
-    encoding dimension 512.) There is **no** separate 256-D attention size in the paper.
-
-    1. Project ``h_{t-1}`` and each ``v_i`` into shared **512-D** space for ``f_att`` scores.
-    2. ``softmax`` weights; context ``z_t = Σ_i α_{ti} v_i`` stays in **region_dim** (2048).
-    3. ``ctx_proj``: map ``z_t`` to **512-D** for the caption LSTM input.
-    """
-
-    def __init__(
-        self,
-        region_dim: int,
-        lstm_hidden: int,
-        embed_dim: int = 512,
-    ) -> None:
-        super().__init__()
-        self.embed_dim = embed_dim
-        self.h_proj = nn.Linear(lstm_hidden, embed_dim)
-        self.v_proj = nn.Linear(region_dim, embed_dim)
-        self.ctx_proj = nn.Linear(region_dim, embed_dim)
-
-    def forward(
-        self, regions: torch.Tensor, h_prev: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Args:
-            regions: (N, R, region_dim) with region_dim=2048 (paper L)
-            h_prev: (N, lstm_hidden) — LSTM hidden state at t-1 (paper m_{t-1})
-
-        Returns:
-            context: (N, embed_dim) with embed_dim=512 (paper §5)
-        """
-        h_att = self.h_proj(h_prev)
-        v_att = self.v_proj(regions)
-        scores = (v_att * h_att.unsqueeze(1)).sum(dim=-1)
-        weights = torch.softmax(scores, dim=-1)
-        z = torch.einsum("br,brd->bd", weights, regions)
-        return self.ctx_proj(z)
-
-
-# ---------------------------------------------------------------------------
-# Step 3 — Caption decoder: LSTM + word prediction
-    """
-    SimpleImageCaptioner: Model-e asli baraye task-e image captioning.
-    Architecture: Encoder-Decoder ba estefade az 'Region Attention'.
-
-    1. RegionEncoder: Tasvir ra be ROI features (dim=2048) tabdil mikonad. 
-        khorojji: [N*32*2048]
-
-    2. Attention: Har timestep, context-vector-e visual ra az regions estekhraj mikonad.
-        khorojji: [N*32*2048] -> ba estefade az wazn haye attention [N * 2048] -> baraye inke betonim vorodi LSTM ro 
-        kochek tar konim 2048 ro ham ba ye layer fully connected be 512 tabdil mikonim  [N* 512]. (alan input LSTM= concat([N,512],[N,512]) = [1024 dimention])
-
-    3. Word Embedding: Word ID-ha ra be vector-haye 512-dim tabdil mikonad. (exp: "dog"->id=100 -> [512 d vector])
-
-    4. LSTMCell: yek neural network stateful ast ke dar har timestep, word embedding va
-     visual context ra concat mikonad va ba estefade az hidden state ghabli, hidden state jadid (h_t) ra mohasebe mikonad.
-
-    5. Classifier: Hidden state (512) ra be logits (vocab_size) mape mikonad.
-
-    Forward_train: 
-    - Az ravesh-e 'Teacher Forcing' estefade mikonad.
-    (toye in ravesh captioni ke bayad model toye t-1 tolid mikard ro be onvan input be lstm midim na khorouji khod model ro.)
-    - Input: 'caption_ids[:, :-1]' (Ground Truth-e gozashte).
-    - Target: 'caption_ids[:, 1:]' (Kaleme-ye bad).
-    - Dar har timestep, logits-e (t+1) dar yek list zakhire shode va dar akhar 
-    stack mishavad (N, T-1, vocab_size).
-    """
-# ---------------------------------------------------------------------------
-
-
-class SimpleImageCaptioner(nn.Module):
-    """Encoder–decoder captioner with timestep-wise region attention (paper §3.3)."""
-
-    def __init__(
-        self,
-        vocab_size: int,
-        pad_id: int,
-        word_dim: int = 512,
-        lstm_hidden: int = 512,
-        embed_dim: int = 512,
-        max_regions: int = 32,
-        region_dim: int = 2048,
-    ) -> None:
-        super().__init__()
-        self.lstm_hidden = lstm_hidden
-        self.region_encoder = RegionEncoder(max_regions, region_dim)
-        self.attention = RegionAttention(region_dim, lstm_hidden, embed_dim)
-        self.word_emb = nn.Embedding(vocab_size, word_dim, padding_idx=pad_id)
-
-        # LSTM darim inja
-        self.lstm = nn.LSTMCell(word_dim + embed_dim, lstm_hidden)
-
-        # ye layer fully connected
-        self.classifier = nn.Linear(lstm_hidden, vocab_size)
-
-    def train(self, mode: bool = True) -> "SimpleImageCaptioner":
-        super().train(mode)
-        self.region_encoder.train(mode)
-        return self
-
-    def forward_train(
-        self, images: torch.Tensor, caption_ids: torch.Tensor
-    ) -> torch.Tensor:
-        """Teacher forcing: predict caption_ids[:, 1:] from caption_ids[:, :-1].
-
-        Returns:
-            logits (N, T-1, vocab_size)
-        """
-
-        regions = self.region_encoder(images)
-
-        n = images.size(0)
-        h = torch.zeros(n, self.lstm_hidden, device=images.device)
-        c = torch.zeros_like(h)
-        logits: List[torch.Tensor] = []
-
-        for t in range(caption_ids.size(1) - 1):
-
-            # attention mizanim beyn region ha va h(t)
-            attended = self.attention(regions, h)
-
-            # caption sahih(t) ro fetch mikonim va embed mikonim.
-            # hadaf ine caption(t+1) ro generate konim
-            word = self.word_emb(caption_ids[:, t])
-
-            # lstm input=concat([word, attended]) (1024 d vector)
-            h, c = self.lstm(torch.cat([word, attended], dim=-1), (h, c))
-
-            logits.append(self.classifier(h))
-
-        return torch.stack(logits, dim=1)
-
+# Model dar `models/captioner_v1.py` hast (VQA ham hamoon file ro load mikone).
 
 # ---------------------------------------------------------------------------
 # Training loop helpers
@@ -814,13 +517,15 @@ def main() -> None:
     train_loader = DataLoader(train_ds, shuffle=True, **loader_kw)
     val_loader = DataLoader(val_ds, shuffle=False, **loader_kw)
 
+    hidden_dim = int(cfg.get("hidden_dim", cfg.get("lstm_hidden", 512)))
     model = SimpleImageCaptioner(
         vocab_size=len(vocab.itos),
         pad_id=vocab.pad_id,
         word_dim=int(cfg["word_dim"]),
-        lstm_hidden=int(cfg["lstm_hidden"]),
-        embed_dim=int(cfg["embed_dim"]),
+        hidden_dim=hidden_dim,
         max_regions=int(cfg["max_regions"]),
+        question_dim=int(cfg.get("question_dim", cfg["word_dim"])),
+        embed_dim=int(cfg.get("embed_dim", hidden_dim)),
         region_dim=int(cfg["region_dim"]),
     ).to(device)
 

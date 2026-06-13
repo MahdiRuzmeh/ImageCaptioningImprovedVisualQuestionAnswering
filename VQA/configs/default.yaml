@@ -8,9 +8,9 @@ train_images_dir: ../dataset/train2014
 val_images_dir: ../dataset/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
-captioner_project_root: ../ImageCaptioner
-captioner_ckpt: ../ImageCaptioner/outputs/best.pt
-captioner_class: ImageCaptionerV1
+captioner_project_root: ../SimpleImageCaptioner
+captioner_ckpt: ../SimpleImageCaptioner/outputs/default/best.pt
+captioner_class: SimpleImageCaptioner
 num_workers: 2
 prefetch_factor: 2
 pin_memory: true

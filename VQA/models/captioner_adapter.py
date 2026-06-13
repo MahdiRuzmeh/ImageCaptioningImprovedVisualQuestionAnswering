@@ -1,21 +1,10 @@
-"""Dynamic import bridge from ``ImageCaptioner`` checkpoints into ``VQAModel``.
+"""Dynamic import bridge from captioner checkpoint into ``VQAModel``.
 
-Motivation (thesis *Image captioning improved visual question answering*)
--------------------------------------------------------------------------
-Caption training optimizes MSCOCO caption tokens (length ``|V_cap|``). VQA training builds its own
-question vocabulary (length ``|V_q|``). Embedding tables therefore **cannot** load identically.
-This adapter rebuilds the captioner with ``vocab_size=|V_q|`` (matching question embeddings order)
-and uses ``load_state_dict(..., strict=False)`` so convolutional / attention weights restore while
-caption softmax rows reset—cite **implementation note** about transferring visual reasoning without
-forced vocabulary alignment.
+Supports ``SimpleImageCaptioner`` (default) or legacy ``ImageCaptionerV1`` via YAML::
 
-YAML wiring
------------
-Typical keys::
-
-    captioner_project_root: ../ImageCaptioner
-    captioner_ckpt: ../ImageCaptioner/outputs/best.pt
-    captioner_class: ImageCaptionerV1
+    captioner_project_root: ../SimpleImageCaptioner
+    captioner_ckpt: ../SimpleImageCaptioner/outputs/default/best.pt
+    captioner_class: SimpleImageCaptioner
 
 Examples
 --------
@@ -41,7 +30,7 @@ def load_captioner(cfg: Dict[str, Any], vocab_size: int, pad_id: int, device: to
 
     Args:
         cfg: Must include ``captioner_project_root``, ``captioner_ckpt``, hyperparameters used by
-            ``ImageCaptionerV1.__init__``.
+            ``SimpleImageCaptioner.__init__`` (or ``ImageCaptionerV1``).
         vocab_size: Size of **question** vocabulary for embedding layer resizing.
         pad_id: Padding index consistent with ``VQADataset`` specials.
         device: Target accelerator.
