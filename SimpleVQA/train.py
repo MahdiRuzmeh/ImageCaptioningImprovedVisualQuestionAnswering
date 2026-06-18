@@ -267,6 +267,9 @@ def load_captioner(
         state = torch.load(ckpt_path, map_location="cpu")
         model.load_state_dict(state.get("model", state), strict=False)
     model.eval().to(device)
+    
+    # degat kon inja kolan image captioner ro freeze karde.
+    # yani aslan fine tune nemishe.
     for param in model.parameters():
         param.requires_grad = False
     return model
@@ -276,15 +279,93 @@ def load_captioner(
 # VQA Model (Paper §3.4 — caption-augmented answering)
 # ---------------------------------------------------------------------------
 class RelationGNN(nn.Module):
-    """Message passing roye region-ha (relational reasoning)."""
+    """
+    Message passing roye region-ha (relational reasoning).
+
+    Yek Graph Neural Network sade baraye relational reasoning roye region-haye image.
+
+    In module, har region ba hame region-haye dige interact mikone ta
+    relation-haye object/object va context-haye vizhual behtar model beshan.
+    voroudi x be soorat (batch, num_regions, dim) ast va khoroji hamoon
+    region-feature-haye update shode mibashad.
+    input: [N*32*2048]
+    output: [N*32*2048] update shode(feature haye hamsaye ro ham be in region rabt mide)
+
+    Flow:
+        - for every pair of regions, a relation message sakhte mishavad.
+        - edge messages aggregate mishavad.
+        - node update final روی هر region اعمال می‌شود
+
+    Inja idea in ast ke model faghat feature mokhtasar har region ra nabinad,
+    balke dependencies beyn region-ha ra ham yad begirad; mesl object interaction,
+    spatial relation, va contextual cue-ha.
+
+    # Tareef
+    node = region
+    edge = relation between two regions
+    pas edge(i,j) = relation(region_i , region_j)
+
+    # Mesal
+    x_i = (2048)
+    x_j = (2048)
+    concat mikonim: [x_i , x_j] = 4096
+    edge_ij = Linear(4096 → 2048)
+
+    mesal baraye dark behtar. tasvir shamel:
+    person
+    bicycle
+    dog
+    ball
+    tree
+    Relation hayi ke mitonan beyn har region(Node) dashte bashan:
+    (person , bicycle) → riding
+    (person , dog) → walking
+    (dog , ball) → chasing
+    """
+
 
     def __init__(self, dim: int = 512) -> None:
         super().__init__()
+        """
+        Edge va node MLP-ha baraye message passing rooye region embeddings.
+        degat kon inja graph fully connected hast. yani fagat toye hamsaye ha donbal relation nist. 
+
+        - edge: relation between every pair of regions ra encode mikone (ertebaat beyn har region ro encode mikone)
+        - node: message aggregated shode ra ba feature asli har node combine mikone
+
+        dim: dimensionality-e representation-e har region.
+
+        input: 512 + 512 (engar dota region ro concat mikone va be onvan vouroudi migire)
+        output: 512 (va ye representation jadid az tarkib hardo voroudi misaze va be onvan khorouji mide)
+        """
         self.edge = nn.Sequential(nn.Linear(dim * 2, dim), nn.ReLU(), nn.Linear(dim, dim))
         self.node = nn.Sequential(nn.Linear(dim * 2, dim), nn.ReLU(), nn.Linear(dim, dim))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """x: (batch, num_regions, dim) → updated regions."""
+        """
+        RelationGNN forward pass.
+
+        Args:
+            x (Tensor): Region features with shape (batch, num_regions, dim).
+            Here each region is a node in the graph.
+
+        Steps:
+            For each region i and every other region j:
+            1) xi = feature of region i, xj = feature of region j
+            2) Concatenate them: [xi, xj] → relation input
+            3) edge MLP computes relation embedding edge(i,j)
+            4) For each region i, aggregate relations with all j (mean) -> engar beyn edge representation tamami hamsaye ha mean migirim.
+            5) Concatenate original node feature x_i with the aggregated
+            message and update it using the node MLP.
+             (feature haye region i ro ba mean tamami edge hash concat mikonim va ye representation jadid az region feature i bedast miyarim)
+
+        Returns:
+            Tensor: Updated region features (batch, num_regions, dim).
+
+        Example:
+            If num_regions = 3 → regions {0,1,2}:
+            relations computed: (0,1), (0,2), (1,0), (1,2), (2,0), (2,1).
+        """
         b, k, d = x.shape
         xi = x.unsqueeze(2).expand(b, k, k, d)
         xj = x.unsqueeze(1).expand(b, k, k, d)
@@ -293,8 +374,34 @@ class RelationGNN(nn.Module):
 
 
 class VQAModel(nn.Module):
-    """VQA ba caption freeze + dual LSTM decoder."""
+    """
+    VQA ba caption freeze + dual LSTM decoder.
 
+    Main VQA model baraye answer generation ba ترکیبِ:
+    - global visual feature از ResNet
+    - local region feature از Faster R-CNN
+    - relational reasoning از RelationGNN
+    - question encoding با GRU
+    - caption-based representation از captioner freeze shode
+    - dual LSTM decoder baraye answer generation
+
+    طبق paper (section 3.4), caption representation baed az generated caption
+    be عنوان یک semantic image embedding استفاده می‌شود ta
+    attended visual feature ra تکمیل کند. In model, v_att az region attention
+    mibayad, v_cap az captioner frozen migirad, va ba fusion mode (mul ya add)
+    ادغام mishavand.
+
+    Architecture summary:
+        image -> global CNN feature + region proposals -> relation reasoning -> v_att
+        question -> embedding + GRU -> q_vec
+        image + question -> frozen captioner -> v_cap
+        fused visual representation -> dual LSTM -> answer tokens
+
+    Notes:
+        - captioner completely frozen ast
+        - detector ham freeze ast
+        - fusion mode mishe 'mul' ya 'add'
+    """
     def __init__(
         self,
         q_vocab_size: int,
@@ -312,6 +419,20 @@ class VQAModel(nn.Module):
         self.max_regions = max_regions
         self.hidden_dim = hidden_dim
         self.fuse_mode = fuse_mode
+        """
+        Constructor for multimodal VQA pipeline.
+
+        Parameters:
+            q_vocab_size: size of question vocabulary
+            a_vocab_size: size of answer vocabulary
+            pad_id: padding token id for embeddings
+            captioner: pretrained image captioning model, frozen during VQA training
+            word_dim: embedding size for question/answer tokens
+            hidden_dim: shared hidden dimension for visual and answer modules
+            question_dim: GRU output dimension for question encoding
+            max_regions: maximum number of region proposals kept from detector
+            fuse_mode: how v_cap and v_att are fused ('mul' or 'add')
+        """
 
         backbone = resnet101(weights=ResNet101_Weights.DEFAULT)
         self.resnet = nn.Sequential(*list(backbone.children())[:-2])
@@ -339,7 +460,17 @@ class VQAModel(nn.Module):
 
     @torch.no_grad()
     def _regions(self, images: torch.Tensor) -> torch.Tensor:
-        """ROI features az Faster R-CNN (freeze) — max ``max_regions`` ta."""
+        """
+        ROI features az Faster R-CNN (freeze) — max ``max_regions`` ta.
+
+        Extract region-level visual features az Faster R-CNN va project bekone
+        be hidden_dim.
+
+        Important:
+            - detector freeze ast
+            - output fixed-size region tensor ast
+            - agar region count kamtar az max_regions bashe, با zero pad tamam mishavad
+        """
         transformed, _ = self.detector.transform(list(images), None)
         feats = self.detector.backbone(transformed.tensors)
         props, _ = self.detector.rpn(transformed, feats, None)
@@ -359,7 +490,14 @@ class VQAModel(nn.Module):
         return self.local_proj(torch.stack(padded, dim=0))
 
     def _attend(self, regions: torch.Tensor, q_vec: torch.Tensor) -> torch.Tensor:
-        """Softmax attention roye region-ha ba vector soal."""
+        """
+        Softmax attention roye region-ha ba vector soal.
+
+        Soft attention roye region-ha ba conditioning roye question vector.
+
+        Har region ba q_vec compare mishavad, attention weight ha hesab mishavand,
+        va yek attended visual vector khoroji mide ke نماینده‌ی relevant parts image ast.
+        """
         b, k, d = regions.shape
         q_exp = q_vec.unsqueeze(1).expand(b, k, d)
         hidden = torch.tanh(self.attn(torch.cat([regions, q_exp], dim=-1)))
@@ -373,7 +511,22 @@ class VQAModel(nn.Module):
         a_ids: Optional[torch.Tensor] = None,
         max_answer_len: int = 6,
     ) -> torch.Tensor:
-        """Train: ``a_ids`` bede (teacher forcing). Eval: ``a_ids=None`` (greedy)."""
+        """
+        Train: ``a_ids`` bede (teacher forcing). Eval: ``a_ids=None`` (greedy).
+
+        Forward pass for training ya inference.
+
+        Train mode:
+            - a_ids داده می‌شود
+            - teacher forcing active ast
+
+        Eval mode:
+            - a_ids=None
+            - greedy decoding estefade mishavad
+
+        Output:
+            logits ba shape (batch, answer_len-1, a_vocab_size)
+        """
         g = self.g_proj(self.pool(self.resnet(images)).flatten(1))
         local = self._regions(images)
 
