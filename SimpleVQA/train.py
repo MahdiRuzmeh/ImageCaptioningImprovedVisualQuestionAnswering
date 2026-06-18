@@ -377,19 +377,23 @@ class VQAModel(nn.Module):
     """
     VQA ba caption freeze + dual LSTM decoder.
 
-    Main VQA model baraye answer generation ba ترکیبِ:
-    - global visual feature از ResNet
-    - local region feature از Faster R-CNN
-    - relational reasoning از RelationGNN
-    - question encoding با GRU
-    - caption-based representation از captioner freeze shode
+    Main VQA model baraye answer generation ba tarkibe:
+    - global visual feature az ResNet
+    - local region feature az Faster R-CNN
+    - relational reasoning az RelationGNN
+    - question encoding ba GRU
+    - caption-based representation az captioner freeze shode
     - dual LSTM decoder baraye answer generation
 
-    طبق paper (section 3.4), caption representation baed az generated caption
-    be عنوان یک semantic image embedding استفاده می‌شود ta
-    attended visual feature ra تکمیل کند. In model, v_att az region attention
-    mibayad, v_cap az captioner frozen migirad, va ba fusion mode (mul ya add)
-    ادغام mishavand.
+    Tebg paper (section 3.4), caption representation baed az generate shodan caption
+    be onvan yek semantic image embedding estefade mishavad ta
+    attended visual feature ra takmil konad.
+    In model, v_att az region attention miayad, (v_att= hasel attention question roye region haye tasvir)
+    v_cap az captioner frozen bedast avorde mishe,
+    va ba fusion mode (mul ya add)
+    edgam mishavand.
+    fused_visual_representation= fuse(v_cap,v_att)
+
 
     Architecture summary:
         image -> global CNN feature + region proposals -> relation reasoning -> v_att
@@ -401,6 +405,44 @@ class VQAModel(nn.Module):
         - captioner completely frozen ast
         - detector ham freeze ast
         - fusion mode mishe 'mul' ya 'add'
+
+
+    Pipeline:
+    step 1:
+        line 1:
+            image
+            ↓
+            FasterRCNN
+            ↓
+            region features
+            ↓
+            RelationGNN
+            ↓
+            attention with question
+            ↓
+            v_att
+
+
+        line 2:
+            image
+            ↓
+            frozen caption model
+            ↓
+            generated caption
+            ↓
+            caption embedding
+            ↓
+            v_cap
+        
+    step2:
+        v_att + v_cap
+            ↓
+        fused visual feature
+            ↓
+        dual LSTM
+            ↓
+        answer
+
     """
     def __init__(
         self,
