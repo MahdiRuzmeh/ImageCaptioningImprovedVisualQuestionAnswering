@@ -1,0 +1,766 @@
+"""Simple VQA — train va eval dar yek file (Paper: Image captioning improved VQA).
+
+Paper / thesis (do marhale)
+----------------------------
+1. Aval captioner ro roye MSCOCO train kon (``SimpleImageCaptioner/train.py``).
+2. Bad captioner ro freeze kon va dakhele ``VQAModel`` estefade kon.
+
+Model flow (kholase)
+--------------------
+``image`` → ResNet global + Faster R-CNN regions → RelationGNN → ``v_att``
+``question`` → GRU → ``q``
+captioner (freeze) + ``q_ids`` → ``v_cap``
+``v = v_cap * v_att`` (ya ``+`` ba ``fuse_mode``)
+dual LSTM → javab
+
+Run az ``SimpleVQA/``::
+
+    python train.py --config configs/default.yaml
+    python train.py --config configs/smoke.yaml
+    python train.py --config configs/default.yaml --eval --ckpt outputs/default/best.pt
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import os
+import random
+import re
+import sys
+from collections import Counter
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import torch
+import yaml
+from PIL import Image
+from torch import nn
+from torch.cuda.amp import GradScaler, autocast
+from torch.optim import Adamax
+from torch.optim.lr_scheduler import StepLR
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
+from torchvision.models import ResNet101_Weights, resnet101
+from torchvision.models.detection import (
+    FasterRCNN_ResNet50_FPN_Weights,
+    fasterrcnn_resnet50_fpn,
+)
+from tqdm import tqdm
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+TOKEN_RE = re.compile(r"[a-z0-9']+")
+
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+def load_config(path: str) -> Dict[str, Any]:
+    """YAML config ro load kon (hyperparameter-ha va path dataset)."""
+    with Path(path).open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def resolve_path_fields(cfg: Dict[str, Any], keys: Tuple[str, ...]) -> None:
+    """Path haye relative ro be absolute tabdil kon (in-place)."""
+    for key in keys:
+        value = cfg.get(key)
+        if isinstance(value, str) and value:
+            cfg[key] = str(Path(value).expanduser().resolve())
+
+
+def set_seed(seed: int) -> None:
+    """RNG seed baraye reproducibility (Python + Torch)."""
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+def cap_list(items: List[int], cap: Optional[int]) -> List[int]:
+    """Age cap > 0 bashe, faghat avvalin N ta item ro negah dar (smoke test)."""
+    if cap is None or cap <= 0:
+        return items
+    return items[: int(cap)]
+
+
+# ---------------------------------------------------------------------------
+# Tokenizer & Vocab
+# ---------------------------------------------------------------------------
+def tok(text: str) -> List[str]:
+    """Matn ro lowercase token kon (hamoon convention SimpleImageCaptioner)."""
+    return TOKEN_RE.findall(text.lower())
+
+
+class Vocab:
+    """Vocab baraye soal/javab: PAD=0, BOS=1, EOS=2, UNK=3."""
+
+    PAD, BOS, EOS, UNK = "<pad>", "<bos>", "<eos>", "<unk>"
+
+    def __init__(self, words: List[str], min_freq: int = 4) -> None:
+        """Az list kalamat, vocab besaz; kalamat kam-frequency filter mishan."""
+        counts = Counter(words)
+        self.itos = [self.PAD, self.BOS, self.EOS, self.UNK] + sorted(
+            w for w, n in counts.items() if n >= min_freq
+        )
+        self.stoi = {w: i for i, w in enumerate(self.itos)}
+
+    def encode(self, words: List[str]) -> List[int]:
+        """Token list → index list (unknown → UNK)."""
+        unk = self.stoi[self.UNK]
+        return [self.stoi.get(w, unk) for w in words]
+
+    @property
+    def pad_id(self) -> int:
+        return self.stoi[self.PAD]
+
+
+def mode_answer(answers: List[str]) -> str:
+    """Az 10 javab annotator, mode (por-tekrar-tarin) ro bargardoon."""
+    return Counter(a.strip().lower() for a in answers).most_common(1)[0][0]
+
+
+def all_qids(questions_json: str) -> List[int]:
+    """Hame question_id haye yek split VQA v2 ro begir."""
+    with Path(questions_json).open("r", encoding="utf-8") as f:
+        qs = json.load(f)["questions"]
+    return [int(x["question_id"]) for x in qs]
+
+
+def build_vocabs(
+    questions_json: str, annotations_json: str, min_freq: int
+) -> Tuple[Vocab, Vocab]:
+    """Vocab soal/javab ro faghat az train split besaz (leakage nabashe)."""
+    with Path(questions_json).open("r", encoding="utf-8") as f:
+        qs = json.load(f)["questions"]
+    with Path(annotations_json).open("r", encoding="utf-8") as f:
+        anns = json.load(f)["annotations"]
+    qmap = {int(x["question_id"]): x for x in qs}
+    amap = {int(x["question_id"]): x for x in anns}
+    qids = sorted(set(qmap.keys()) & set(amap.keys()))
+    q_words: List[str] = []
+    a_words: List[str] = []
+    for qid in qids:
+        q_words.extend(tok(qmap[qid]["question"]))
+        ans = [z["answer"] for z in amap[qid]["answers"]]
+        a_words.extend(tok(mode_answer(ans)))
+    return Vocab(q_words, min_freq=min_freq), Vocab(a_words, min_freq=1)
+
+
+# ---------------------------------------------------------------------------
+# Dataset
+# ---------------------------------------------------------------------------
+class VQADataset(Dataset):
+    """Yek sample = (image 448×448, soal token, javab token, 10 javab raw)."""
+
+    def __init__(
+        self,
+        questions_json: str,
+        annotations_json: str,
+        images_dir: str,
+        image_filename_template: str,
+        q_vocab: Vocab,
+        a_vocab: Vocab,
+        max_q: int,
+        max_a: int,
+        qids: Optional[List[int]] = None,
+    ) -> None:
+        self.images_dir = Path(images_dir)
+        self.image_filename_template = image_filename_template
+        self.q_vocab = q_vocab
+        self.a_vocab = a_vocab
+        self.max_q = max_q
+        self.max_a = max_a
+
+        with Path(questions_json).open("r", encoding="utf-8") as f:
+            qs = json.load(f)["questions"]
+        with Path(annotations_json).open("r", encoding="utf-8") as f:
+            anns = json.load(f)["annotations"]
+        qmap = {int(x["question_id"]): x for x in qs}
+        amap = {int(x["question_id"]): x for x in anns}
+        use_qids = sorted(qids) if qids is not None else sorted(set(qmap.keys()) & set(amap.keys()))
+
+        self.samples: List[Dict[str, Any]] = []
+        for qid in use_qids:
+            if qid not in qmap or qid not in amap:
+                continue
+            q = qmap[qid]
+            a = amap[qid]
+            answers = [x["answer"] for x in a["answers"]]
+            self.samples.append(
+                {
+                    "qid": qid,
+                    "image_id": int(q["image_id"]),
+                    "question": q["question"],
+                    "answers": answers,
+                    "answer": mode_answer(answers),
+                }
+            )
+
+        self.transform = transforms.Compose(
+            [
+                transforms.Resize((448, 448)),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            ]
+        )
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        s = self.samples[idx]
+        path = self.images_dir / self.image_filename_template.format(image_id=s["image_id"])
+        image = self.transform(Image.open(path).convert("RGB"))
+        q_ids = [1] + self.q_vocab.encode(tok(s["question"])[: self.max_q - 2]) + [2]
+        a_ids = [1] + self.a_vocab.encode(tok(s["answer"])[: self.max_a - 2]) + [2]
+        return {
+            "image": image,
+            "q": torch.tensor(q_ids, dtype=torch.long),
+            "a": torch.tensor(a_ids, dtype=torch.long),
+            "answers": s["answers"],
+        }
+
+
+def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Batch ro stack kon; soal/javab ro ba PAD=0 padding bede."""
+    images = torch.stack([x["image"] for x in batch])
+    max_q = max(len(x["q"]) for x in batch)
+    max_a = max(len(x["a"]) for x in batch)
+    q = torch.zeros((len(batch), max_q), dtype=torch.long)
+    a = torch.zeros((len(batch), max_a), dtype=torch.long)
+    for i, x in enumerate(batch):
+        q[i, : len(x["q"])] = x["q"]
+        a[i, : len(x["a"])] = x["a"]
+    return {"images": images, "q": q, "a": a, "answers": [x["answers"] for x in batch]}
+
+
+# ---------------------------------------------------------------------------
+# Captioner loader (SimpleImageCaptioner)
+# ---------------------------------------------------------------------------
+def load_captioner(
+    cfg: Dict[str, Any], q_vocab_size: int, pad_id: int, device: torch.device
+) -> nn.Module:
+    """Captioner ro az ``SimpleImageCaptioner/models/captioner_v1.py`` load va freeze kon.
+
+    ``captioner_ckpt`` age vojood dashte bashad weight load mishe; vagarna random init
+    (backbone pretrained az torchvision).
+    """
+    module_path = Path(cfg["captioner_project_root"]).resolve() / "models" / "captioner_v1.py"
+    spec = importlib.util.spec_from_file_location("captioner_mod", module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load captioner module: {module_path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    cls = getattr(mod, cfg.get("captioner_class", "SimpleImageCaptioner"))
+    model = cls(
+        vocab_size=q_vocab_size,
+        pad_id=pad_id,
+        word_dim=int(cfg["word_dim"]),
+        hidden_dim=int(cfg["hidden_dim"]),
+        max_regions=int(cfg["max_regions"]),
+        question_dim=int(cfg["question_dim"]),
+    )
+    ckpt_path = Path(cfg["captioner_ckpt"])
+    if ckpt_path.exists():
+        state = torch.load(ckpt_path, map_location="cpu")
+        model.load_state_dict(state.get("model", state), strict=False)
+    model.eval().to(device)
+    for param in model.parameters():
+        param.requires_grad = False
+    return model
+
+
+# ---------------------------------------------------------------------------
+# VQA Model (Paper §3.4 — caption-augmented answering)
+# ---------------------------------------------------------------------------
+class RelationGNN(nn.Module):
+    """Message passing roye region-ha (relational reasoning)."""
+
+    def __init__(self, dim: int = 512) -> None:
+        super().__init__()
+        self.edge = nn.Sequential(nn.Linear(dim * 2, dim), nn.ReLU(), nn.Linear(dim, dim))
+        self.node = nn.Sequential(nn.Linear(dim * 2, dim), nn.ReLU(), nn.Linear(dim, dim))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """x: (batch, num_regions, dim) → updated regions."""
+        b, k, d = x.shape
+        xi = x.unsqueeze(2).expand(b, k, k, d)
+        xj = x.unsqueeze(1).expand(b, k, k, d)
+        edge_msg = self.edge(torch.cat([xi, xj], dim=-1)).mean(dim=2)
+        return self.node(torch.cat([x, edge_msg], dim=-1))
+
+
+class VQAModel(nn.Module):
+    """VQA ba caption freeze + dual LSTM decoder."""
+
+    def __init__(
+        self,
+        q_vocab_size: int,
+        a_vocab_size: int,
+        pad_id: int,
+        captioner: nn.Module,
+        word_dim: int = 512,
+        hidden_dim: int = 512,
+        question_dim: int = 1280,
+        max_regions: int = 32,
+        fuse_mode: str = "mul",
+    ) -> None:
+        super().__init__()
+        self.captioner = captioner
+        self.max_regions = max_regions
+        self.hidden_dim = hidden_dim
+        self.fuse_mode = fuse_mode
+
+        backbone = resnet101(weights=ResNet101_Weights.DEFAULT)
+        self.resnet = nn.Sequential(*list(backbone.children())[:-2])
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.g_proj = nn.Linear(2048, hidden_dim)
+
+        detector = fasterrcnn_resnet50_fpn(weights=FasterRCNN_ResNet50_FPN_Weights.DEFAULT)
+        self.detector = detector
+        for p in self.detector.parameters():
+            p.requires_grad = False
+        self.local_proj = nn.Linear(1024, hidden_dim)
+
+        self.q_emb = nn.Embedding(q_vocab_size, word_dim, padding_idx=pad_id)
+        self.q_gru = nn.GRU(word_dim, question_dim, batch_first=True)
+        self.q_proj = nn.Linear(question_dim, hidden_dim)
+
+        self.gnn = RelationGNN(hidden_dim)
+        self.attn = nn.Linear(hidden_dim * 2, hidden_dim)
+        self.attn_score = nn.Linear(hidden_dim, 1)
+
+        self.a_emb = nn.Embedding(a_vocab_size, word_dim, padding_idx=pad_id)
+        self.lstm_att = nn.LSTMCell(word_dim + hidden_dim + hidden_dim, hidden_dim)
+        self.lstm_ans = nn.LSTMCell(hidden_dim + hidden_dim + hidden_dim, hidden_dim)
+        self.out = nn.Linear(hidden_dim, a_vocab_size)
+
+    @torch.no_grad()
+    def _regions(self, images: torch.Tensor) -> torch.Tensor:
+        """ROI features az Faster R-CNN (freeze) — max ``max_regions`` ta."""
+        transformed, _ = self.detector.transform(list(images), None)
+        feats = self.detector.backbone(transformed.tensors)
+        props, _ = self.detector.rpn(transformed, feats, None)
+        roi = self.detector.roi_heads.box_roi_pool(feats, props, transformed.image_sizes)
+        roi = self.detector.roi_heads.box_head(roi)
+        counts = [len(p) for p in props]
+        chunks = torch.split(roi, counts)
+        padded = []
+        for chunk in chunks:
+            chunk = chunk[: self.max_regions]
+            if chunk.size(0) < self.max_regions:
+                pad = torch.zeros(
+                    (self.max_regions - chunk.size(0), chunk.size(1)), device=chunk.device
+                )
+                chunk = torch.cat([chunk, pad], dim=0)
+            padded.append(chunk)
+        return self.local_proj(torch.stack(padded, dim=0))
+
+    def _attend(self, regions: torch.Tensor, q_vec: torch.Tensor) -> torch.Tensor:
+        """Softmax attention roye region-ha ba vector soal."""
+        b, k, d = regions.shape
+        q_exp = q_vec.unsqueeze(1).expand(b, k, d)
+        hidden = torch.tanh(self.attn(torch.cat([regions, q_exp], dim=-1)))
+        weights = torch.softmax(self.attn_score(hidden).squeeze(-1), dim=-1)
+        return torch.einsum("bk,bkd->bd", weights, regions)
+
+    def forward(
+        self,
+        images: torch.Tensor,
+        q_ids: torch.Tensor,
+        a_ids: Optional[torch.Tensor] = None,
+        max_answer_len: int = 6,
+    ) -> torch.Tensor:
+        """Train: ``a_ids`` bede (teacher forcing). Eval: ``a_ids=None`` (greedy)."""
+        g = self.g_proj(self.pool(self.resnet(images)).flatten(1))
+        local = self._regions(images)
+
+        _, h = self.q_gru(self.q_emb(q_ids))
+        q_vec = self.q_proj(h[-1])
+
+        rel = self.gnn(local)
+        v_att = self._attend(rel, q_vec)
+
+        with torch.no_grad():
+            v_cap, _ = self.captioner.get_caption_embedding(images, q_ids)
+
+        v = v_cap * v_att if self.fuse_mode == "mul" else v_cap + v_att
+
+        batch = images.size(0)
+        h1 = torch.zeros((batch, self.hidden_dim), device=images.device)
+        c1 = torch.zeros_like(h1)
+        h2 = torch.zeros_like(h1)
+        c2 = torch.zeros_like(h1)
+
+        if a_ids is None:
+            steps = max_answer_len - 1
+            prev = torch.full((batch,), 1, dtype=torch.long, device=images.device)
+        else:
+            steps = a_ids.size(1) - 1
+            prev = a_ids[:, 0]
+
+        logits: List[torch.Tensor] = []
+        for t in range(steps):
+            a_prev = self.a_emb(prev)
+            h1, c1 = self.lstm_att(torch.cat([a_prev, g, h2], dim=-1), (h1, c1))
+            h2, c2 = self.lstm_ans(torch.cat([h1, h2, v], dim=-1), (h2, c2))
+            logit = self.out(h2)
+            logits.append(logit)
+            prev = logit.argmax(dim=-1) if a_ids is None else a_ids[:, t + 1]
+
+        return torch.stack(logits, dim=1)
+
+
+# ---------------------------------------------------------------------------
+# Metric
+# ---------------------------------------------------------------------------
+def vqa_acc(pred: torch.Tensor, gts: List[List[str]], vocab: Vocab) -> float:
+    """Soft VQA v2 accuracy: min(agreement/3, 1) roye 10 javab annotator."""
+    score = 0.0
+    for pred_row, answers in zip(pred.tolist(), gts):
+        text = " ".join(
+            vocab.itos[i] for i in pred_row if i < len(vocab.itos) and i > 2
+        ).strip().lower()
+        agree = sum(1 for a in answers if a.strip().lower() == text)
+        score += min(agree / 3.0, 1.0)
+    return score / max(1, len(gts))
+
+
+# ---------------------------------------------------------------------------
+# Build data + model
+# ---------------------------------------------------------------------------
+PATH_KEYS = (
+    "train_questions_json",
+    "train_annotations_json",
+    "val_questions_json",
+    "val_annotations_json",
+    "train_images_dir",
+    "val_images_dir",
+    "captioner_project_root",
+    "captioner_ckpt",
+    "save_dir",
+)
+
+
+def build_loaders(
+    cfg: Dict[str, Any],
+) -> Tuple[Vocab, Vocab, DataLoader, DataLoader]:
+    """Dataset train/val va DataLoader besaz."""
+    q_vocab, a_vocab = build_vocabs(
+        cfg["train_questions_json"],
+        cfg["train_annotations_json"],
+        int(cfg["vocab_min_freq"]),
+    )
+    tr_qids = cap_list(all_qids(cfg["train_questions_json"]), cfg.get("max_train_qids"))
+    va_qids = cap_list(all_qids(cfg["val_questions_json"]), cfg.get("max_val_qids"))
+
+    train_ds = VQADataset(
+        cfg["train_questions_json"],
+        cfg["train_annotations_json"],
+        cfg["train_images_dir"],
+        cfg["train_image_filename_template"],
+        q_vocab,
+        a_vocab,
+        int(cfg["max_question_len"]),
+        int(cfg["max_answer_len"]),
+        qids=tr_qids,
+    )
+    val_ds = VQADataset(
+        cfg["val_questions_json"],
+        cfg["val_annotations_json"],
+        cfg["val_images_dir"],
+        cfg["val_image_filename_template"],
+        q_vocab,
+        a_vocab,
+        int(cfg["max_question_len"]),
+        int(cfg["max_answer_len"]),
+        qids=va_qids,
+    )
+
+    device_is_cuda = cfg.get("device") == "cuda" and torch.cuda.is_available()
+    loader_kw: Dict[str, Any] = {
+        "batch_size": int(cfg["batch_size"]),
+        "num_workers": int(cfg["num_workers"]),
+        "collate_fn": collate_batch,
+        "pin_memory": bool(cfg.get("pin_memory", False)) and device_is_cuda,
+    }
+    if int(cfg["num_workers"]) > 0:
+        loader_kw["persistent_workers"] = bool(cfg.get("persistent_workers", False))
+        loader_kw["prefetch_factor"] = int(cfg.get("prefetch_factor", 2))
+
+    train_loader = DataLoader(train_ds, shuffle=True, **loader_kw)
+    val_loader = DataLoader(val_ds, shuffle=False, **loader_kw)
+    return q_vocab, a_vocab, train_loader, val_loader
+
+
+def build_vqa_model(
+    cfg: Dict[str, Any], q_vocab: Vocab, a_vocab: Vocab, device: torch.device
+) -> Tuple[VQAModel, nn.Module]:
+    """Captioner freeze + VQAModel ro besaz va be device befrest."""
+    captioner = load_captioner(cfg, len(q_vocab.itos), q_vocab.pad_id, device)
+    model = VQAModel(
+        len(q_vocab.itos),
+        len(a_vocab.itos),
+        q_vocab.pad_id,
+        captioner,
+        int(cfg["word_dim"]),
+        int(cfg["hidden_dim"]),
+        int(cfg["question_dim"]),
+        int(cfg["max_regions"]),
+        str(cfg["fuse_mode"]),
+    ).to(device)
+    return model, captioner
+
+
+# ---------------------------------------------------------------------------
+# Train / eval loops
+# ---------------------------------------------------------------------------
+def train_epoch(
+    model: VQAModel,
+    loader: DataLoader,
+    optimizer: torch.optim.Optimizer,
+    scaler: GradScaler,
+    criterion: nn.Module,
+    a_vocab: Vocab,
+    cfg: Dict[str, Any],
+    device: torch.device,
+) -> Tuple[float, float]:
+    """Yek epoch train — CE loss + batch ``vqa_acc``."""
+    model.train()
+    total_loss = 0.0
+    total_acc = 0.0
+    accum = int(cfg["grad_accum_steps"])
+    use_amp = bool(cfg["use_amp"]) and device.type == "cuda"
+    optimizer.zero_grad(set_to_none=True)
+
+    for i, batch in enumerate(tqdm(loader, desc="train", leave=False)):
+        images = batch["images"].to(device, non_blocking=device.type == "cuda")
+        q = batch["q"].to(device, non_blocking=device.type == "cuda")
+        a = batch["a"].to(device, non_blocking=device.type == "cuda")
+
+        with autocast(enabled=use_amp):
+            logits = model(images, q, a_ids=a)
+            loss = criterion(logits.reshape(-1, logits.size(-1)), a[:, 1:].reshape(-1))
+
+        scaler.scale(loss / accum).backward()
+        if (i + 1) % accum == 0:
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad(set_to_none=True)
+
+        total_loss += float(loss.item())
+        total_acc += vqa_acc(logits.argmax(dim=-1), batch["answers"], a_vocab)
+
+    n = max(1, len(loader))
+    return total_loss / n, total_acc / n
+
+
+@torch.no_grad()
+def eval_epoch(
+    model: VQAModel,
+    loader: DataLoader,
+    criterion: nn.Module,
+    a_vocab: Vocab,
+    cfg: Dict[str, Any],
+    device: torch.device,
+    greedy: bool = False,
+) -> Tuple[float, float]:
+    """Validation — teacher forcing ya greedy decode (``greedy=True``)."""
+    model.eval()
+    total_loss = 0.0
+    total_acc = 0.0
+
+    for batch in tqdm(loader, desc="val", leave=False):
+        images = batch["images"].to(device, non_blocking=device.type == "cuda")
+        q = batch["q"].to(device, non_blocking=device.type == "cuda")
+        a = batch["a"].to(device, non_blocking=device.type == "cuda")
+
+        if greedy:
+            logits = model(images, q, a_ids=None, max_answer_len=int(cfg["max_answer_len"]))
+        else:
+            logits = model(images, q, a_ids=a)
+            loss = criterion(logits.reshape(-1, logits.size(-1)), a[:, 1:].reshape(-1))
+            total_loss += float(loss.item())
+
+        total_acc += vqa_acc(logits.argmax(dim=-1), batch["answers"], a_vocab)
+
+    n = max(1, len(loader))
+    loss_avg = total_loss / n if not greedy else 0.0
+    return loss_avg, total_acc / n
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+def parse_args() -> argparse.Namespace:
+    """Argument haye CLI: config, resume, eval."""
+    p = argparse.ArgumentParser(description="SimpleVQA — train/eval dar yek file")
+    p.add_argument("--config", default="configs/default.yaml")
+    p.add_argument("--resume", default=None, help="Path be checkpoint (.pt)")
+    p.add_argument(
+        "--continue",
+        dest="do_continue",
+        action="store_true",
+        help="Resume az save_dir/last.pt",
+    )
+    p.add_argument("--fresh", action="store_true", help="Az aval train kon (resume ignore)")
+    p.add_argument("--eval", action="store_true", help="Faghat eval (greedy decode)")
+    p.add_argument("--ckpt", default=None, help="Checkpoint baraye --eval")
+    return p.parse_args()
+
+
+def load_checkpoint(
+    path: Path,
+    model: VQAModel,
+    optimizer: Optional[torch.optim.Optimizer],
+    scheduler: Optional[StepLR],
+    scaler: Optional[GradScaler],
+    device: torch.device,
+) -> Tuple[int, float]:
+    """Checkpoint load kon; epoch va best acc ro bargardoon."""
+    if not path.exists():
+        print(f"Checkpoint peyda nashod: {path} — az aval shoro mikonim.")
+        return 1, 0.0
+
+    ckpt = torch.load(path, map_location=device)
+    if not isinstance(ckpt, dict) or "model" not in ckpt:
+        print(f"Format checkpoint eshtebah: {path}")
+        return 1, 0.0
+
+    model.load_state_dict(ckpt["model"])
+    if optimizer is not None and "optimizer" in ckpt:
+        optimizer.load_state_dict(ckpt["optimizer"])
+    if scheduler is not None and "scheduler" in ckpt:
+        scheduler.load_state_dict(ckpt["scheduler"])
+    if scaler is not None and ckpt.get("scaler"):
+        try:
+            scaler.load_state_dict(ckpt["scaler"])
+        except Exception:
+            pass
+
+    start_epoch = int(ckpt.get("epoch", 0)) + 1
+    best = float(ckpt.get("best", 0.0))
+    print(f"Resume az {path} (next_epoch={start_epoch}, best_val_acc={best:.4f})")
+    return start_epoch, best
+
+
+def run_eval(cfg: Dict[str, Any], ckpt_path: str, device: torch.device) -> None:
+    """Greedy decode roye val split — metric VQA v2."""
+    q_vocab, a_vocab, _, val_loader = build_loaders(cfg)
+    model, _ = build_vqa_model(cfg, q_vocab, a_vocab, device)
+
+    ckpt = Path(ckpt_path).expanduser().resolve()
+    state = torch.load(ckpt, map_location=device)
+    model.load_state_dict(state.get("model", state), strict=False)
+    model.eval()
+
+    _, acc = eval_epoch(model, val_loader, nn.CrossEntropyLoss(), a_vocab, cfg, device, greedy=True)
+    print(f"Validation VQA accuracy (greedy): {acc:.4f}")
+
+
+def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.device) -> None:
+    """Loop asli training + save checkpoint."""
+    q_vocab, a_vocab, train_loader, val_loader = build_loaders(cfg)
+    model, _ = build_vqa_model(cfg, q_vocab, a_vocab, device)
+
+    optimizer = Adamax(model.parameters(), lr=float(cfg["learning_rate"]))
+    scheduler = StepLR(
+        optimizer,
+        step_size=int(cfg["lr_decay_every"]),
+        gamma=float(cfg["lr_decay_factor"]),
+    )
+    use_amp = bool(cfg["use_amp"]) and device.type == "cuda"
+    scaler = GradScaler(enabled=use_amp)
+    criterion = nn.CrossEntropyLoss(ignore_index=0)
+
+    save_dir = Path(cfg["save_dir"])
+    save_dir.mkdir(parents=True, exist_ok=True)
+    best_acc = 0.0
+    start_epoch = 1
+
+    if args.fresh and args.do_continue:
+        raise SystemExit("Yekish ro entekhab kon: --fresh ya --continue")
+
+    resume_path: Optional[str] = None
+    if not args.fresh:
+        resume_path = args.resume
+        if resume_path is None and args.do_continue:
+            resume_path = str(save_dir / "last.pt")
+        if resume_path is None and cfg.get("resume_from"):
+            resume_path = str(cfg["resume_from"])
+
+    if resume_path:
+        start_epoch, best_acc = load_checkpoint(
+            Path(resume_path).expanduser().resolve(),
+            model,
+            optimizer,
+            scheduler,
+            scaler,
+            device,
+        )
+
+    epochs = int(cfg["epochs"])
+    print(
+        f"device={device} train={len(train_loader.dataset)} val={len(val_loader.dataset)} "
+        f"q_vocab={len(q_vocab.itos)} a_vocab={len(a_vocab.itos)}"
+    )
+
+    for epoch in range(start_epoch, epochs + 1):
+        tr_loss, tr_acc = train_epoch(
+            model, train_loader, optimizer, scaler, criterion, a_vocab, cfg, device
+        )
+        va_loss, va_acc = eval_epoch(
+            model, val_loader, criterion, a_vocab, cfg, device, greedy=False
+        )
+        scheduler.step()
+        print(
+            f"epoch {epoch}/{epochs}  train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} "
+            f"val_loss={va_loss:.4f} val_acc={va_acc:.4f}"
+        )
+
+        state = {
+            "epoch": epoch,
+            "best": best_acc,
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "scaler": scaler.state_dict() if scaler is not None else None,
+            "q_vocab": q_vocab.itos,
+            "a_vocab": a_vocab.itos,
+            "config": cfg,
+        }
+        torch.save(state, save_dir / "last.pt")
+        if va_acc > best_acc:
+            best_acc = va_acc
+            state["best"] = best_acc
+            torch.save(state, save_dir / "best.pt")
+
+
+def main() -> None:
+    """Entry point: train ya eval."""
+    args = parse_args()
+    config_path = Path(args.config)
+    if not config_path.is_absolute():
+        config_path = PROJECT_ROOT / config_path
+    cfg = load_config(str(config_path))
+    resolve_path_fields(cfg, PATH_KEYS)
+    if isinstance(cfg.get("resume_from"), str) and cfg["resume_from"]:
+        resolve_path_fields(cfg, ("resume_from",))
+    set_seed(int(cfg["seed"]))
+
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() and cfg.get("device") == "cuda" else "cpu"
+    )
+    print(f"config={config_path}")
+
+    if args.eval:
+        ckpt = args.ckpt or str(Path(cfg["save_dir"]) / "best.pt")
+        run_eval(cfg, ckpt, device)
+    else:
+        run_train(cfg, args, device)
+
+
+if __name__ == "__main__":
+    main()

@@ -172,7 +172,16 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         qctx: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Yek step decode: attention + LSTM + logits."""
+        # toye inja question vector va caption vector baham jaam mishan va
+        # be onvan query be img feature zade mishan. 
+        # attention query vector dimention= [N* 512]
+        # img feature dimention [N* 32* 2048] hast.
+        # baraye mohasebe similarity bayad project konim be space ba dimention
+        # [N* 32 * 512]. alan mishe similarity hesab kard.
+        # similarity([32* 512], [512])= [32]
+        # result attention dimention= [N* 32]
         attended = self.attention(regions, h + qctx)
+        
         word = self.word_emb(caption_tok)
         h, c = self.lstm(torch.cat([word, attended], dim=-1), (h, c))
         return self.classifier(h), h, c
