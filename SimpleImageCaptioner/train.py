@@ -529,6 +529,7 @@ def main() -> None:
         region_dim=int(cfg["region_dim"]),
     ).to(device)
 
+    #TODO:: Adam -> adagrad
     optimizer = Adam(model.parameters(), lr=float(cfg["learning_rate"]))
     criterion = nn.CrossEntropyLoss(ignore_index=0)
 

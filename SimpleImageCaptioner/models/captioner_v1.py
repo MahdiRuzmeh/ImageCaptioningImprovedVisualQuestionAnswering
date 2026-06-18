@@ -1,9 +1,14 @@
 """Simple captioner ba region attention — paper §3.3 + VQA hook §3.4.
 
 Architecture (paper):
-- Region features v_i ∈ R^2048 az Faster R-CNN (frozen)
-- Har step t: α_{ti} = softmax(f_att(v_i, m_{t-1} + q_bias))
+- Region features v_i ∈ R^2048 az Faster R-CNN (frozen) -> hyperparametr haye magale (32*2048)
+- Har step t: α_{ti} = softmax(f_att(v_i, m_{t-1} + q_bias)) -> yani toye har step LSTM ahamiyat har region ro hesab mikonim. 
+    dar training similarity(region_i,caption(t-1)) ro hesab mikonim (chon ba question nadarim toye in marhale. question=[0])
+    vali vagti model VQA ro mikhaym train konim(Image caotioner ro fine tune konim) miyaym shebahat (caption+question) ro roye 
+    region ha hesab mikonim.
 - z_t = Σ α_{ti} v_i → project be 512 → concat ba word embedding → LSTM
+ z_t hamon caption_related_img_feat hast. ke [32]*[32*2048] = [2048] -> midim be FC layer -> [2048] -> [512] -> concat mikonim ba h(t-1) 
+ va ye vector 1024 tayi ro midim be LSTM.
 - v_cap = mean-pool embedding haye caption tolid shode
 """
 
@@ -36,9 +41,14 @@ class RegionEncoder(nn.Module):
             weights=FasterRCNN_ResNet50_FPN_Weights.DEFAULT
         )
         self.detector = det
+
+        # inja migim feature extractor ro freeze kon.
         for p in self.detector.parameters():
             p.requires_grad = False
+
         self.detector.eval()
+
+        # inja ham ba ye linier layer khorouji ro be abaadi ke delemon mikhad tabdil mikonim.
         self.roi_to_region = nn.Linear(self.ROI_FEAT_DIM, region_dim)
 
     def train(self, mode: bool = True) -> "RegionEncoder":
@@ -128,11 +138,17 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         self.lstm_hidden = hidden_dim
         self.embed_dim = embed_dim if embed_dim is not None else hidden_dim
         self.word_dim = word_dim
+
         self.region_encoder = RegionEncoder(max_regions, region_dim)
+
         self.attention = RegionAttention(region_dim, hidden_dim, self.embed_dim)
+
         self.word_emb = nn.Embedding(vocab_size, word_dim, padding_idx=pad_id)
+
         self.lstm = nn.LSTMCell(word_dim + self.embed_dim, hidden_dim)
+
         self.classifier = nn.Linear(hidden_dim, vocab_size)
+
         # agar word_dim != hidden_dim, soal ro project mikonim (VQA compat)
         self.q_proj = (
             nn.Linear(word_dim, hidden_dim)
@@ -174,7 +190,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         """Yek step decode: attention + LSTM + logits."""
         # toye inja question vector va caption vector baham jaam mishan va
         # be onvan query be img feature zade mishan. 
-        # attention query vector dimention= [N* 512]
+        # attention query vector dimention= [N* 512] (natije attention be ezaye har tasvir ye vector 512d hast.)
         # img feature dimention [N* 32* 2048] hast.
         # baraye mohasebe similarity bayad project konim be space ba dimention
         # [N* 32 * 512]. alan mishe similarity hesab kard.
@@ -183,6 +199,9 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         attended = self.attention(regions, h + qctx)
         
         word = self.word_emb(caption_tok)
+
+        # ba ravesh teacher forcing train mishe Image captioner.
+        # yani caption word gound truth ro behesh midim toye train.
         h, c = self.lstm(torch.cat([word, attended], dim=-1), (h, c))
         return self.classifier(h), h, c
 
@@ -195,6 +214,8 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         """Teacher forcing: predict caption_ids[:, 1:] — logits (N, T-1, V)."""
         regions = self.region_encoder(images)
         n = images.size(0)
+        
+        # toye train question haro nemidim behesh.
         qctx = self._qctx(question_ids, n, images.device)
         h = torch.zeros(n, self.lstm_hidden, device=images.device)
         c = torch.zeros_like(h)
@@ -216,7 +237,16 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         """Greedy decode az BOS (id=1) — baraye inference va VQA."""
         regions = self.region_encoder(image)
         n = image.size(0)
+
+        # toye inja question vector va caption vector baham jaam mishan va (toye train Image captioner inja question ro nadaram)
+        # dar nahayat question_caption_context be onvan query be img region features zade mishan. 
+        # img feature dimention [N* 32* 2048] hast.
+        # baraye mohasebe similarity bayad project konim be space ba dimention
+        # [N* 32 * 512]. alan mishe similarity hesab kard. (chon h(t-1) ya hamon caption_feature vector 512d hast.)
+        # similarity([32* 512], [512])= [32]
+        # result attention dimention= [N* 32]
         qctx = self._qctx(question_ids, n, image.device)
+
         h = torch.zeros(n, self.lstm_hidden, device=image.device)
         c = torch.zeros_like(h)
         tok = torch.full((n,), 1, dtype=torch.long, device=image.device)
