@@ -236,24 +236,26 @@ def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {"images": images, "q": q, "a": a, "answers": [x["answers"] for x in batch]}
 
 
-# ---------------------------------------------------------------------------
-# Captioner loader (SimpleImageCaptioner)
-# ---------------------------------------------------------------------------
 def load_captioner(
     cfg: Dict[str, Any], q_vocab_size: int, pad_id: int, device: torch.device
 ) -> nn.Module:
-    """Captioner ro az ``SimpleImageCaptioner/models/captioner_v1.py`` load va freeze kon.
+    """Load and freeze captioner from SimpleImageCaptioner project."""
 
-    ``captioner_ckpt`` age vojood dashte bashad weight load mishe; vagarna random init
-    (backbone pretrained az torchvision).
-    """
-    module_path = Path(cfg["captioner_project_root"]).resolve() / "models" / "captioner_v1.py"
-    spec = importlib.util.spec_from_file_location("captioner_mod", module_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load captioner module: {module_path}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    captioner_root = Path(cfg["captioner_project_root"]).resolve()
+
+    # add captioner project to python path
+    if str(captioner_root) not in sys.path:
+        sys.path.insert(0, str(captioner_root))
+
+    module_name = "models.captioner_v1"
+
+    try:
+        mod = importlib.import_module(module_name)
+    except Exception as e:
+        raise ImportError(f"Cannot import captioner module {module_name}: {e}")
+
     cls = getattr(mod, cfg.get("captioner_class", "SimpleImageCaptioner"))
+
     model = cls(
         vocab_size=q_vocab_size,
         pad_id=pad_id,
@@ -262,18 +264,19 @@ def load_captioner(
         max_regions=int(cfg["max_regions"]),
         question_dim=int(cfg["question_dim"]),
     )
+
     ckpt_path = Path(cfg["captioner_ckpt"])
     if ckpt_path.exists():
         state = torch.load(ckpt_path, map_location="cpu")
         model.load_state_dict(state.get("model", state), strict=False)
+
     model.eval().to(device)
-    
-    # degat kon inja kolan image captioner ro freeze karde.
-    # yani aslan fine tune nemishe.
+
+    # freeze captioner
     for param in model.parameters():
         param.requires_grad = False
-    return model
 
+    return model
 
 # ---------------------------------------------------------------------------
 # VQA Model (Paper §3.4 — caption-augmented answering)
