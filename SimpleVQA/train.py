@@ -414,13 +414,13 @@ class VQAModel(nn.Module):
             ↓
             FasterRCNN
             ↓
-            region features
+            region features: [32* 2048]
             ↓
-            RelationGNN
+            RelationGNN: [32* 2048] khourji abaadesh fargi nemikone
             ↓
             attention with question
             ↓
-            v_att
+            v_att: [1*2048]
 
 
         line 2:
@@ -483,8 +483,11 @@ class VQAModel(nn.Module):
 
         detector = fasterrcnn_resnet50_fpn(weights=FasterRCNN_ResNet50_FPN_Weights.DEFAULT)
         self.detector = detector
+
+        # mige weight hash garar nist update beshe.
         for p in self.detector.parameters():
             p.requires_grad = False
+
         self.local_proj = nn.Linear(1024, hidden_dim)
 
         self.q_emb = nn.Embedding(q_vocab_size, word_dim, padding_idx=pad_id)
@@ -496,17 +499,22 @@ class VQAModel(nn.Module):
         self.attn_score = nn.Linear(hidden_dim, 1)
 
         self.a_emb = nn.Embedding(a_vocab_size, word_dim, padding_idx=pad_id)
+
+        # input haye attentsion_LSTM(answer_embed(t-1) + ans_LSTM_h(t-1) + img_global_feature)
         self.lstm_att = nn.LSTMCell(word_dim + hidden_dim + hidden_dim, hidden_dim)
+
+    
+        # input haye answer_LSTM(h_att(t) + v_att + v_cap)
+        # v_att: hasel attention question roye region haye tasvir
+        # v_cap: caption embedding
         self.lstm_ans = nn.LSTMCell(hidden_dim + hidden_dim + hidden_dim, hidden_dim)
+
         self.out = nn.Linear(hidden_dim, a_vocab_size)
 
     @torch.no_grad()
     def _regions(self, images: torch.Tensor) -> torch.Tensor:
         """
-        ROI features az Faster R-CNN (freeze) — max ``max_regions`` ta.
-
-        Extract region-level visual features az Faster R-CNN va project bekone
-        be hidden_dim.
+        In func be tadad max_regions region extract mikone va be hidden_dim darkhsti(local_proj) project mikone.
 
         Important:
             - detector freeze ast
@@ -535,10 +543,11 @@ class VQAModel(nn.Module):
         """
         Softmax attention roye region-ha ba vector soal.
 
-        Soft attention roye region-ha ba conditioning roye question vector.
-
         Har region ba q_vec compare mishavad, attention weight ha hesab mishavand,
-        va yek attended visual vector khoroji mide ke نماینده‌ی relevant parts image ast.
+        va yek attended visual vector khoroji mide ke namayande relevant parts image ast.
+
+        input: [32* 2048]
+        output: [1*2048]
         """
         b, k, d = regions.shape
         q_exp = q_vec.unsqueeze(1).expand(b, k, d)
@@ -569,18 +578,28 @@ class VQAModel(nn.Module):
         Output:
             logits ba shape (batch, answer_len-1, a_vocab_size)
         """
+        # global img feature extract karde.
+        # toye lstm_att estefade mikone.
         g = self.g_proj(self.pool(self.resnet(images)).flatten(1))
+
+        # local feature haye img ro extract mikone.
         local = self._regions(images)
 
+        # question feature ba estefade az GRU extract karde.
         _, h = self.q_gru(self.q_emb(q_ids))
         q_vec = self.q_proj(h[-1])
 
+        # local feature haro mide be GNN ta relation region haro toye feature hash emal kone.
         rel = self.gnn(local)
+
+        # attention mizanim beyn image_regions va question
         v_att = self._attend(rel, q_vec)
 
+        # caption marboot be in tasvir va question ro generate mikonim.
         with torch.no_grad():
             v_cap, _ = self.captioner.get_caption_embedding(images, q_ids)
 
+        # fused visual feature, ke tarkib caption_features va v_att hast.
         v = v_cap * v_att if self.fuse_mode == "mul" else v_cap + v_att
 
         batch = images.size(0)
@@ -599,8 +618,13 @@ class VQAModel(nn.Module):
         logits: List[torch.Tensor] = []
         for t in range(steps):
             a_prev = self.a_emb(prev)
+
+            # input haye attentsion_LSTM(answer_embed(t-1) + ans_LSTM_h(t-1) + img_global_feature)
             h1, c1 = self.lstm_att(torch.cat([a_prev, g, h2], dim=-1), (h1, c1))
+
+            # input haye answer_LSTM(h_att(t) + v_att + v_cap)
             h2, c2 = self.lstm_ans(torch.cat([h1, h2, v], dim=-1), (h2, c2))
+
             logit = self.out(h2)
             logits.append(logit)
             prev = logit.argmax(dim=-1) if a_ids is None else a_ids[:, t + 1]
