@@ -29,4 +29,4 @@ question_dim: 1280
 fuse_mode: mul
 save_dir: outputs/smoke
 max_train_qids: 100
-max_val_qids: 50
+max_val_qids: 100
