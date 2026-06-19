@@ -18,5 +18,5 @@ lstm_hidden: 512
 embed_dim: 512
 region_dim: 2048
 device: cuda
-max_train_images: 32
-max_val_images: 16
+max_train_images: 100
+max_val_images: 100

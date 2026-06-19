@@ -33,3 +33,5 @@ word_dim: 512
 question_dim: 1280
 fuse_mode: mul
 save_dir: outputs/default
+max_train_qids: null
+max_val_qids: null
