@@ -1,8 +1,0 @@
-torch
-torchvision
-numpy
-pillow
-tqdm
-pyyaml
-nltk
-scikit-learn
