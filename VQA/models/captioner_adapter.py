@@ -9,9 +9,10 @@ Captioner roye **caption vocabulary** (kalamat MSCOCO) train shode.
 VQA amma **question vocabulary** (kalamat soal haye VQA) dare.
 Ghablan ``word_emb`` baraye har do estefade mishod → size mismatch ya index eshtebah.
 
-Hal:
-    - ``word_emb`` + ``classifier`` → caption vocab (az checkpoint load)
-    - ``q_emb`` (jadid) → question vocab (VQA ``q_ids``)
+Hal (3 ghesmat):
+    1. **Do vocabulary** — ``word_emb`` caption, ``q_emb`` soal VQA
+    2. **Load checkpoint** — caption weight ha load, ``q_emb`` random
+    3. **Fine-tune soal** — faghat ``q_emb`` + ``q_proj`` trainable; grad az answer loss
 
 YAML config::
 
@@ -24,9 +25,9 @@ Estefade dar ``training/train.py``::
     captioner = load_captioner(cfg, vocab_size=len(qv.itos), pad_id=qv.pad_id, device=device)
     model = VQAModel(len(qv.itos), len(av.itos), qv.pad_id, captioner, ...)
 
-Nokte: bad az load, hame parameter haye captioner freeze hastan::
+Nokte: ``q_emb`` + ``q_proj`` trainable hastan (baghiye captioner freeze)::
 
-    assert all(not p.requires_grad for p in captioner.parameters())
+    assert captioner.q_emb.weight.requires_grad
 """
 
 import importlib.util
@@ -35,6 +36,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import torch
+from torch import nn
 
 
 def _load_matching_state_dict(model: torch.nn.Module, state: Dict[str, torch.Tensor]) -> None:
@@ -58,6 +60,32 @@ def _load_matching_state_dict(model: torch.nn.Module, state: Dict[str, torch.Ten
             f"({', '.join(skipped)})"
         )
     model.load_state_dict(filtered, strict=False)
+
+
+def _unfreeze_captioner_question_layers(captioner: nn.Module) -> int:
+    """Freeze kol captioner, faghat ``q_emb`` va ``q_proj`` ro trainable kon.
+
+    Caption train soal nadide → ``q_emb`` random ast.
+    VQA train: in layer ha az answer loss (indirect) yad migirand.
+    ``q_proj`` faghat vaghti Linear hast (na Identity) trainable mishe.
+
+    Returns:
+        Tedad parameter haye trainable.
+    """
+    for param in captioner.parameters():
+        param.requires_grad = False
+    trainable = 0
+    q_emb = getattr(captioner, "q_emb", None)
+    if q_emb is not None:
+        for param in q_emb.parameters():
+            param.requires_grad = True
+            trainable += param.numel()
+    q_proj = getattr(captioner, "q_proj", None)
+    if q_proj is not None and not isinstance(q_proj, nn.Identity):
+        for param in q_proj.parameters():
+            param.requires_grad = True
+            trainable += param.numel()
+    return trainable
 
 
 def _caption_vocab_size_from_checkpoint(ckpt_path: Path) -> int:
@@ -87,14 +115,19 @@ def load_captioner(cfg: Dict[str, Any], vocab_size: int, pad_id: int, device: to
         device: cuda ya cpu.
 
     Returns:
-        Captioner dar halat ``eval()`` ke hame parameter hash ``requires_grad=False`` hast.
+        Captioner dar halat ``eval()``; faghat ``q_emb`` / ``q_proj`` trainable.
 
     Flow:
         1. class ro az ``captioner_v1.py`` import kon
         2. caption vocab size ro az checkpoint begir
         3. model ro ba ``vocab_size=caption_vocab`` + ``question_vocab_size=vocab_size`` besaz
         4. weight haye match-shode ro load kon (``q_emb`` random mimune chon toye ckpt nist)
-        5. freeze + eval + to(device)
+        5. eval() + unfreeze faghat ``q_emb``/``q_proj`` + to(device)
+
+    Fine-tune:
+        Optimizer VQA bayad ``model.parameters()`` begire — ``q_emb`` dakhele
+        ``VQAModel.captioner`` hast va ``requires_grad=True`` migirad.
+        ``get_caption_embedding(differentiable=True)`` dar train grad ro faal mikone.
 
     Age checkpoint vojood nadashte bashe, caption layers ham ba question vocab size
     sakhte mishan (fallback — baraye smoke/debug).
@@ -135,6 +168,7 @@ def load_captioner(cfg: Dict[str, Any], vocab_size: int, pad_id: int, device: to
                 f"question_vocab={vocab_size}"
             )
     m.eval().to(device)
-    for prm in m.parameters():
-        prm.requires_grad = False
+    trainable = _unfreeze_captioner_question_layers(m) if hasattr(m, "q_emb") else 0
+    if trainable:
+        print(f"Captioner: {trainable} trainable params in q_emb + q_proj (rest frozen)")
     return m

@@ -236,6 +236,13 @@ def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {"images": images, "q": q, "a": a, "answers": [x["answers"] for x in batch]}
 
 
+# ---------------------------------------------------------------------------
+# Captioner load — do vocabulary + fine-tune q_emb (marhale 2 VQA)
+# ---------------------------------------------------------------------------
+# Captioner roye MSCOCO caption train shode (bedoon soal).
+# VQA soal dare → ``q_emb`` joda az ``word_emb``; faghat q_emb/q_proj trainable.
+# ---------------------------------------------------------------------------
+
 def _load_matching_state_dict(model: nn.Module, state: Dict[str, torch.Tensor]) -> None:
     """Checkpoint ro load kon — faghat layer hayi ke shape-shoon match mikone.
 
@@ -257,6 +264,34 @@ def _load_matching_state_dict(model: nn.Module, state: Dict[str, torch.Tensor]) 
             f"({', '.join(skipped)})"
         )
     model.load_state_dict(filtered, strict=False)
+
+
+def _unfreeze_captioner_question_layers(captioner: nn.Module) -> int:
+    """Hame captioner ro freeze kon, faghat ``q_emb`` va ``q_proj`` trainable bezan.
+
+    Chera?
+        - marhale 1 (caption train): soal feed nemishod → ``q_emb`` train nashode / random
+        - marhale 2 (VQA): soal bayad caption ro **question-guided** kone
+        - caption GT nadarim → faghat in 2 layer ro az **answer loss** (indirect) update mikonim
+        - LSTM, attention, ``word_emb``, ``classifier`` freeze mimonan (knowledge caption train)
+
+    Returns:
+        Tedad parameter haye trainable (baraye log).
+    """
+    for param in captioner.parameters():
+        param.requires_grad = False
+    trainable = 0
+    q_emb = getattr(captioner, "q_emb", None)
+    if q_emb is not None:
+        for param in q_emb.parameters():
+            param.requires_grad = True
+            trainable += param.numel()
+    q_proj = getattr(captioner, "q_proj", None)
+    if q_proj is not None and not isinstance(q_proj, nn.Identity):
+        for param in q_proj.parameters():
+            param.requires_grad = True
+            trainable += param.numel()
+    return trainable
 
 
 def _caption_vocab_size_from_checkpoint(ckpt_path: Path) -> int:
@@ -281,9 +316,10 @@ def load_captioner(
 
     Design:
         - ``word_emb`` / ``classifier`` → caption vocab az checkpoint (mesl smoke: 249)
-        - ``q_emb`` → question vocab VQA (mesl smoke: 7650) — random init, joda az caption
-        - ``q_ids`` az dataset mostaghim be ``get_caption_embedding`` mire baraye
-          caption **question-conditioned**
+        - ``q_emb`` → question vocab VQA (mesl smoke: 7650) — random init
+        - ``q_emb`` + ``q_proj`` trainable; baghiye captioner freeze
+        - train: grad answer loss → v_cap (LSTM hidden pool) → ``q_emb``
+        - eval: v_cap az ``word_emb`` caption tolid shode (paper §3.4)
 
     Args:
         cfg: path haye ``captioner_project_root``, ``captioner_ckpt``, hyperparams.
@@ -338,9 +374,9 @@ def load_captioner(
 
     model.eval().to(device)
 
-    # freeze captioner
-    for param in model.parameters():
-        param.requires_grad = False
+    trainable = _unfreeze_captioner_question_layers(model)
+    if trainable:
+        print(f"Captioner: {trainable} trainable params in q_emb + q_proj (rest frozen)")
 
     return model
 
@@ -584,10 +620,12 @@ class VQAModel(nn.Module):
         """Train VQA layers vali Faster R-CNN ro hamishe eval negah dar.
 
         RPN dar halat train error ``targets should not be None`` mide chon label
-        nadarim — detector freeze ast va faghat baraye extract region estefade mishe.
+        nadarim — detector freeze ast. captioner ham eval mimune (BN freeze);
+        faghat ``q_emb`` / ``q_proj`` trainable hastan va gradient migirand.
         """
         super().train(mode)
         self.detector.eval()
+        self.captioner.eval()
         return self
 
     @torch.no_grad()
@@ -649,10 +687,12 @@ class VQAModel(nn.Module):
         Train mode:
             - a_ids داده می‌شود
             - teacher forcing active ast
+            - ``get_caption_embedding(..., differentiable=True)`` → grad be captioner.q_emb
 
         Eval mode:
             - a_ids=None
             - greedy decoding estefade mishavad
+            - v_cap az ``word_emb`` caption tolid shode (paper)
 
         Output:
             logits ba shape (batch, answer_len-1, a_vocab_size)
@@ -674,9 +714,12 @@ class VQAModel(nn.Module):
         # attention mizanim beyn image_regions va question
         v_att = self._attend(rel, q_vec)
 
-        # caption marboot be in tasvir va question ro generate mikonim.
-        with torch.no_grad():
-            v_cap, _ = self.captioner.get_caption_embedding(images, q_ids)
+        # caption marboot be in tasvir va question — v_cap baraye fuse ba v_att.
+        # train: differentiable=True ta answer loss → q_emb update beshe.
+        # eval: v_cap az word_emb caption tolid shode (paper §3.4).
+        v_cap, _ = self.captioner.get_caption_embedding(
+            images, q_ids, differentiable=self.training
+        )
 
         # fused visual feature, ke tarkib caption_features va v_att hast.
         v = v_cap * v_att if self.fuse_mode == "mul" else v_cap + v_att

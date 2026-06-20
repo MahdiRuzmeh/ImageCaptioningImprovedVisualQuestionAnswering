@@ -217,6 +217,8 @@ class VQAModel(nn.Module):
 
         **Paper alignment:** Caption embeddings must use the **same** ``q_ids`` as the rest of the
         model so inference matches the thesis description of *question-conditioned* caption context.
+        Train VQA: ``differentiable=True`` ta ``q_emb`` captioner az answer loss update beshe
+        (bedoon caption GT — grad az LSTM hidden pool).
 
         Args:
             images: ``(batch, 3, H, W)``.
@@ -249,8 +251,10 @@ class VQAModel(nn.Module):
         rel = self.gnn(local)
         v_att = self._attend(rel, q)
 
-        with torch.no_grad():
-            v_cap, _ = self.captioner.get_caption_embedding(images, q_ids)
+        # v_cap: train → LSTM hidden pool + grad be captioner.q_emb; eval → word_emb(caption)
+        v_cap, _ = self.captioner.get_caption_embedding(
+            images, q_ids, differentiable=self.training
+        )
 
         v = v_cap * v_att if self.fuse_mode == "mul" else v_cap + v_att
 

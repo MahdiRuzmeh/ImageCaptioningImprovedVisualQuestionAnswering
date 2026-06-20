@@ -123,6 +123,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
     Do vocabulary joda:
         - ``word_emb`` + ``classifier`` → token haye **caption** (train roye MSCOCO)
         - ``q_emb`` → token haye **soal** VQA (faghat vaghti ``question_vocab_size`` pass shode)
+        - dar VQA train: faghat ``q_emb`` + ``q_proj`` update mishan (indirect az answer loss)
 
     Init signature hamoon ImageCaptionerV1 hast ta ``captioner_adapter`` kar kone.
     """
@@ -258,6 +259,47 @@ class SimpleImageCaptioner(BaseImageCaptioner):
             logits.append(logit)
         return torch.stack(logits, dim=1)
 
+    def _decode_caption(
+        self,
+        image: torch.Tensor,
+        question_ids: Optional[torch.Tensor],
+        max_len: int,
+        collect_hidden: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[List[torch.Tensor]]]:
+        """Loop greedy decode — moshtarak baraye inference va train VQA.
+
+        Har step:
+            qctx = f(q_emb, question_ids)  → attention(regions, h + qctx)
+            → LSTM → logits → argmax token
+
+        Args:
+            collect_hidden: age ``True``, hidden state LSTM har step save mishe.
+                baraye ``get_caption_embedding(differentiable=True)`` lazem ast
+                ta v_cap be q_emb gradient bede (bedoon in, argmax gradient ro mibarad).
+
+        Returns:
+            cap: token ids caption tolid shode (N, max_len)
+            hidden_steps: list hidden ha ya ``None``
+        """
+        regions = self.region_encoder(image)
+        n = image.size(0)
+        qctx = self._qctx(question_ids, n, image.device)
+        h = torch.zeros(n, self.lstm_hidden, device=image.device)
+        c = torch.zeros_like(h)
+        tok = torch.full((n,), 1, dtype=torch.long, device=image.device)
+        out = [tok]
+        hidden_steps: List[torch.Tensor] = []
+        for _ in range(max_len - 1):
+            logit, h, c = self._caption_step(regions, tok, h, c, qctx)
+            if collect_hidden:
+                hidden_steps.append(h)
+            tok = logit.argmax(dim=-1)
+            out.append(tok)
+        cap = torch.stack(out, dim=1)
+        if collect_hidden:
+            return cap, hidden_steps
+        return cap, None
+
     @torch.no_grad()
     def generate_caption(
         self,
@@ -265,39 +307,52 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         question_ids: Optional[torch.Tensor] = None,
         max_len: int = 20,
     ) -> torch.Tensor:
-        """Greedy decode az BOS (id=1) — baraye inference va VQA."""
-        regions = self.region_encoder(image)
-        n = image.size(0)
+        """Greedy decode az BOS (id=1) — baraye inference va eval VQA.
 
-        # toye inja question vector va caption vector baham jaam mishan va (toye train Image captioner inja question ro nadaram)
-        # dar nahayat question_caption_context be onvan query be img region features zade mishan. 
-        # img feature dimention [N* 32* 2048] hast.
-        # baraye mohasebe similarity bayad project konim be space ba dimention
-        # [N* 32 * 512]. alan mishe similarity hesab kard. (chon h(t-1) ya hamon caption_feature vector 512d hast.)
-        # similarity([32* 512], [512])= [32]
-        # result attention dimention= [N* 32]
-        qctx = self._qctx(question_ids, n, image.device)
-
-        h = torch.zeros(n, self.lstm_hidden, device=image.device)
-        c = torch.zeros_like(h)
-        tok = torch.full((n,), 1, dtype=torch.long, device=image.device)
-        out = [tok]
-        for _ in range(max_len - 1):
-            logit, h, c = self._caption_step(regions, tok, h, c, qctx)
-            tok = logit.argmax(dim=-1)
-            out.append(tok)
-        return torch.stack(out, dim=1)
+        ``@torch.no_grad()``: inference faghat; train VQA az ``_decode_caption`` ba
+        ``collect_hidden=True`` estefade mikone ta grad dashte bashe.
+        """
+        cap, _ = self._decode_caption(image, question_ids, max_len, collect_hidden=False)
+        return cap
 
     def encode_caption(self, caption_ids: torch.Tensor) -> torch.Tensor:
         """Mean-pool token embeddings → v_cap (N, word_dim) — paper §3.4."""
         return self.word_emb(caption_ids).mean(dim=1)
 
-    @torch.no_grad()
     def get_caption_embedding(
         self,
         image: torch.Tensor,
         question_ids: Optional[torch.Tensor] = None,
+        differentiable: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Generate caption + v_cap — in method ro VQAModel seda mizane."""
-        cap = self.generate_caption(image, question_ids)
+        """Generate caption + v_cap — in method ro VQAModel seda mizane.
+
+        Do halat:
+
+        **Eval / inference** (``differentiable=False``):
+            - ``generate_caption`` ba ``no_grad``
+            - v_cap = mean-pool ``word_emb`` roye token haye caption (paper §3.4)
+            - in hamoon chizi hast ke maghale tozih mide
+
+        **Train VQA** (``differentiable=True``):
+            - caption GT baraye (image, question) nadarim → captioner ro direct train nemikonim
+            - argmax token gradient ro cut mikone → nemitoonim ``word_emb(cap)`` ro baraye backprop estefade konim
+            - hal: v_cap = mean(LSTM hidden states) dar hamin decode loop
+            - grad path: answer_loss → v_cap → h → attention(h+qctx) → qctx → q_emb
+            - faghat ``q_emb`` (+ ``q_proj``) trainable hastan; LSTM/attention frozen vali grad az input rad mishe
+
+        Returns:
+            v_cap: (N, word_dim) — caption representation baraye fuse ba v_att
+            cap: token ids — dar train ``detach`` shode (faghat baraye log/debug)
+        """
+        if differentiable:
+            cap, hidden_steps = self._decode_caption(
+                image, question_ids, max_len=20, collect_hidden=True
+            )
+            assert hidden_steps is not None
+            v_cap = torch.stack(hidden_steps, dim=1).mean(dim=1)
+            return v_cap, cap.detach()
+
+        with torch.no_grad():
+            cap = self.generate_caption(image, question_ids)
         return self.encode_caption(cap), cap
