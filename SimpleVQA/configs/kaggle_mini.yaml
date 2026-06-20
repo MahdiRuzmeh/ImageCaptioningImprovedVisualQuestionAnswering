@@ -1,0 +1,44 @@
+# Kaggle mini — fast VQA sanity check before full training.
+# Run AFTER SimpleImageCaptioner kaggle_mini (or point captioner_ckpt at your checkpoint).
+#
+# Run (notebook, from SimpleVQA/):
+#   python train.py --config configs/kaggle_mini.yaml
+#   python train.py --config configs/kaggle_mini.yaml --eval --ckpt outputs/kaggle_mini/best.pt
+#
+# Adjust /kaggle/input/... paths if your Kaggle dataset layout differs.
+
+seed: 42
+train_questions_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/v2_OpenEnded_mscoco_train2014_questions.json
+train_annotations_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/v2_mscoco_train2014_annotations.json
+val_questions_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/v2_OpenEnded_mscoco_val2014_questions.json
+val_annotations_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/v2_mscoco_val2014_annotations.json
+train_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014
+val_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/val2014
+train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
+captioner_project_root: ../SimpleImageCaptioner
+captioner_ckpt: ../SimpleImageCaptioner/outputs/kaggle_mini/best.pt
+captioner_class: SimpleImageCaptioner
+num_workers: 2
+prefetch_factor: 2
+pin_memory: true
+persistent_workers: true
+batch_size: 4
+grad_accum_steps: 2
+epochs: 3
+learning_rate: 0.0005
+lr_decay_every: 4
+lr_decay_factor: 0.6
+max_question_len: 14
+max_answer_len: 6
+vocab_min_freq: 4
+use_amp: true
+max_regions: 32
+device: cuda
+hidden_dim: 512
+word_dim: 512
+question_dim: 1280
+fuse_mode: mul
+save_dir: outputs/kaggle_mini
+max_train_qids: 1000
+max_val_qids: 200
