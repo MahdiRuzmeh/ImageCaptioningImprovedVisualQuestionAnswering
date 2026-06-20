@@ -33,7 +33,8 @@ Defaults live in `configs/default.yaml` (paper-aligned: 2048 regions, 512 LSTM/e
 ## Requirements
 
 - Python 3.8+
-- `torch`, `torchvision`, `pillow`, `tqdm`, `pyyaml`
+- Install from this folder: `pip install -r requirements.txt`
+- Packages: `torch`, `torchvision`, `pillow`, `tqdm`, `pyyaml`
 
 ## Data
 
@@ -93,7 +94,7 @@ python train.py --config configs/kaggle.yaml
 
 ## VQA integration
 
-After caption training, point `VQA/configs/default.yaml` at this folder (already set):
+After caption training, point `SimpleVQA/configs/default.yaml` at this folder (already set):
 
 ```yaml
 captioner_project_root: ../SimpleImageCaptioner
@@ -101,4 +102,4 @@ captioner_ckpt: ../SimpleImageCaptioner/outputs/default/best.pt
 captioner_class: SimpleImageCaptioner
 ```
 
-VQA loads `models/captioner_v1.py` via `captioner_adapter.load_captioner`, freezes weights, and calls `get_caption_embedding(images, q_ids)`.
+`SimpleVQA/train.py` loads `models/captioner_v1.py`, fine-tunes `q_emb` / `q_proj`, and calls `get_caption_embedding(images, q_ids)`.
