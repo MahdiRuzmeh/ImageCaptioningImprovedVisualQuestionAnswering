@@ -236,10 +236,61 @@ def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {"images": images, "q": q, "a": a, "answers": [x["answers"] for x in batch]}
 
 
+def _load_matching_state_dict(model: nn.Module, state: Dict[str, torch.Tensor]) -> None:
+    """Checkpoint ro load kon — faghat layer hayi ke shape-shoon match mikone.
+
+    Vaghti caption vocab != question vocab, ``word_emb`` dige resize nemishe;
+    in func baghiye weight ha (LSTM, attention, region encoder, ...) ro load
+    mikone va key haye jadid mesl ``q_emb`` ke toye checkpoint nist ro skip mikone.
+    """
+    model_state = model.state_dict()
+    filtered = {
+        key: tensor
+        for key, tensor in state.items()
+        if key in model_state and model_state[key].shape == tensor.shape
+    }
+    skipped = [key for key in state if key not in filtered]
+    if skipped:
+        print(
+            "Captioner checkpoint: skipped "
+            f"{len(skipped)} key(s) with shape mismatch or unknown name "
+            f"({', '.join(skipped)})"
+        )
+    model.load_state_dict(filtered, strict=False)
+
+
+def _caption_vocab_size_from_checkpoint(ckpt_path: Path) -> int:
+    """Tedad kalamat vocabulary caption ro az checkpoint captioner begir.
+
+    Az ``state['vocab']`` ya shape ``word_emb.weight`` estefade mikone.
+    """
+    state = torch.load(ckpt_path, map_location="cpu")
+    vocab = state.get("vocab")
+    if vocab is not None:
+        return len(vocab)
+    weight = state.get("model", state).get("word_emb.weight")
+    if weight is not None:
+        return int(weight.shape[0])
+    raise ValueError(f"Cannot infer caption vocabulary size from {ckpt_path}")
+
+
 def load_captioner(
     cfg: Dict[str, Any], q_vocab_size: int, pad_id: int, device: torch.device
 ) -> nn.Module:
-    """Load and freeze captioner from SimpleImageCaptioner project."""
+    """Captioner pretrained ro load kon va freeze kon (marhale 2 VQA).
+
+    Design:
+        - ``word_emb`` / ``classifier`` → caption vocab az checkpoint (mesl smoke: 249)
+        - ``q_emb`` → question vocab VQA (mesl smoke: 7650) — random init, joda az caption
+        - ``q_ids`` az dataset mostaghim be ``get_caption_embedding`` mire baraye
+          caption **question-conditioned**
+
+    Args:
+        cfg: path haye ``captioner_project_root``, ``captioner_ckpt``, hyperparams.
+        q_vocab_size: ``len(q_vocab.itos)`` — size vocabulary soal.
+        pad_id: PAD index (0).
+        device: cuda/cpu.
+    """
 
     captioner_root = Path(cfg["captioner_project_root"]).resolve()
 
@@ -256,19 +307,34 @@ def load_captioner(
 
     cls = getattr(mod, cfg.get("captioner_class", "SimpleImageCaptioner"))
 
+    ckpt_path = Path(cfg["captioner_ckpt"])
+    if ckpt_path.exists():
+        caption_vocab_size = _caption_vocab_size_from_checkpoint(ckpt_path)
+    else:
+        caption_vocab_size = q_vocab_size
+        print(
+            f"Captioner checkpoint not found at {ckpt_path}; "
+            f"using question vocab size {q_vocab_size} for caption layers."
+        )
+
     model = cls(
-        vocab_size=q_vocab_size,
+        vocab_size=caption_vocab_size,
         pad_id=pad_id,
         word_dim=int(cfg["word_dim"]),
         hidden_dim=int(cfg["hidden_dim"]),
         max_regions=int(cfg["max_regions"]),
         question_dim=int(cfg["question_dim"]),
+        question_vocab_size=q_vocab_size,
+        question_pad_id=pad_id,
     )
 
-    ckpt_path = Path(cfg["captioner_ckpt"])
     if ckpt_path.exists():
         state = torch.load(ckpt_path, map_location="cpu")
-        model.load_state_dict(state.get("model", state), strict=False)
+        _load_matching_state_dict(model, state.get("model", state))
+        print(
+            f"Captioner loaded: caption_vocab={caption_vocab_size} "
+            f"question_vocab={q_vocab_size}"
+        )
 
     model.eval().to(device)
 
@@ -513,6 +579,16 @@ class VQAModel(nn.Module):
         self.lstm_ans = nn.LSTMCell(hidden_dim + hidden_dim + hidden_dim, hidden_dim)
 
         self.out = nn.Linear(hidden_dim, a_vocab_size)
+
+    def train(self, mode: bool = True) -> "VQAModel":
+        """Train VQA layers vali Faster R-CNN ro hamishe eval negah dar.
+
+        RPN dar halat train error ``targets should not be None`` mide chon label
+        nadarim — detector freeze ast va faghat baraye extract region estefade mishe.
+        """
+        super().train(mode)
+        self.detector.eval()
+        return self
 
     @torch.no_grad()
     def _regions(self, images: torch.Tensor) -> torch.Tensor:

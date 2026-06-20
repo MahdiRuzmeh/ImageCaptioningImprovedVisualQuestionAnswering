@@ -117,10 +117,14 @@ class SimpleImageCaptioner(BaseImageCaptioner):
     """Captioner sade ba per-step region attention — VQA-ready.
 
     Paper §3.3: attention dar har timestep ba m_{t-1}.
-    VQA: soal (question_ids) be hidden state ezafe mishe ta caption
-    question-conditioned beshe (mesl forward VQAModel ke q_ids pass mide).
+    VQA: soal (question_ids) az ``q_emb`` joda az ``word_emb`` encode mishan ta
+    caption vocabulary va question vocabulary mixed nashan.
 
-    Init signature hamoon ImageCaptionerV1 hast ta `captioner_adapter` kar kone.
+    Do vocabulary joda:
+        - ``word_emb`` + ``classifier`` → token haye **caption** (train roye MSCOCO)
+        - ``q_emb`` → token haye **soal** VQA (faghat vaghti ``question_vocab_size`` pass shode)
+
+    Init signature hamoon ImageCaptionerV1 hast ta ``captioner_adapter`` kar kone.
     """
 
     def __init__(
@@ -133,7 +137,18 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         question_dim: int = 1280,
         embed_dim: Optional[int] = None,
         region_dim: int = 2048,
+        question_vocab_size: Optional[int] = None,
+        question_pad_id: Optional[int] = None,
     ) -> None:
+        """Caption decoder + optional question embedding baraye VQA.
+
+        Args:
+            vocab_size: size vocabulary **caption** (``word_emb``, ``classifier``).
+            pad_id: index PAD baraye caption tokens.
+            question_vocab_size: age set shavad, ``q_emb`` sakhte mishavad baraye soal VQA.
+                Dar train caption-only (``SimpleImageCaptioner/train.py``) pass nemishe.
+            question_pad_id: PAD baraye ``q_emb``; default hamoon ``pad_id``.
+        """
         super().__init__()
         self.lstm_hidden = hidden_dim
         self.embed_dim = embed_dim if embed_dim is not None else hidden_dim
@@ -148,6 +163,14 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         self.lstm = nn.LSTMCell(word_dim + self.embed_dim, hidden_dim)
 
         self.classifier = nn.Linear(hidden_dim, vocab_size)
+
+        # embedding joda baraye soal VQA — ba word_emb caption share nemikone
+        self.q_emb: Optional[nn.Embedding] = None
+        if question_vocab_size is not None:
+            q_pad = pad_id if question_pad_id is None else question_pad_id
+            self.q_emb = nn.Embedding(
+                question_vocab_size, word_dim, padding_idx=q_pad
+            )
 
         # agar word_dim != hidden_dim, soal ro project mikonim (VQA compat)
         self.q_proj = (
@@ -172,11 +195,19 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         """Soal ro be vector bias tabdil mikone baraye attention.
 
         Agar question_ids=None (caption-only train), zero vector bar migardune.
-        VQA: mean-pool embedding soal → q_proj → ezafe be h_{t-1}.
+        VQA: mean-pool ``q_emb(question_ids)`` → ``q_proj`` → be ``h_{t-1}`` ezafe
+        mishavad ta caption **question-guided** beshe (na caption omumi).
+
+        ``word_emb`` faghat baraye token haye caption dar decode estefade mishe.
         """
         if question_ids is None:
             return torch.zeros(batch, self.lstm_hidden, device=device)
-        qe = self.word_emb(question_ids).mean(dim=1)
+        if self.q_emb is None:
+            raise RuntimeError(
+                "question_ids provided but captioner has no q_emb; "
+                "pass question_vocab_size when loading for VQA."
+            )
+        qe = self.q_emb(question_ids).mean(dim=1)
         return self.q_proj(qe)
 
     def _caption_step(
