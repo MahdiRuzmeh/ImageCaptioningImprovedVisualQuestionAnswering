@@ -57,7 +57,8 @@ There is no ground-truth caption for `(image, question)` pairs in VQA, so the ca
 ## Requirements
 
 - Python 3.8+
-- `torch`, `torchvision`, `pillow`, `tqdm`, `pyyaml`
+- Install from this folder: `pip install -r requirements.txt`
+- Packages: `torch`, `torchvision`, `pillow`, `tqdm`, `pyyaml`
 - A trained captioner checkpoint from `SimpleImageCaptioner` (see [prerequisites](#prerequisites))
 
 ## Data
