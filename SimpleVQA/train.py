@@ -585,6 +585,10 @@ class VQAModel(nn.Module):
         self.resnet = nn.Sequential(*list(backbone.children())[:-2])
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
         self.g_proj = nn.Linear(2048, hidden_dim)
+        
+        # mige weight haye Resnet garar nist update beshe.
+        for p in self.resnet.parameters():
+            p.requires_grad = False
 
         detector = fasterrcnn_resnet50_fpn(weights=FasterRCNN_ResNet50_FPN_Weights.DEFAULT)
         self.detector = detector
@@ -617,13 +621,15 @@ class VQAModel(nn.Module):
         self.out = nn.Linear(hidden_dim, a_vocab_size)
 
     def train(self, mode: bool = True) -> "VQAModel":
-        """Train VQA layers vali Faster R-CNN ro hamishe eval negah dar.
+        """Train VQA layers vali ResNet-101 va Faster R-CNN hamishe eval negah dar.
 
         RPN dar halat train error ``targets should not be None`` mide chon label
-        nadarim — detector freeze ast. captioner ham eval mimune (BN freeze);
-        faghat ``q_emb`` / ``q_proj`` trainable hastan va gradient migirand.
+        nadarim — detector freeze ast. ResNet-101 ham freeze ast (pretrained global
+        feature). captioner eval mimune (BN freeze); faghat ``q_emb`` / ``q_proj``
+        trainable hastan va gradient migirand.
         """
         super().train(mode)
+        self.resnet.eval()
         self.detector.eval()
         self.captioner.eval()
         return self
