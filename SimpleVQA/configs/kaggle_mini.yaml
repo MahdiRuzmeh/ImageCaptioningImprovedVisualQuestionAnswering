@@ -8,22 +8,22 @@
 # Adjust /kaggle/input/... paths if your Kaggle dataset layout differs.
 
 seed: 42
-train_questions_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/v2_OpenEnded_mscoco_train2014_questions.json
-train_annotations_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/v2_mscoco_train2014_annotations.json
-val_questions_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/v2_OpenEnded_mscoco_val2014_questions.json
-val_annotations_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/v2_mscoco_val2014_annotations.json
+train_questions_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Questions/v2_OpenEnded_mscoco_train2014_questions.json
+train_annotations_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Annotations/v2_mscoco_train2014_annotations.json
+val_questions_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Questions/v2_OpenEnded_mscoco_val2014_questions.json
+val_annotations_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Annotations/v2_mscoco_val2014_annotations.json
 train_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014
 val_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 captioner_project_root: ../SimpleImageCaptioner
-captioner_ckpt: ../SimpleImageCaptioner/outputs/kaggle_mini/best.pt
+captioner_ckpt: /kaggle/input/notebooks/mahdirouzmeh/vqa-firstbasepaper/outputs/kaggle_mini/best.pt
 captioner_class: SimpleImageCaptioner
 num_workers: 2
 prefetch_factor: 2
 pin_memory: true
 persistent_workers: true
-batch_size: 8
+batch_size: 10
 grad_accum_steps: 2
 epochs: 3
 learning_rate: 0.0005
