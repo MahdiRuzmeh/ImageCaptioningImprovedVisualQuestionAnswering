@@ -296,6 +296,53 @@ def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
 # Model dar `models/captioner_v1.py` hast (VQA ham hamoon file ro load mikone).
 
 # ---------------------------------------------------------------------------
+# Metrics
+# ---------------------------------------------------------------------------
+def caption_token_acc(logits: torch.Tensor, targets: torch.Tensor, pad_id: int = 0) -> float:
+    """Teacher-forcing token accuracy (Finglish).
+
+    In metric chikar mikone?
+        - Har step model yek vector score baraye **hame kalamat vocab** mide.
+        - Ma `argmax(logits)` ro migirim → predicted next token.
+        - Ba `targets` (hamoon `captions[:, 1:]`) compare mikonim.
+        - PAD (``pad_id=0``) ro hesab nemikonim.
+
+    Chera "teacher forcing"?
+        - Dar train/val loss, model **kalame ghabli ground truth** ro mibine.
+        - Pas in accuracy **greedy caption** ro andaze nemigire (baraye on ``eval.py`` lazeme).
+
+    Mesal (yek caption):
+        GT: "a dog on a bench"
+        targets: [a, dog, on, a, bench, EOS]
+
+        Step 1: pred=a,   target=a     → correct
+        Step 2: pred=dog, target=dog   → correct
+        Step 3: pred=cat, target=on    → wrong
+        Step 4: pred=a,   target=a     → correct
+        Step 5: pred=bench, target=bench → correct
+        Step 6: pred=EOS, target=EOS   → correct
+
+        Correct: 5
+        Total positions: 6
+        Accuracy for this caption: 5 / 6 = 0.833
+
+    Args:
+        logits: (batch, seq_len-1, vocab_size) — khorouji ``forward_train``.
+        targets: (batch, seq_len-1) — ``captions[:, 1:]``.
+        pad_id: index PAD (default 0) — inja ignore mishe.
+
+    Returns:
+        float dar baze [0, 1] — miangin accuracy roye **non-PAD** token ha.
+    """
+    preds = logits.argmax(dim=-1)
+    mask = targets != pad_id
+    n = int(mask.sum().item())
+    if n == 0:
+        return 0.0
+    return float(((preds == targets) & mask).sum().item()) / n
+
+
+# ---------------------------------------------------------------------------
 # Training loop helpers
 # ---------------------------------------------------------------------------
 """
@@ -358,10 +405,11 @@ def train_epoch(
     criterion: nn.Module,
     device: torch.device,
     cfg: Dict[str, Any],
-) -> float:
-    """One training pass; returns mean cross-entropy loss."""
+) -> Tuple[float, float]:
+    """One training pass; returns mean cross-entropy loss and token accuracy."""
     model.train()
-    total = 0.0
+    total_loss = 0.0
+    total_acc = 0.0
     accum = int(cfg.get("grad_accum_steps", 1))
     use_amp = bool(cfg.get("use_amp", False)) and device.type == "cuda"
     optimizer.zero_grad(set_to_none=True)
@@ -402,12 +450,16 @@ def train_epoch(
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
 
-        # loss kole batch haye in epoch ro hesab mikonim.
-        total += float(loss.item())
+        targets = caps[:, 1:]
+        total_loss += float(loss.item())
+        total_acc += caption_token_acc(logits, targets)
 
-        # loss in batch ro toye terminal neshon midim.
-        pbar.set_postfix(loss=f"{loss.item():.4f}")
-    return total / max(1, len(loader))
+        pbar.set_postfix(
+            loss=f"{loss.item():.4f}",
+            acc=f"{caption_token_acc(logits, targets):.4f}",
+        )
+    n = max(1, len(loader))
+    return total_loss / n, total_acc / n
 
 
 """
@@ -436,10 +488,11 @@ def eval_epoch(
     criterion: nn.Module,
     device: torch.device,
     cfg: Dict[str, Any],
-) -> float:
-    """Validation loss (teacher forcing, same as training)."""
+) -> Tuple[float, float]:
+    """Validation loss and token accuracy (teacher forcing, same as training)."""
     model.eval()
-    total = 0.0
+    total_loss = 0.0
+    total_acc = 0.0
     for batch in tqdm(loader, desc="val", leave=False):
         images = batch["images"].to(device, non_blocking=device.type == "cuda")
         caps = batch["captions"].to(device, non_blocking=device.type == "cuda")
@@ -461,8 +514,11 @@ def eval_epoch(
             logits.reshape(-1, logits.size(-1)),
             caps[:, 1:].reshape(-1),
         )
-        total += float(loss.item())
-    return total / max(1, len(loader))
+        targets = caps[:, 1:]
+        total_loss += float(loss.item())
+        total_acc += caption_token_acc(logits, targets)
+    n = max(1, len(loader))
+    return total_loss / n, total_acc / n
 
 
 # ---------------------------------------------------------------------------
@@ -669,13 +725,14 @@ def main() -> None:
     for epoch in range(1, epochs + 1):
         if ddp_on and train_sampler is not None:
             train_sampler.set_epoch(epoch)
-        tr_loss = train_epoch(
+        tr_loss, tr_acc = train_epoch(
             model, train_loader, optimizer, scaler, criterion, device, cfg
         )
-        va_loss = eval_epoch(model, val_loader, criterion, device, cfg)
+        va_loss, va_acc = eval_epoch(model, val_loader, criterion, device, cfg)
         if rank == 0:
             print(
-                f"epoch {epoch}/{epochs}  train_loss={tr_loss:.4f}  val_loss={va_loss:.4f}"
+                f"epoch {epoch}/{epochs}  train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} "
+                f"val_loss={va_loss:.4f} val_acc={va_acc:.4f}"
             )
 
         if rank == 0:

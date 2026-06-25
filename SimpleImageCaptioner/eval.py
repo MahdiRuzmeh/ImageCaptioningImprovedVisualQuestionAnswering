@@ -380,10 +380,10 @@ def run_val(
         num_workers=int(cfg.get("num_workers", 0)),
         collate_fn=collate_batch,
     )
-    loss = eval_epoch(
+    loss, acc = eval_epoch(
         model, loader, nn.CrossEntropyLoss(ignore_index=0), device, cfg
     )
-    print(f"val_loss (teacher forcing): {loss:.4f}")
+    print(f"val_loss (teacher forcing): {loss:.4f}  val_token_acc: {acc:.4f}")
 
     if n_samples <= 0:
         return
