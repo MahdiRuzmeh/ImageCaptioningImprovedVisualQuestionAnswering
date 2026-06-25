@@ -27,7 +27,12 @@ max_answer_len: 6
 vocab_min_freq: 4
 use_amp: true
 max_regions: 32
+cache_regions: false
+region_cache_dir: outputs/region_cache/vqa_k32_d512
+image_size: 448
 device: cuda
+ddp: false
+ddp_backend: nccl
 hidden_dim: 512
 word_dim: 512
 question_dim: 1280

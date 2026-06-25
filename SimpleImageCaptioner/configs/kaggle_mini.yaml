@@ -18,14 +18,25 @@ num_workers: 2
 batch_size: 16
 epochs: 3
 learning_rate: 0.0005
+use_amp: true
+grad_accum_steps: 1
 max_caption_len: 20
 vocab_min_freq: 4
 max_regions: 32
+cache_regions: true
+region_cache_dir: /kaggle/working/region_cache/captioner_k32
+image_size: 448
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
 word_dim: 512
 lstm_hidden: 512
 embed_dim: 512
 region_dim: 2048
 device: cuda
+# DDP ro faghat roye Kaggle (2xT4) roshan kon.
+ddp: true
+ddp_backend: nccl
 # ~1000 train images ≈ few hours on Kaggle GPU (not 15h/epoch full run)
 max_train_images: 1000
 max_val_images: 200

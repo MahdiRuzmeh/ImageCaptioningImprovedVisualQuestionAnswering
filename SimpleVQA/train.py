@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
+import torch.distributed as dist
 import yaml
 from PIL import Image
 from torch import nn
@@ -41,6 +42,7 @@ from torch.cuda.amp import GradScaler, autocast
 from torch.optim import Adamax
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms
 from torchvision.models import ResNet101_Weights, resnet101
 from torchvision.models.detection import (
@@ -49,8 +51,44 @@ from torchvision.models.detection import (
 )
 from tqdm import tqdm
 
+# Finglish: torchrun/Windows type hint compatibility
+from typing import Tuple
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 TOKEN_RE = re.compile(r"[a-z0-9']+")
+
+"""
+Finglish note (Kaggle 2xT4 + speed)
+----------------------------------
+- cache_regions: region feature FasterRCNN ro 1 bar per image hesab mikonim va disk save mikonim.
+  in kar time training ro kheili kam mikone (epoch haye badi fast mishan).
+- use_amp: mixed precision baraye speed/memory.
+- ddp: age ddp=true bashe, ba torchrun do ta GPU ro hamzaman estefade mikonim.
+"""
+
+
+def ddp_env() -> Tuple[bool, int, int, int]:
+    """Finglish: DDP env ro az torchrun migirime (WORLD_SIZE/RANK/LOCAL_RANK)."""
+    try:
+        ws = int(os.environ.get("WORLD_SIZE", "1"))
+        rank = int(os.environ.get("RANK", "0"))
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    except Exception:
+        ws, rank, local_rank = 1, 0, 0
+    return ws > 1, ws, rank, local_rank
+
+
+def ddp_setup(cfg: Dict[str, Any]) -> Tuple[bool, int, int, int]:
+    """Finglish: age ddp=true bashe process group ro init mikonim."""
+    want = bool(cfg.get("ddp", False))
+    enabled, world, rank, local_rank = ddp_env()
+    if not want or not enabled:
+        return False, 1, 0, 0
+    backend = str(cfg.get("ddp_backend", "nccl"))
+    dist.init_process_group(backend=backend, init_method="env://")
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+    return True, world, rank, local_rank
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +203,7 @@ class VQADataset(Dataset):
         max_q: int,
         max_a: int,
         qids: Optional[List[int]] = None,
+        image_size: int = 448,
     ) -> None:
         self.images_dir = Path(images_dir)
         self.image_filename_template = image_filename_template
@@ -200,7 +239,7 @@ class VQADataset(Dataset):
 
         self.transform = transforms.Compose(
             [
-                transforms.Resize((448, 448)),
+                transforms.Resize((int(image_size), int(image_size))),
                 transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
             ]
@@ -217,6 +256,7 @@ class VQADataset(Dataset):
         a_ids = [1] + self.a_vocab.encode(tok(s["answer"])[: self.max_a - 2]) + [2]
         return {
             "image": image,
+            "image_id": int(s["image_id"]),
             "q": torch.tensor(q_ids, dtype=torch.long),
             "a": torch.tensor(a_ids, dtype=torch.long),
             "answers": s["answers"],
@@ -226,6 +266,7 @@ class VQADataset(Dataset):
 def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Batch ro stack kon; soal/javab ro ba PAD=0 padding bede."""
     images = torch.stack([x["image"] for x in batch])
+    image_ids = torch.tensor([int(x["image_id"]) for x in batch], dtype=torch.long)
     max_q = max(len(x["q"]) for x in batch)
     max_a = max(len(x["a"]) for x in batch)
     q = torch.zeros((len(batch), max_q), dtype=torch.long)
@@ -233,7 +274,13 @@ def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     for i, x in enumerate(batch):
         q[i, : len(x["q"])] = x["q"]
         a[i, : len(x["a"])] = x["a"]
-    return {"images": images, "q": q, "a": a, "answers": [x["answers"] for x in batch]}
+    return {
+        "images": images,
+        "image_ids": image_ids,
+        "q": q,
+        "a": a,
+        "answers": [x["answers"] for x in batch],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -620,6 +667,38 @@ class VQAModel(nn.Module):
 
         self.out = nn.Linear(hidden_dim, a_vocab_size)
 
+    def _regions_cache_path(self, cache_dir: str, image_id: int) -> Path:
+        return Path(cache_dir) / f"{int(image_id)}_k{int(self.max_regions)}_d{int(self.hidden_dim)}.pt"
+
+    def _load_regions_cached(
+        self, cache_dir: str, image_ids: torch.Tensor, device: torch.device
+    ) -> Optional[torch.Tensor]:
+        try:
+            paths = [self._regions_cache_path(cache_dir, int(i.item())) for i in image_ids]
+            if not all(p.exists() for p in paths):
+                return None
+            tensors: List[torch.Tensor] = []
+            for p in paths:
+                t = torch.load(p, map_location="cpu")
+                if not isinstance(t, torch.Tensor) or t.ndim != 2:
+                    return None
+                tensors.append(t)
+            out = torch.stack(tensors, dim=0)
+            if out.shape[1] != self.max_regions or out.shape[2] != self.hidden_dim:
+                return None
+            return out.to(device, non_blocking=(device.type == "cuda"))
+        except Exception:
+            return None
+
+    def _save_regions_cached(self, cache_dir: str, image_ids: torch.Tensor, regions: torch.Tensor) -> None:
+        try:
+            Path(cache_dir).mkdir(parents=True, exist_ok=True)
+            for i, img_id in enumerate(image_ids):
+                p = self._regions_cache_path(cache_dir, int(img_id.item()))
+                torch.save(regions[i].detach().to("cpu"), p)
+        except Exception:
+            pass
+
     def train(self, mode: bool = True) -> "VQAModel":
         """Train VQA layers vali ResNet-101 va Faster R-CNN hamishe eval negah dar.
 
@@ -635,7 +714,13 @@ class VQAModel(nn.Module):
         return self
 
     @torch.no_grad()
-    def _regions(self, images: torch.Tensor) -> torch.Tensor:
+    def _regions(
+        self,
+        images: torch.Tensor,
+        image_ids: Optional[torch.Tensor] = None,
+        cache_dir: Optional[str] = None,
+        save_cache: bool = True,
+    ) -> torch.Tensor:
         """
         In func be tadad max_regions region extract mikone va be hidden_dim darkhsti(local_proj) project mikone.
 
@@ -644,6 +729,12 @@ class VQAModel(nn.Module):
             - output fixed-size region tensor ast
             - agar region count kamtar az max_regions bashe, با zero pad tamam mishavad
         """
+        device = images.device
+        if cache_dir and image_ids is not None and image_ids.numel() == images.size(0):
+            cached = self._load_regions_cached(cache_dir, image_ids, device)
+            if cached is not None:
+                return cached
+
         transformed, _ = self.detector.transform(list(images), None)
         feats = self.detector.backbone(transformed.tensors)
         props, _ = self.detector.rpn(transformed, feats, None)
@@ -660,7 +751,10 @@ class VQAModel(nn.Module):
                 )
                 chunk = torch.cat([chunk, pad], dim=0)
             padded.append(chunk)
-        return self.local_proj(torch.stack(padded, dim=0))
+        regions = self.local_proj(torch.stack(padded, dim=0))
+        if cache_dir and image_ids is not None and image_ids.numel() == images.size(0) and save_cache:
+            self._save_regions_cached(cache_dir, image_ids, regions)
+        return regions
 
     def _attend(self, regions: torch.Tensor, q_vec: torch.Tensor) -> torch.Tensor:
         """
@@ -684,6 +778,8 @@ class VQAModel(nn.Module):
         q_ids: torch.Tensor,
         a_ids: Optional[torch.Tensor] = None,
         max_answer_len: int = 6,
+        image_ids: Optional[torch.Tensor] = None,
+        region_cache_dir: Optional[str] = None,
     ) -> torch.Tensor:
         """
         Train: ``a_ids`` bede (teacher forcing). Eval: ``a_ids=None`` (greedy).
@@ -708,7 +804,12 @@ class VQAModel(nn.Module):
         g = self.g_proj(self.pool(self.resnet(images)).flatten(1))
 
         # local feature haye img ro extract mikone.
-        local = self._regions(images)
+        local = self._regions(
+            images,
+            image_ids=image_ids,
+            cache_dir=region_cache_dir,
+            save_cache=self.training,
+        )
 
         # question feature ba estefade az GRU extract karde.
         _, h = self.q_gru(self.q_emb(q_ids))
@@ -724,7 +825,11 @@ class VQAModel(nn.Module):
         # train: differentiable=True ta answer loss → q_emb update beshe.
         # eval: v_cap az word_emb caption tolid shode (paper §3.4).
         v_cap, _ = self.captioner.get_caption_embedding(
-            images, q_ids, differentiable=self.training
+            images,
+            q_ids,
+            differentiable=self.training,
+            image_ids=image_ids,
+            region_cache_dir=region_cache_dir,
         )
 
         # fused visual feature, ke tarkib caption_features va v_att hast.
@@ -813,6 +918,7 @@ def build_loaders(
         int(cfg["max_question_len"]),
         int(cfg["max_answer_len"]),
         qids=tr_qids,
+        image_size=int(cfg.get("image_size", 448)),
     )
     val_ds = VQADataset(
         cfg["val_questions_json"],
@@ -824,6 +930,7 @@ def build_loaders(
         int(cfg["max_question_len"]),
         int(cfg["max_answer_len"]),
         qids=va_qids,
+        image_size=int(cfg.get("image_size", 448)),
     )
 
     device_is_cuda = cfg.get("device") == "cuda" and torch.cuda.is_available()
@@ -837,8 +944,22 @@ def build_loaders(
         loader_kw["persistent_workers"] = bool(cfg.get("persistent_workers", False))
         loader_kw["prefetch_factor"] = int(cfg.get("prefetch_factor", 2))
 
-    train_loader = DataLoader(train_ds, shuffle=True, **loader_kw)
-    val_loader = DataLoader(val_ds, shuffle=False, **loader_kw)
+    ddp_on, _, _, _ = ddp_env()
+    want_ddp = bool(cfg.get("ddp", False)) and ddp_on
+    train_sampler = DistributedSampler(train_ds, shuffle=True) if want_ddp else None
+    val_sampler = DistributedSampler(val_ds, shuffle=False) if want_ddp else None
+    train_loader = DataLoader(
+        train_ds,
+        shuffle=(train_sampler is None),
+        sampler=train_sampler,
+        **loader_kw,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        shuffle=False,
+        sampler=val_sampler,
+        **loader_kw,
+    )
     return q_vocab, a_vocab, train_loader, val_loader
 
 
@@ -884,11 +1005,21 @@ def train_epoch(
 
     for i, batch in enumerate(tqdm(loader, desc="train", leave=False)):
         images = batch["images"].to(device, non_blocking=device.type == "cuda")
+        image_ids = batch.get("image_ids")
+        if image_ids is not None:
+            image_ids = image_ids.to(device, non_blocking=device.type == "cuda")
         q = batch["q"].to(device, non_blocking=device.type == "cuda")
         a = batch["a"].to(device, non_blocking=device.type == "cuda")
 
+        region_cache_dir = cfg.get("region_cache_dir") if bool(cfg.get("cache_regions", False)) else None
         with autocast(enabled=use_amp):
-            logits = model(images, q, a_ids=a)
+            logits = model(
+                images,
+                q,
+                a_ids=a,
+                image_ids=image_ids,
+                region_cache_dir=region_cache_dir,
+            )
             loss = criterion(logits.reshape(-1, logits.size(-1)), a[:, 1:].reshape(-1))
 
         scaler.scale(loss / accum).backward()
@@ -921,13 +1052,30 @@ def eval_epoch(
 
     for batch in tqdm(loader, desc="val", leave=False):
         images = batch["images"].to(device, non_blocking=device.type == "cuda")
+        image_ids = batch.get("image_ids")
+        if image_ids is not None:
+            image_ids = image_ids.to(device, non_blocking=device.type == "cuda")
         q = batch["q"].to(device, non_blocking=device.type == "cuda")
         a = batch["a"].to(device, non_blocking=device.type == "cuda")
 
+        region_cache_dir = cfg.get("region_cache_dir") if bool(cfg.get("cache_regions", False)) else None
         if greedy:
-            logits = model(images, q, a_ids=None, max_answer_len=int(cfg["max_answer_len"]))
+            logits = model(
+                images,
+                q,
+                a_ids=None,
+                max_answer_len=int(cfg["max_answer_len"]),
+                image_ids=image_ids,
+                region_cache_dir=region_cache_dir,
+            )
         else:
-            logits = model(images, q, a_ids=a)
+            logits = model(
+                images,
+                q,
+                a_ids=a,
+                image_ids=image_ids,
+                region_cache_dir=region_cache_dir,
+            )
             loss = criterion(logits.reshape(-1, logits.size(-1)), a[:, 1:].reshape(-1))
             total_loss += float(loss.item())
 
@@ -1009,8 +1157,24 @@ def run_eval(cfg: Dict[str, Any], ckpt_path: str, device: torch.device) -> None:
 
 def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.device) -> None:
     """Loop asli training + save checkpoint."""
+    ddp_on, world, rank, local_rank = ddp_setup(cfg)
+
+    # Finglish: seed ro per-rank shift midim ta shuffle yeksan nabashe.
+    set_seed(int(cfg["seed"]) + int(rank))
+
+    if ddp_on and device.type == "cuda":
+        device = torch.device("cuda", local_rank)
+
     q_vocab, a_vocab, train_loader, val_loader = build_loaders(cfg)
     model, _ = build_vqa_model(cfg, q_vocab, a_vocab, device)
+    if ddp_on:
+        from torch.nn.parallel import DistributedDataParallel as DDP
+
+        model = DDP(
+            model,
+            device_ids=[local_rank] if device.type == "cuda" else None,
+            find_unused_parameters=bool(cfg.get("ddp_find_unused_parameters", False)),
+        )
 
     optimizer = Adamax(model.parameters(), lr=float(cfg["learning_rate"]))
     scheduler = StepLR(
@@ -1049,12 +1213,19 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
         )
 
     epochs = int(cfg["epochs"])
-    print(
-        f"device={device} train={len(train_loader.dataset)} val={len(val_loader.dataset)} "
-        f"q_vocab={len(q_vocab.itos)} a_vocab={len(a_vocab.itos)}"
-    )
+    if rank == 0:
+        print(
+            f"device={device} ddp={ddp_on} world={world} "
+            f"train={len(train_loader.dataset)} val={len(val_loader.dataset)} "
+            f"q_vocab={len(q_vocab.itos)} a_vocab={len(a_vocab.itos)}"
+        )
 
     for epoch in range(start_epoch, epochs + 1):
+        # Finglish: DistributedSampler baraye shuffle bayad har epoch set_epoch beshe.
+        if ddp_on:
+            sampler = getattr(train_loader, "sampler", None)
+            if isinstance(sampler, DistributedSampler):
+                sampler.set_epoch(epoch)
         tr_loss, tr_acc = train_epoch(
             model, train_loader, optimizer, scaler, criterion, a_vocab, cfg, device
         )
@@ -1062,27 +1233,33 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
             model, val_loader, criterion, a_vocab, cfg, device, greedy=False
         )
         scheduler.step()
-        print(
-            f"epoch {epoch}/{epochs}  train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} "
-            f"val_loss={va_loss:.4f} val_acc={va_acc:.4f}"
-        )
+        if rank == 0:
+            print(
+                f"epoch {epoch}/{epochs}  train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} "
+                f"val_loss={va_loss:.4f} val_acc={va_acc:.4f}"
+            )
 
-        state = {
-            "epoch": epoch,
-            "best": best_acc,
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "scheduler": scheduler.state_dict(),
-            "scaler": scaler.state_dict() if scaler is not None else None,
-            "q_vocab": q_vocab.itos,
-            "a_vocab": a_vocab.itos,
-            "config": cfg,
-        }
-        torch.save(state, save_dir / "last.pt")
-        if va_acc > best_acc:
-            best_acc = va_acc
-            state["best"] = best_acc
-            torch.save(state, save_dir / "best.pt")
+        if rank == 0:
+            raw_model = model.module if hasattr(model, "module") else model
+            state = {
+                "epoch": epoch,
+                "best": best_acc,
+                "model": raw_model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict(),
+                "scaler": scaler.state_dict() if scaler is not None else None,
+                "q_vocab": q_vocab.itos,
+                "a_vocab": a_vocab.itos,
+                "config": cfg,
+            }
+            torch.save(state, save_dir / "last.pt")
+            if va_acc > best_acc:
+                best_acc = va_acc
+                state["best"] = best_acc
+                torch.save(state, save_dir / "best.pt")
+
+    if ddp_on:
+        dist.destroy_process_group()
 
 
 def main() -> None:

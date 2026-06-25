@@ -11,14 +11,25 @@ num_workers: 0
 batch_size: 10
 epochs: 25
 learning_rate: 0.0005
+use_amp: true
+grad_accum_steps: 1
 max_caption_len: 20
 vocab_min_freq: 4
 max_regions: 32
+cache_regions: false
+# Finglish: baraye local test off bezar; age roshan kardi, region feature ha save/load mishan.
+region_cache_dir: outputs/region_cache/captioner_k32
+image_size: 448
+pin_memory: true
+persistent_workers: false
+prefetch_factor: 2
 word_dim: 512
 hidden_dim: 512
 embed_dim: 512
 region_dim: 2048
 question_dim: 1280
 device: cuda
+ddp: false
+ddp_backend: nccl
 max_train_images: null
 max_val_images: null

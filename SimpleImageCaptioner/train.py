@@ -33,8 +33,10 @@ import torch
 import yaml
 from PIL import Image
 from torch import nn
+from torch.cuda.amp import GradScaler, autocast
 from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms
 from tqdm import tqdm
 
@@ -43,6 +45,46 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from models.captioner_v1 import SimpleImageCaptioner
+
+"""
+Finglish note (Resource optimization)
+-----------------------------------
+In script 3 ta feature jadid darim ke baraye Kaggle GPU limit (2xT4) kheili mohem-an:
+1) AMP (mixed precision): speed/memory behtar, taghir performance kam (use_amp).
+2) grad_accum_steps: batch effective ro bozorg mikone bedoon OOM.
+3) region_cache: region feature FasterRCNN ro 1bar baraye har image hesab mikone va save mikone
+   ta har epoch dobare detector run nashe (time saver asli).
+4) DDP: age ddp=true bashe, ba torchrun do ta GPU hamzaman estefade mishe.
+"""
+
+
+from typing import Tuple
+
+
+def ddp_env() -> Tuple[bool, int, int, int]:
+    """Finglish: DDP env ro az torchrun migirime (WORLD_SIZE/RANK/LOCAL_RANK)."""
+    try:
+        ws = int(os.environ.get("WORLD_SIZE", "1"))
+        rank = int(os.environ.get("RANK", "0"))
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    except Exception:
+        ws, rank, local_rank = 1, 0, 0
+    return ws > 1, ws, rank, local_rank
+
+
+def ddp_setup(cfg: Dict[str, Any]) -> Tuple[bool, int, int, int]:
+    """Finglish: age ddp=true bashe process group ro init mikonim."""
+    want = bool(cfg.get("ddp", False))
+    enabled, world, rank, local_rank = ddp_env()
+    if not want or not enabled:
+        return False, 1, 0, 0
+    import torch.distributed as dist
+
+    backend = str(cfg.get("ddp_backend", "nccl"))
+    dist.init_process_group(backend=backend, init_method="env://")
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+    return True, world, rank, local_rank
 
 TOKEN_RE = re.compile(r"[a-z0-9']+")
 
@@ -163,6 +205,7 @@ class CocoCaptionDataset(Dataset):
         max_len: int,
         filename_template: str,
         image_ids: Optional[List[int]] = None,
+        image_size: int = 448,
     ) -> None:
         self.images_dir = Path(images_dir)
         self.vocab = vocab
@@ -185,7 +228,7 @@ class CocoCaptionDataset(Dataset):
         # engar image haro be size (448,448) tabdil mikone. bagiyasho nemidonam.
         self.transform = transforms.Compose(
             [
-                transforms.Resize((448, 448)),
+                transforms.Resize((int(image_size), int(image_size))),
                 transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [
                                      0.229, 0.224, 0.225]),
@@ -211,7 +254,11 @@ class CocoCaptionDataset(Dataset):
 
         # [1]=> BOS, [2]=> EOS
         caption_ids = [1] + tokens + [2]
-        return {"image": image, "caption_ids": torch.tensor(caption_ids, dtype=torch.long)}
+        return {
+            "image": image,
+            "caption_ids": torch.tensor(caption_ids, dtype=torch.long),
+            "image_id": int(image_id),
+        }
 
 # TODO:: inam bede AI bebinam chikar mikone.
 
@@ -236,7 +283,8 @@ def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     # alan engar padding ro ham be caption mon emal kardim. pas hame caption ha lenght yeksan khahand dasht.
     for i, b in enumerate(batch):
         captions[i, : len(b["caption_ids"])] = b["caption_ids"]
-    return {"images": images, "captions": captions}
+    image_ids = torch.tensor([int(b["image_id"]) for b in batch], dtype=torch.long)
+    return {"images": images, "captions": captions, "image_ids": image_ids}
 
 
 # Model dar `models/captioner_v1.py` hast (VQA ham hamoon file ro load mikone).
@@ -300,36 +348,53 @@ def train_epoch(
     model: SimpleImageCaptioner,
     loader: DataLoader,
     optimizer: torch.optim.Optimizer,
+    scaler: GradScaler,
     criterion: nn.Module,
     device: torch.device,
+    cfg: Dict[str, Any],
 ) -> float:
     """One training pass; returns mean cross-entropy loss."""
     model.train()
     total = 0.0
+    accum = int(cfg.get("grad_accum_steps", 1))
+    use_amp = bool(cfg.get("use_amp", False)) and device.type == "cuda"
+    optimizer.zero_grad(set_to_none=True)
 
     # ba class tqdm progress bar baraye training neshon midim
     pbar = tqdm(loader, desc="train", leave=False)
 
-    for batch in pbar:
-        images = batch["images"].to(device)
-        caps = batch["captions"].to(device)
+    for i, batch in enumerate(pbar):
+        images = batch["images"].to(device, non_blocking=device.type == "cuda")
+        caps = batch["captions"].to(device, non_blocking=device.type == "cuda")
+        image_ids = batch["image_ids"].to(device, non_blocking=device.type == "cuda")
 
         # dar pytorch gradient ha accumulative hastan(yani besorat default baham jaam mishan)
         # vali ma niyaz nadarim jameshon konim pas toye ebtedaye har batch gradient gabli ro none mikonim.
-        optimizer.zero_grad(set_to_none=True)
-
-        # feed forward mikonim ta caption ro baraye har image toye in batch peyda konim.
-        logits = model.forward_train(images, caps)
-
-        # koss ro ba mogayese caption tolidi va ground truth hesab mikonim.
-        loss = criterion(
-            logits.reshape(-1, logits.size(-1)),
-            caps[:, 1:].reshape(-1),
+        # Finglish: cache_regions age true bashe, region feature ha ro disk save/load mikonim.
+        region_cache_dir = (
+            cfg.get("region_cache_dir") if bool(cfg.get("cache_regions", False)) else None
         )
+        with autocast(enabled=use_amp):
+            # feed forward mikonim ta caption ro baraye har image toye in batch peyda konim.
+            logits = model.forward_train(
+                images,
+                caps,
+                image_ids=image_ids,
+                region_cache_dir=region_cache_dir,
+                save_region_cache=True,
+            )
 
-        # backward pass ro barmigardim ta weight haro update konim.
-        loss.backward()
-        optimizer.step()
+            # koss ro ba mogayese caption tolidi va ground truth hesab mikonim.
+            loss = criterion(
+                logits.reshape(-1, logits.size(-1)),
+                caps[:, 1:].reshape(-1),
+            )
+
+        scaler.scale(loss / accum).backward()
+        if (i + 1) % accum == 0:
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad(set_to_none=True)
 
         # loss kole batch haye in epoch ro hesab mikonim.
         total += float(loss.item())
@@ -364,16 +429,28 @@ def eval_epoch(
     loader: DataLoader,
     criterion: nn.Module,
     device: torch.device,
+    cfg: Dict[str, Any],
 ) -> float:
     """Validation loss (teacher forcing, same as training)."""
     model.eval()
     total = 0.0
     for batch in tqdm(loader, desc="val", leave=False):
-        images = batch["images"].to(device)
-        caps = batch["captions"].to(device)
+        images = batch["images"].to(device, non_blocking=device.type == "cuda")
+        caps = batch["captions"].to(device, non_blocking=device.type == "cuda")
+        image_ids = batch["image_ids"].to(device, non_blocking=device.type == "cuda")
 
         # inja serfan feed forward anjam midim(backward nadarim)
-        logits = model.forward_train(images, caps)
+        # Finglish: val ro cache save nemikonim (faghat read).
+        region_cache_dir = (
+            cfg.get("region_cache_dir") if bool(cfg.get("cache_regions", False)) else None
+        )
+        logits = model.forward_train(
+            images,
+            caps,
+            image_ids=image_ids,
+            region_cache_dir=region_cache_dir,
+            save_region_cache=False,
+        )
         loss = criterion(
             logits.reshape(-1, logits.size(-1)),
             caps[:, 1:].reshape(-1),
@@ -470,11 +547,18 @@ def main() -> None:
             "save_dir",
         ),
     )
-    set_seed(int(cfg["seed"]))
+    ddp_on, world, rank, local_rank = ddp_setup(cfg)
+
+    # Finglish: baraye DDP, seed ro ham per-rank shift midim ta shuffle yeksan nabashe.
+    set_seed(int(cfg["seed"]) + int(rank))
 
     device = torch.device(
         "cuda" if torch.cuda.is_available() and cfg.get("device") == "cuda" else "cpu"
     )
+    if ddp_on and device.type == "cuda":
+        device = torch.device("cuda", local_rank)
+    if device.type == "cuda":
+        torch.backends.cudnn.benchmark = True
     max_train = image_cap(cfg.get("max_train_images"))
     max_val = image_cap(cfg.get("max_val_images"))
     train_ids = None
@@ -499,6 +583,7 @@ def main() -> None:
         int(cfg["max_caption_len"]),
         cfg["train_image_filename_template"],
         image_ids=train_ids,
+        image_size=int(cfg.get("image_size", 448)),
     )
     val_ds = CocoCaptionDataset(
         cfg["val_images_dir"],
@@ -507,15 +592,33 @@ def main() -> None:
         int(cfg["max_caption_len"]),
         cfg["val_image_filename_template"],
         image_ids=val_ids,
+        image_size=int(cfg.get("image_size", 448)),
     )
 
+    device_is_cuda = device.type == "cuda"
     loader_kw = {
         "batch_size": int(cfg["batch_size"]),
         "num_workers": int(cfg["num_workers"]),
         "collate_fn": collate_batch,
+        "pin_memory": bool(cfg.get("pin_memory", False)) and device_is_cuda,
     }
-    train_loader = DataLoader(train_ds, shuffle=True, **loader_kw)
-    val_loader = DataLoader(val_ds, shuffle=False, **loader_kw)
+    if int(cfg["num_workers"]) > 0:
+        loader_kw["persistent_workers"] = bool(cfg.get("persistent_workers", False))
+        loader_kw["prefetch_factor"] = int(cfg.get("prefetch_factor", 2))
+    train_sampler = DistributedSampler(train_ds, shuffle=True) if ddp_on else None
+    val_sampler = DistributedSampler(val_ds, shuffle=False) if ddp_on else None
+    train_loader = DataLoader(
+        train_ds,
+        shuffle=(train_sampler is None),
+        sampler=train_sampler,
+        **loader_kw,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        shuffle=False,
+        sampler=val_sampler,
+        **loader_kw,
+    )
 
     hidden_dim = int(cfg.get("hidden_dim", cfg.get("lstm_hidden", 512)))
     model = SimpleImageCaptioner(
@@ -528,39 +631,64 @@ def main() -> None:
         embed_dim=int(cfg.get("embed_dim", hidden_dim)),
         region_dim=int(cfg["region_dim"]),
     ).to(device)
+    if ddp_on:
+        # Finglish: DDP baraye 2xT4 Kaggle. torchrun required.
+        from torch.nn.parallel import DistributedDataParallel as DDP
+
+        model = DDP(
+            model,
+            device_ids=[local_rank] if device.type == "cuda" else None,
+            find_unused_parameters=bool(cfg.get("ddp_find_unused_parameters", False)),
+        )
 
     #TODO:: Adam -> adagrad
     optimizer = Adam(model.parameters(), lr=float(cfg["learning_rate"]))
     criterion = nn.CrossEntropyLoss(ignore_index=0)
+    use_amp = bool(cfg.get("use_amp", False)) and device.type == "cuda"
+    scaler = GradScaler(enabled=use_amp)
 
     save_dir = Path(cfg["save_dir"])
     save_dir.mkdir(parents=True, exist_ok=True)
     best_val = float("inf")
     epochs = int(cfg["epochs"])
 
-    print(f"config={config_path}")
-    print(
-        f"device={device} train_rows={len(train_ds)} val_rows={len(val_ds)} "
-        f"vocab={len(vocab.itos)}"
-    )
+    if rank == 0:
+        print(f"config={config_path}")
+        print(
+            f"device={device} ddp={ddp_on} world={world} "
+            f"train_rows={len(train_ds)} val_rows={len(val_ds)} "
+            f"vocab={len(vocab.itos)}"
+        )
 
     for epoch in range(1, epochs + 1):
-        tr_loss = train_epoch(model, train_loader,
-                              optimizer, criterion, device)
-        va_loss = eval_epoch(model, val_loader, criterion, device)
-        print(
-            f"epoch {epoch}/{epochs}  train_loss={tr_loss:.4f}  val_loss={va_loss:.4f}")
+        if ddp_on and train_sampler is not None:
+            train_sampler.set_epoch(epoch)
+        tr_loss = train_epoch(
+            model, train_loader, optimizer, scaler, criterion, device, cfg
+        )
+        va_loss = eval_epoch(model, val_loader, criterion, device, cfg)
+        if rank == 0:
+            print(
+                f"epoch {epoch}/{epochs}  train_loss={tr_loss:.4f}  val_loss={va_loss:.4f}"
+            )
 
-        state = {
-            "epoch": epoch,
-            "model": model.state_dict(),
-            "vocab": vocab.itos,
-            "config": cfg,
-        }
-        torch.save(state, save_dir / "last.pt")
-        if va_loss < best_val:
-            best_val = va_loss
-            torch.save(state, save_dir / "best.pt")
+        if rank == 0:
+            raw_model = model.module if hasattr(model, "module") else model
+            state = {
+                "epoch": epoch,
+                "model": raw_model.state_dict(),
+                "vocab": vocab.itos,
+                "config": cfg,
+            }
+            torch.save(state, save_dir / "last.pt")
+            if va_loss < best_val:
+                best_val = va_loss
+                torch.save(state, save_dir / "best.pt")
+
+    if ddp_on:
+        import torch.distributed as dist
+
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

@@ -34,7 +34,13 @@ max_answer_len: 6
 vocab_min_freq: 4
 use_amp: true
 max_regions: 32
+cache_regions: true
+region_cache_dir: /kaggle/working/region_cache/vqa_k32_d512
+image_size: 448
 device: cuda
+#DDP ro faghat roye Kaggle (2xT4) roshan kon.
+ddp: true
+ddp_backend: nccl
 hidden_dim: 512
 word_dim: 512
 question_dim: 1280

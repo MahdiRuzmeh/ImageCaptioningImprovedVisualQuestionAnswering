@@ -12,6 +12,7 @@ Architecture (paper):
 - v_cap = mean-pool embedding haye caption tolid shode
 """
 
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 import torch
@@ -57,9 +58,66 @@ class RegionEncoder(nn.Module):
         self.detector.eval()
         return self
 
+    def _cache_path(self, cache_dir: str, image_id: int) -> str:
+        # keep it simple + stable (works on Kaggle/Windows)
+        return str(Path(cache_dir) / f"{int(image_id)}.pt")
+
+    def _load_cached(self, cache_dir: str, image_id: int, device: torch.device) -> Optional[torch.Tensor]:
+        """
+        Finglish:
+        Inja region feature ha ro az disk load mikonim (per image_id).
+        Hadaf: FasterRCNN har epoch dobare run nashe → time training kheili kam mishe.
+        """
+        try:
+            p = self._cache_path(cache_dir, image_id)
+            if not Path(p).exists():
+                return None
+            t = torch.load(p, map_location="cpu")
+            if not isinstance(t, torch.Tensor):
+                return None
+            # expected shape: (max_regions, region_dim)
+            if t.ndim != 2 or t.shape[0] != self.max_regions or t.shape[1] != self.region_dim:
+                return None
+            return t.to(device, non_blocking=(device.type == "cuda"))
+        except Exception:
+            return None
+
+    def _save_cached(self, cache_dir: str, image_id: int, regions: torch.Tensor) -> None:
+        """
+        Finglish:
+        Inja region tensor ro save mikonim. Save ro roye CPU anjam midim ta GPU memory/IO problem nashe.
+        """
+        try:
+            Path(cache_dir).mkdir(parents=True, exist_ok=True)
+            p = self._cache_path(cache_dir, image_id)
+            # always save CPU tensors to avoid GPU->disk surprises
+            torch.save(regions.detach().to("cpu"), p)
+        except Exception:
+            pass
+
     @torch.no_grad()
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
-        """(N,3,H,W) → (N, max_regions, region_dim)."""
+    def forward(
+        self,
+        images: torch.Tensor,
+        image_ids: Optional[torch.Tensor] = None,
+        cache_dir: Optional[str] = None,
+        save_cache: bool = True,
+    ) -> torch.Tensor:
+        """(N,3,H,W) → (N, max_regions, region_dim).
+
+        If ``cache_dir`` and ``image_ids`` are provided, region tensors are loaded/saved
+        per image id. This avoids re-running Faster R-CNN every epoch.
+        """
+        device = images.device
+        n = images.size(0)
+
+        if cache_dir and image_ids is not None and image_ids.numel() == n:
+            cached: List[Optional[torch.Tensor]] = [
+                self._load_cached(cache_dir, int(image_ids[i].item()), device) for i in range(n)
+            ]
+            if all(t is not None for t in cached):
+                return torch.stack([t for t in cached if t is not None], dim=0)
+
         img_list = list(images)
         transformed, _ = self.detector.transform(img_list, None)
         feats = self.detector.backbone(transformed.tensors)
@@ -70,7 +128,7 @@ class RegionEncoder(nn.Module):
         roi = self.detector.roi_heads.box_head(roi)
         counts = [len(p) for p in proposals]
         chunks = torch.split(roi, counts)
-        batch_regions: List[torch.Tensor] = []
+        batch_roi: List[torch.Tensor] = []
         for chunk in chunks:
             r = chunk[: self.max_regions]
             if r.size(0) < self.max_regions:
@@ -78,8 +136,16 @@ class RegionEncoder(nn.Module):
                     (self.max_regions - r.size(0), r.size(1)), device=r.device
                 )
                 r = torch.cat([r, pad], dim=0)
-            batch_regions.append(r)
-        return self.roi_to_region(torch.stack(batch_regions, dim=0))
+            batch_roi.append(r)
+
+        regions = self.roi_to_region(torch.stack(batch_roi, dim=0))
+
+        if cache_dir and image_ids is not None and image_ids.numel() == n and save_cache:
+            # write per-sample so partial cache hits still help later
+            for i in range(n):
+                self._save_cached(cache_dir, int(image_ids[i].item()), regions[i])
+
+        return regions
 
 
 class RegionAttention(nn.Module):
@@ -242,9 +308,17 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         images: torch.Tensor,
         caption_ids: torch.Tensor,
         question_ids: Optional[torch.Tensor] = None,
+        image_ids: Optional[torch.Tensor] = None,
+        region_cache_dir: Optional[str] = None,
+        save_region_cache: bool = True,
     ) -> torch.Tensor:
         """Teacher forcing: predict caption_ids[:, 1:] — logits (N, T-1, V)."""
-        regions = self.region_encoder(images)
+        regions = self.region_encoder(
+            images,
+            image_ids=image_ids,
+            cache_dir=region_cache_dir,
+            save_cache=save_region_cache,
+        )
         n = images.size(0)
         
         # toye train question haro nemidim behesh.
@@ -265,6 +339,8 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         question_ids: Optional[torch.Tensor],
         max_len: int,
         collect_hidden: bool = False,
+        image_ids: Optional[torch.Tensor] = None,
+        region_cache_dir: Optional[str] = None,
     ) -> Tuple[torch.Tensor, Optional[List[torch.Tensor]]]:
         """Loop greedy decode — moshtarak baraye inference va train VQA.
 
@@ -281,7 +357,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
             cap: token ids caption tolid shode (N, max_len)
             hidden_steps: list hidden ha ya ``None``
         """
-        regions = self.region_encoder(image)
+        regions = self.region_encoder(image, image_ids=image_ids, cache_dir=region_cache_dir)
         n = image.size(0)
         qctx = self._qctx(question_ids, n, image.device)
         h = torch.zeros(n, self.lstm_hidden, device=image.device)
@@ -324,6 +400,8 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         image: torch.Tensor,
         question_ids: Optional[torch.Tensor] = None,
         differentiable: bool = False,
+        image_ids: Optional[torch.Tensor] = None,
+        region_cache_dir: Optional[str] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Generate caption + v_cap — in method ro VQAModel seda mizane.
 
@@ -347,7 +425,12 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         """
         if differentiable:
             cap, hidden_steps = self._decode_caption(
-                image, question_ids, max_len=20, collect_hidden=True
+                image,
+                question_ids,
+                max_len=20,
+                collect_hidden=True,
+                image_ids=image_ids,
+                region_cache_dir=region_cache_dir,
             )
             assert hidden_steps is not None
             v_cap = torch.stack(hidden_steps, dim=1).mean(dim=1)
