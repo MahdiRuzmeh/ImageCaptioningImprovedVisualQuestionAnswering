@@ -87,6 +87,76 @@ python train.py --config configs/smoke.yaml
 
 Smoke VQA expects `SimpleImageCaptioner/outputs/smoke/best.pt` (set in `SimpleVQA/configs/smoke.yaml`).
 
+## Qualitative check (pred vs ground truth)
+
+<!--
+Finglish doc:
+- baraye inke bebin model vaghean chi tolid mikone, az eval.py estefade kon.
+- in qualitative check hast: pred ro ba ground truth chap mikoni va ba chashm moghayese mikoni.
+- har project eval.py joda dare; hatman az folder hamoon project run kon.
+-->
+
+### SimpleImageCaptioner — caption quality
+
+# Val loss + 10 greedy captions (pred vs ground truth)
+python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --split val --samples 10
+
+# Single image → one caption
+python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --image-id 203564 --split val
+
+# Question-guided caption (needs VQA checkpoint for q_emb)
+python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt `
+  --image-id 262148 --split val --question "Where is he looking?" `
+  --vqa-ckpt ../SimpleVQA/outputs/smoke/best.pt
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--ckpt` | Captioner `best.pt` (required) |
+| `--split val` | Use val images/captions JSON |
+| `--samples N` | Print N image captions: `pred:` vs `gt:` |
+| `--image-id` | One COCO image_id → single caption |
+| `--question` + `--vqa-ckpt` | Question-guided caption (stage 2) |
+
+Full/default run (after `configs/default.yaml` training):
+
+```powershell
+python eval.py --config configs/default.yaml --ckpt outputs/default/best.pt --split val --samples 10
+```
+
+### SimpleVQA — answer quality
+
+# Val VQA accuracy (greedy) + 10 random samples (pred vs ground truth)
+python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --split val --samples 10
+
+# Image + question text → answer
+python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt `
+  --image-id 262148 --question "Where is he looking?" --split val
+
+# question_id from VQA JSON → loads image, question, GT automatically
+python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --question-id 262148000
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--ckpt` | VQA `best.pt` (required) |
+| `--split val` | Val questions/annotations |
+| `--samples N` | Print N Q/A pairs: predicted answer vs GT |
+| `--image-id` + `--question` | Custom image + question string |
+| `--question-id` | VQA v2 `question_id` (image + Q + GT from JSON) |
+
+Numeric metric only (no sample printing) — same as training eval:
+
+```powershell
+python train.py --config configs/smoke.yaml --eval --ckpt outputs/smoke/best.pt
+```
+
+Full/default run:
+
+```powershell
+python eval.py --config configs/default.yaml --ckpt outputs/default/best.pt --split val --samples 10
+```
+
 ## Resume training
 
 ```powershell
