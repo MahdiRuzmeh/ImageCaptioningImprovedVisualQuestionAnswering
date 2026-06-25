@@ -13,7 +13,7 @@ captioner_class: SimpleImageCaptioner
 num_workers: 0
 batch_size: 4
 grad_accum_steps: 1
-epochs: 3
+epochs: 4
 learning_rate: 0.0005
 lr_decay_every: 4
 lr_decay_factor: 0.6

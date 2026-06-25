@@ -8,7 +8,7 @@ val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 save_dir: outputs/smoke
 num_workers: 0
 batch_size: 4
-epochs: 3
+epochs: 4
 learning_rate: 0.0005
 use_amp: true
 grad_accum_steps: 1
