@@ -24,7 +24,7 @@ max_caption_len: 20
 vocab_min_freq: 4
 max_regions: 32
 cache_regions: true
-region_cache_dir: /kaggle/working/region_cache/captioner_k32
+region_cache_dir: /kaggle/working/region_cache/captioner
 image_size: 448
 pin_memory: true
 persistent_workers: true

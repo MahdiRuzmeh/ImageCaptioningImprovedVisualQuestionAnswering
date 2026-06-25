@@ -28,7 +28,9 @@ vocab_min_freq: 4
 use_amp: true
 max_regions: 32
 cache_regions: false
-region_cache_dir: outputs/region_cache/vqa_k32_d512
+# degat kon age max_regions ya region_dim farg kone cache dige valid nist. 
+# (batch, max_regions, region_dim) example: (N, 32, 2048) 
+region_cache_dir: outputs/region_cache/vqa
 image_size: 448
 device: cuda
 ddp: false
