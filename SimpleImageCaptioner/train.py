@@ -86,6 +86,12 @@ def ddp_setup(cfg: Dict[str, Any]) -> Tuple[bool, int, int, int]:
         torch.cuda.set_device(local_rank)
     return True, world, rank, local_rank
 
+
+def unwrap_model(model: nn.Module) -> nn.Module:
+    """Finglish: DDP wrapper ro bardarim — `forward_train` faghat roye model asli hast."""
+    return model.module if hasattr(model, "module") else model
+
+
 TOKEN_RE = re.compile(r"[a-z0-9']+")
 
 
@@ -376,7 +382,7 @@ def train_epoch(
         )
         with autocast(enabled=use_amp):
             # feed forward mikonim ta caption ro baraye har image toye in batch peyda konim.
-            logits = model.forward_train(
+            logits = unwrap_model(model).forward_train(
                 images,
                 caps,
                 image_ids=image_ids,
@@ -444,7 +450,7 @@ def eval_epoch(
         region_cache_dir = (
             cfg.get("region_cache_dir") if bool(cfg.get("cache_regions", False)) else None
         )
-        logits = model.forward_train(
+        logits = unwrap_model(model).forward_train(
             images,
             caps,
             image_ids=image_ids,
@@ -673,7 +679,7 @@ def main() -> None:
             )
 
         if rank == 0:
-            raw_model = model.module if hasattr(model, "module") else model
+            raw_model = unwrap_model(model)
             state = {
                 "epoch": epoch,
                 "model": raw_model.state_dict(),

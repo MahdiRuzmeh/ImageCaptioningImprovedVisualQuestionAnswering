@@ -91,6 +91,11 @@ def ddp_setup(cfg: Dict[str, Any]) -> Tuple[bool, int, int, int]:
     return True, world, rank, local_rank
 
 
+def unwrap_model(model: nn.Module) -> nn.Module:
+    """Finglish: DDP wrapper ro bardarim — load/save state_dict roye model asli."""
+    return model.module if hasattr(model, "module") else model
+
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -1124,7 +1129,7 @@ def load_checkpoint(
         print(f"Format checkpoint eshtebah: {path}")
         return 1, 0.0
 
-    model.load_state_dict(ckpt["model"])
+    unwrap_model(model).load_state_dict(ckpt["model"])
     if optimizer is not None and "optimizer" in ckpt:
         optimizer.load_state_dict(ckpt["optimizer"])
     if scheduler is not None and "scheduler" in ckpt:
@@ -1240,7 +1245,7 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
             )
 
         if rank == 0:
-            raw_model = model.module if hasattr(model, "module") else model
+            raw_model = unwrap_model(model)
             state = {
                 "epoch": epoch,
                 "best": best_acc,

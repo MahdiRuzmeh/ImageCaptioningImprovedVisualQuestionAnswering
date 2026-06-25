@@ -87,6 +87,22 @@ python train.py --config configs/smoke.yaml
 
 Smoke VQA expects `SimpleImageCaptioner/outputs/smoke/best.pt` (set in `SimpleVQA/configs/smoke.yaml`).
 
+## Kaggle 2×GPU (DDP)
+
+Set `ddp: true` in the Kaggle YAML config, then launch with **`torchrun`** (not plain `python`):
+
+```powershell
+# Captioner (from SimpleImageCaptioner/)
+torchrun --nproc_per_node=2 train.py --config configs/kaggle_mini.yaml
+
+# VQA (from SimpleVQA/)
+torchrun --nproc_per_node=2 train.py --config configs/kaggle_mini.yaml
+```
+
+Local / single-GPU testing: set `ddp: false` and run `python train.py --config ...` as usual.
+
+Log should show `ddp=True world=2` when both GPUs are active.
+
 ## Qualitative check (pred vs ground truth)
 
 <!--

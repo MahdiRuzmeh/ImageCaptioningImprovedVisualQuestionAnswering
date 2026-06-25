@@ -2,7 +2,10 @@
 # Run AFTER SimpleImageCaptioner kaggle_mini (or point captioner_ckpt at your checkpoint).
 #
 # Run (notebook, from SimpleVQA/):
-#   python train.py --config configs/kaggle_mini.yaml
+#   # Kaggle 2xT4 (ddp: true):
+#   torchrun --nproc_per_node=2 train.py --config configs/kaggle_mini.yaml
+#   # Local single GPU (ddp: false):
+#   python train.py --config configs/smoke.yaml
 #   python train.py --config configs/kaggle_mini.yaml --eval --ckpt outputs/kaggle_mini/best.pt
 #
 # Adjust /kaggle/input/... paths if your Kaggle dataset layout differs.

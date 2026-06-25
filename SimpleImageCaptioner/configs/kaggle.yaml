@@ -6,6 +6,7 @@ val_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/val2
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 save_dir: outputs/kaggle
+# Kaggle 2xT4: torchrun --nproc_per_node=2 train.py --config configs/kaggle.yaml
 num_workers: 2
 batch_size: 16
 epochs: 25
