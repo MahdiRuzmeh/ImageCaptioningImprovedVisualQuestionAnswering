@@ -103,14 +103,21 @@ from train import (
     tok,
 )
 
-# hamoon transform train: 448×448 + ImageNet normalize
-IMAGE_TRANSFORM = transforms.Compose(
-    [
-        transforms.Resize((448, 448)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-    ]
-)
+def image_size_from_cfg(cfg: Dict[str, Any]) -> int:
+    """Finglish: image_size ro az YAML migirim (default 448) ta ba train yeksan bashe."""
+    return int(cfg.get("image_size", 448))
+
+
+def image_transform(image_size: int) -> transforms.Compose:
+    """Hamoon transform train: Resize(image_size) + ImageNet normalize."""
+    size = int(image_size)
+    return transforms.Compose(
+        [
+            transforms.Resize((size, size)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
 
 
 def vocab_from_itos(itos: List[str]) -> Vocab:
@@ -226,11 +233,13 @@ def load_image_tensor(
     images_dir: str,
     template: str,
     device: torch.device,
+    image_size: int,
 ) -> torch.Tensor:
-    """Yek COCO image ro load kon → tensor (1, 3, 448, 448).
+    """Yek COCO image ro load kon → tensor (1, 3, image_size, image_size).
 
     Input:
         image_id, images_dir, filename_template (mesl train config)
+        image_size: az config (``image_size``) — hamoon abaad train
 
     Output:
         batch tensor roye device
@@ -238,7 +247,7 @@ def load_image_tensor(
     path = Path(images_dir) / template.format(image_id=image_id)
     if not path.exists():
         raise FileNotFoundError(f"Image not found: {path}")
-    return IMAGE_TRANSFORM(Image.open(path).convert("RGB")).unsqueeze(0).to(device)
+    return image_transform(image_size)(Image.open(path).convert("RGB")).unsqueeze(0).to(device)
 
 
 def split_image_paths(cfg: Dict[str, Any], split: str) -> Tuple[str, str]:
@@ -278,7 +287,9 @@ def run_single(
         gt_answers, gt_mode — baraye moghayese ba annotator ha
     """
     images_dir, template = split_image_paths(cfg, split)
-    image = load_image_tensor(image_id, images_dir, template, device)
+    image = load_image_tensor(
+        image_id, images_dir, template, device, image_size_from_cfg(cfg)
+    )
     q = encode_question_tensor(
         question, q_vocab, int(cfg["max_question_len"]), device
     )
@@ -320,6 +331,7 @@ def build_val_loader(
         int(cfg["max_question_len"]),
         int(cfg["max_answer_len"]),
         qids=va_qids,
+        image_size=image_size_from_cfg(cfg),
     )
     device_is_cuda = cfg.get("device") == "cuda" and torch.cuda.is_available()
     loader_kw: Dict[str, Any] = {
@@ -383,6 +395,7 @@ def run_val_samples(
         int(cfg["max_question_len"]),
         int(cfg["max_answer_len"]),
         qids=va_qids,
+        image_size=image_size_from_cfg(cfg),
     )
     rng = random.Random(int(cfg.get("seed", 42)))
     indices = rng.sample(range(len(ds)), min(n, len(ds)))

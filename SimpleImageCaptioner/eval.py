@@ -109,14 +109,21 @@ PATH_KEYS = (
     "save_dir",
 )
 
-# hamoon transform train: 448×448 + ImageNet normalize
-IMAGE_TRANSFORM = transforms.Compose(
-    [
-        transforms.Resize((448, 448)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-    ]
-)
+def image_size_from_cfg(cfg: Dict[str, Any]) -> int:
+    """Finglish: image_size ro az YAML migirim (default 448) ta ba train yeksan bashe."""
+    return int(cfg.get("image_size", 448))
+
+
+def image_transform(image_size: int) -> transforms.Compose:
+    """Hamoon transform train: Resize(image_size) + ImageNet normalize."""
+    size = int(image_size)
+    return transforms.Compose(
+        [
+            transforms.Resize((size, size)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
 
 
 def vocab_from_itos(itos: List[str]) -> Vocab:
@@ -157,6 +164,7 @@ def load_image(
     images_dir: str,
     filename_template: str,
     device: torch.device,
+    image_size: int,
 ) -> torch.Tensor:
     """Yek COCO image ro load kon va preprocess kon.
 
@@ -165,14 +173,15 @@ def load_image(
         images_dir: folder val2014/train2014
         filename_template: mesl ``COCO_val2014_{image_id:012d}.jpg``
         device: cuda ya cpu
+        image_size: az config (``image_size``) — hamoon abaad train
 
     Output:
-        tensor ba shape (1, 3, 448, 448)
+        tensor ba shape (1, 3, image_size, image_size)
     """
     path = Path(images_dir) / filename_template.format(image_id=image_id)
     if not path.exists():
         raise FileNotFoundError(f"Image not found: {path}")
-    tensor = IMAGE_TRANSFORM(Image.open(path).convert("RGB"))
+    tensor = image_transform(image_size)(Image.open(path).convert("RGB"))
     return tensor.unsqueeze(0).to(device)
 
 
@@ -303,7 +312,9 @@ def run_single(
     va caption bedoon soal tolid mishe.
     """
     images_dir, template, captions_json = split_paths(cfg, split)
-    image = load_image(image_id, images_dir, template, device)
+    image = load_image(
+        image_id, images_dir, template, device, image_size_from_cfg(cfg)
+    )
 
     q_ids: Optional[torch.Tensor] = None
     if question:
@@ -360,6 +371,7 @@ def run_val(
         int(cfg["max_caption_len"]),
         cfg["val_image_filename_template"],
         image_ids=val_ids,
+        image_size=image_size_from_cfg(cfg),
     )
     loader = DataLoader(
         val_ds,
@@ -368,7 +380,9 @@ def run_val(
         num_workers=int(cfg.get("num_workers", 0)),
         collate_fn=collate_batch,
     )
-    loss = eval_epoch(model, loader, nn.CrossEntropyLoss(ignore_index=0), device)
+    loss = eval_epoch(
+        model, loader, nn.CrossEntropyLoss(ignore_index=0), device, cfg
+    )
     print(f"val_loss (teacher forcing): {loss:.4f}")
 
     if n_samples <= 0:
@@ -391,6 +405,7 @@ def run_val(
             cfg["val_images_dir"],
             cfg["val_image_filename_template"],
             device,
+            image_size_from_cfg(cfg),
         )
         with torch.no_grad():
             cap_ids = model.generate_caption(
