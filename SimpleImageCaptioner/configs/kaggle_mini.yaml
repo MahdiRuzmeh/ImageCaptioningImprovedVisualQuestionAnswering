@@ -18,7 +18,7 @@ train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 save_dir: outputs/kaggle_mini
 num_workers: 2
-batch_size: 16
+batch_size: 32
 epochs: 10
 learning_rate: 0.0005
 use_amp: true
@@ -41,5 +41,5 @@ device: cuda
 ddp: true
 ddp_backend: nccl
 # ~1000 train images ≈ few hours on Kaggle GPU (not 15h/epoch full run)
-max_train_images: 5000
-max_val_images: 200
+max_train_images: 10000
+max_val_images: 500
