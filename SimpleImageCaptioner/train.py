@@ -373,11 +373,30 @@ def set_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
 
 
+def scheduled_sampling_prob(epoch: int, cfg: Dict[str, Any]) -> float:
+    """Scheduled sampling probability for caption decoder (paper §5, Table 2).
+
+    Every ``scheduled_sampling_interval`` epochs (1-indexed), add
+    ``scheduled_sampling_increment`` until ``scheduled_sampling_max_prob``.
+    Epochs 1..interval-1 use pure teacher forcing (p=0).
+    """
+    max_p = float(cfg.get("scheduled_sampling_max_prob", 0.24))
+    if max_p <= 0.0:
+        return 0.0
+    interval = max(1, int(cfg.get("scheduled_sampling_interval", 4)))
+    increment = float(cfg.get("scheduled_sampling_increment", 0.06))
+    steps = max(0, epoch // interval)
+    return min(max_p, steps * increment)
+
+
 """
     train_epoch
 
-    Yek epoch training ba teacher forcing ejra mikonad
+    Yek epoch training ba cross-entropy ejra mikonad
     va weight-haye model ra update mikonad.
+
+    Decoder input: GT previous token mixed with model prediction
+    (scheduled sampling, paper §5) — probability az ``scheduled_sampling_prob``.
 
     Shapes:
         images: (N, C, H, W)
@@ -405,6 +424,7 @@ def train_epoch(
     criterion: nn.Module,
     device: torch.device,
     cfg: Dict[str, Any],
+    epoch: int,
 ) -> Tuple[float, float]:
     """One training pass; returns mean cross-entropy loss and token accuracy."""
     model.train()
@@ -412,6 +432,7 @@ def train_epoch(
     total_acc = 0.0
     accum = int(cfg.get("grad_accum_steps", 1))
     use_amp = bool(cfg.get("use_amp", False)) and device.type == "cuda"
+    ss_p = scheduled_sampling_prob(epoch, cfg)
     optimizer.zero_grad(set_to_none=True)
 
     # ba class tqdm progress bar baraye training neshon midim
@@ -436,6 +457,7 @@ def train_epoch(
                 image_ids=image_ids,
                 region_cache_dir=region_cache_dir,
                 save_region_cache=True,
+                scheduled_sampling_p=ss_p,
             )
 
             # koss ro ba mogayese caption tolidi va ground truth hesab mikonim.
@@ -473,7 +495,7 @@ def train_epoch(
         captions: (N, T)
         logits: (N, T-1, V)
 
-    Loss ham mesle training (teacher forcing)
+    Loss ham mesle training (teacher forcing, scheduled_sampling_p=0)
     mohasebe mishavad ta comparable bashad.
 
     Return:
@@ -489,7 +511,7 @@ def eval_epoch(
     device: torch.device,
     cfg: Dict[str, Any],
 ) -> Tuple[float, float]:
-    """Validation loss and token accuracy (teacher forcing, same as training)."""
+    """Validation loss and token accuracy (pure teacher forcing)."""
     model.eval()
     total_loss = 0.0
     total_acc = 0.0
@@ -509,6 +531,7 @@ def eval_epoch(
             image_ids=image_ids,
             region_cache_dir=region_cache_dir,
             save_region_cache=False,
+            scheduled_sampling_p=0.0,
         )
         loss = criterion(
             logits.reshape(-1, logits.size(-1)),
@@ -725,13 +748,15 @@ def main() -> None:
     for epoch in range(1, epochs + 1):
         if ddp_on and train_sampler is not None:
             train_sampler.set_epoch(epoch)
+        ss_p = scheduled_sampling_prob(epoch, cfg)
         tr_loss, tr_acc = train_epoch(
-            model, train_loader, optimizer, scaler, criterion, device, cfg
+            model, train_loader, optimizer, scaler, criterion, device, cfg, epoch
         )
         va_loss, va_acc = eval_epoch(model, val_loader, criterion, device, cfg)
         if rank == 0:
             print(
-                f"epoch {epoch}/{epochs}  train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} "
+                f"epoch {epoch}/{epochs}  ss_p={ss_p:.2f}  "
+                f"train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} "
                 f"val_loss={va_loss:.4f} val_acc={va_acc:.4f}"
             )
 

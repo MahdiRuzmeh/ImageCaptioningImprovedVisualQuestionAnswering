@@ -30,3 +30,8 @@ ddp: false
 ddp_backend: nccl
 max_train_images: 200
 max_val_images: 50
+# Paper §5 scheduled sampling (GT token mixed with model prediction during train)
+# scheduled_sampling_p dar aval kar 0 khahad bood (kamalan teacher forcing hast)
+scheduled_sampling_max_prob: 0.24
+scheduled_sampling_interval: 4
+scheduled_sampling_increment: 0.06

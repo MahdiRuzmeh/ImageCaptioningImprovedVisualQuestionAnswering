@@ -299,8 +299,6 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         
         word = self.word_emb(caption_tok)
 
-        # ba ravesh teacher forcing train mishe Image captioner.
-        # yani caption word gound truth ro behesh midim toye train.
         h, c = self.lstm(torch.cat([word, attended], dim=-1), (h, c))
         return self.classifier(h), h, c
 
@@ -312,8 +310,16 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         image_ids: Optional[torch.Tensor] = None,
         region_cache_dir: Optional[str] = None,
         save_region_cache: bool = True,
+        scheduled_sampling_p: float = 0.0,
     ) -> torch.Tensor:
-        """Teacher forcing: predict caption_ids[:, 1:] — logits (N, T-1, V)."""
+        """Predict caption_ids[:, 1:] — logits (N, T-1, V).
+
+        Finglish — ``scheduled_sampling_p`` (paper §5, mesal p=0.24):
+            Har step ba ehtemal p kalame ghabli **model** (argmax) be decoder mire;
+            ba ehtemal 1-p hamoon **GT** (`caption_ids[:, t+1]`).
+            Mesal GT="a dog sits": step2 pred="cat" → age rand<p input step3="cat", else "dog".
+            p=0 → faghat teacher forcing; validation hamishe p=0.
+        """
         regions = self.region_encoder(
             images,
             image_ids=image_ids,
@@ -321,17 +327,24 @@ class SimpleImageCaptioner(BaseImageCaptioner):
             save_cache=save_region_cache,
         )
         n = images.size(0)
-        
+
         # toye train question haro nemidim behesh.
         qctx = self._qctx(question_ids, n, images.device)
         h = torch.zeros(n, self.lstm_hidden, device=images.device)
         c = torch.zeros_like(h)
         logits: List[torch.Tensor] = []
+        tok = caption_ids[:, 0]
+        use_sampling = scheduled_sampling_p > 0.0
         for t in range(caption_ids.size(1) - 1):
-            logit, h, c = self._caption_step(
-                regions, caption_ids[:, t], h, c, qctx
-            )
+            logit, h, c = self._caption_step(regions, tok, h, c, qctx)
             logits.append(logit)
+            if t < caption_ids.size(1) - 2:
+                if use_sampling:
+                    pred = logit.argmax(dim=-1).detach()
+                    use_pred = torch.rand(n, device=images.device) < scheduled_sampling_p
+                    tok = torch.where(use_pred, pred, caption_ids[:, t + 1])
+                else:
+                    tok = caption_ids[:, t + 1]
         return torch.stack(logits, dim=1)
 
     def _decode_caption(
