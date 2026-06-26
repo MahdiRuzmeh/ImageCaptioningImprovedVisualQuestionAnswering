@@ -34,7 +34,7 @@ import yaml
 from PIL import Image
 from torch import nn
 from torch.cuda.amp import GradScaler, autocast
-from torch.optim import Adam
+from torch.optim import Adamax
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms
@@ -726,8 +726,7 @@ def main() -> None:
             find_unused_parameters=bool(cfg.get("ddp_find_unused_parameters", False)),
         )
 
-    #TODO:: Adam -> adagrad
-    optimizer = Adam(model.parameters(), lr=float(cfg["learning_rate"]))
+    optimizer = Adamax(model.parameters(), lr=float(cfg["learning_rate"]))
     criterion = nn.CrossEntropyLoss(ignore_index=0)
     use_amp = bool(cfg.get("use_amp", False)) and device.type == "cuda"
     scaler = GradScaler(enabled=use_amp)
