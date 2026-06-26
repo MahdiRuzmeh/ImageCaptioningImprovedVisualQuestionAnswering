@@ -19,9 +19,9 @@ val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 save_dir: outputs/kaggle_mini
 num_workers: 2
 batch_size: 32
-epochs: 10
+epochs: 7
 learning_rate: 0.0005
-dropout: 0.5
+dropout: 0.3
 lr_decay_factor: 0.6
 lr_decay_interval: 4
 use_amp: true
