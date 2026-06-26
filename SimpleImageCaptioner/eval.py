@@ -348,33 +348,36 @@ def run_val(
     cfg: Dict[str, Any],
     device: torch.device,
     n_samples: int,
+    split: str = "val",
 ) -> None:
-    """Roye val split: teacher-forcing loss + N ta greedy caption sample.
+    """Roye train ya val split: teacher-forcing loss + N ta greedy caption sample.
 
     Ghabl az sample ha:
-        - ``val_loss`` ba teacher forcing (mesl ``train.py`` eval_epoch)
+        - loss ba teacher forcing (mesl ``train.py`` eval_epoch)
 
     Bad:
         - N ta image unique → greedy caption vs ground truth chap mishe
 
-    ``max_val_images`` az config cap mikone (mesl kaggle_mini/smoke).
+    ``max_train_images`` / ``max_val_images`` az config cap mikone (mesl kaggle_mini/smoke).
     """
-    max_val = image_cap(cfg.get("max_val_images"))
-    val_ids = None
-    if max_val is not None:
-        val_ids = sorted(load_caps_json(cfg["val_captions_json"]).keys())[:max_val]
+    images_dir, filename_template, captions_json = split_paths(cfg, split)
+    cap_key = "max_train_images" if split == "train" else "max_val_images"
+    max_images = image_cap(cfg.get(cap_key))
+    image_ids = None
+    if max_images is not None:
+        image_ids = sorted(load_caps_json(captions_json).keys())[:max_images]
 
-    val_ds = CocoCaptionDataset(
-        cfg["val_images_dir"],
-        cfg["val_captions_json"],
+    ds = CocoCaptionDataset(
+        images_dir,
+        captions_json,
         vocab,
         int(cfg["max_caption_len"]),
-        cfg["val_image_filename_template"],
-        image_ids=val_ids,
+        filename_template,
+        image_ids=image_ids,
         image_size=image_size_from_cfg(cfg),
     )
     loader = DataLoader(
-        val_ds,
+        ds,
         batch_size=int(cfg.get("batch_size", 8)),
         shuffle=False,
         num_workers=int(cfg.get("num_workers", 0)),
@@ -383,14 +386,16 @@ def run_val(
     loss, acc = eval_epoch(
         model, loader, nn.CrossEntropyLoss(ignore_index=0), device, cfg
     )
-    print(f"val_loss (teacher forcing): {loss:.4f}  val_token_acc: {acc:.4f}")
+    print(
+        f"{split}_loss (teacher forcing): {loss:.4f}  {split}_token_acc: {acc:.4f}"
+    )
 
     if n_samples <= 0:
         return
 
     seen: set[int] = set()
     examples: List[Tuple[int, str]] = []
-    for image_id, caption in val_ds.samples:
+    for image_id, caption in ds.samples:
         if image_id in seen:
             continue
         seen.add(image_id)
@@ -398,12 +403,12 @@ def run_val(
         if len(examples) >= n_samples:
             break
 
-    print(f"\nSample greedy captions (n={len(examples)}):")
+    print(f"\nSample greedy captions (split={split}, n={len(examples)}):")
     for image_id, gt in examples:
         image = load_image(
             image_id,
-            cfg["val_images_dir"],
-            cfg["val_image_filename_template"],
+            images_dir,
+            filename_template,
             device,
             image_size_from_cfg(cfg),
         )
@@ -436,7 +441,7 @@ def parse_args() -> argparse.Namespace:
         "--samples",
         type=int,
         default=0,
-        help="If set with val split (no --image-id), show N greedy caption examples",
+        help="If set without --image-id, show N greedy caption examples on --split",
     )
     return p.parse_args()
 
@@ -477,7 +482,7 @@ def main() -> None:
         )
     else:
         n = args.samples if args.samples > 0 else 10
-        run_val(model, vocab, cfg, device, n)
+        run_val(model, vocab, cfg, device, n, split=args.split)
 
 
 if __name__ == "__main__":

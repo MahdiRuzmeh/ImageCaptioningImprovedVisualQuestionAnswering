@@ -78,7 +78,8 @@ class RegionEncoder(nn.Module):
             # expected shape: (max_regions, region_dim)
             if t.ndim != 2 or t.shape[0] != self.max_regions or t.shape[1] != self.region_dim:
                 return None
-            return t.to(device, non_blocking=(device.type == "cuda"))
+            # AMP training may have saved fp16; model weights are fp32 at eval time.
+            return t.float().to(device, non_blocking=(device.type == "cuda"))
         except Exception:
             return None
 
@@ -90,8 +91,8 @@ class RegionEncoder(nn.Module):
         try:
             Path(cache_dir).mkdir(parents=True, exist_ok=True)
             p = self._cache_path(cache_dir, image_id)
-            # always save CPU tensors to avoid GPU->disk surprises
-            torch.save(regions.detach().to("cpu"), p)
+            # always save fp32 CPU tensors (AMP may produce fp16 during training)
+            torch.save(regions.detach().float().to("cpu"), p)
         except Exception:
             pass
 
