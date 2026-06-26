@@ -9,6 +9,7 @@ Architecture (paper):
 - z_t = Σ α_{ti} v_i → project be 512 → concat ba word embedding → LSTM
  z_t hamon caption_related_img_feat hast. ke [32]*[32*2048] = [2048] -> midim be FC layer -> [2048] -> [512] -> concat mikonim ba h(t-1) 
  va ye vector 1024 tayi ro midim be LSTM.
+- Region-ha ghabl az attention az RelationGNN migozarand (ta betonim ertebat beyne object-ha ro peyda konim).
 - v_cap = mean-pool embedding haye caption tolid shode
 """
 
@@ -23,6 +24,7 @@ from torchvision.models.detection import (
 )
 
 from .base_captioner import BaseImageCaptioner
+from .relation_gnn import RelationGNN
 
 
 class RegionEncoder(nn.Module):
@@ -208,6 +210,8 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         question_vocab_size: Optional[int] = None,
         question_pad_id: Optional[int] = None,
         dropout: float = 0.5,
+        use_gnn: bool = True,
+        gnn_dim: Optional[int] = None,
     ) -> None:
         """Caption decoder + optional question embedding baraye VQA.
 
@@ -222,8 +226,17 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         self.lstm_hidden = hidden_dim
         self.embed_dim = embed_dim if embed_dim is not None else hidden_dim
         self.word_dim = word_dim
+        self.region_dim = region_dim
+        self.use_gnn = use_gnn
 
         self.region_encoder = RegionEncoder(max_regions, region_dim)
+
+        gnn_work_dim = gnn_dim if gnn_dim is not None else self.embed_dim
+        # Finglish — GNN roye region 2048→512, message-pass, 512→2048.
+        # Mesal: node «dog» message az node «ball» migire → caption «dog chasing ball» ro dara nahayat generate mikone.
+        self.gnn_in = nn.Linear(region_dim, gnn_work_dim)
+        self.gnn = RelationGNN(gnn_work_dim)
+        self.gnn_out = nn.Linear(gnn_work_dim, region_dim)
 
         self.attention = RegionAttention(region_dim, hidden_dim, self.embed_dim)
 
@@ -284,6 +297,24 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         qe = self.q_emb(question_ids).mean(dim=1)
         return self.q_proj(qe)
 
+    def _encode_regions(
+        self,
+        images: torch.Tensor,
+        image_ids: Optional[torch.Tensor] = None,
+        cache_dir: Optional[str] = None,
+        save_cache: bool = True,
+    ) -> torch.Tensor:
+        """Faster R-CNN regions; age ``use_gnn`` → RelationGNN (paper §3.1, §3.3)."""
+        regions = self.region_encoder(
+            images,
+            image_ids=image_ids,
+            cache_dir=cache_dir,
+            save_cache=save_cache,
+        )
+        if not self.use_gnn:
+            return regions
+        return self.gnn_out(self.gnn(self.gnn_in(regions)))
+
     def _caption_step(
         self,
         regions: torch.Tensor,
@@ -326,7 +357,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
             Mesal GT="a dog sits": step2 pred="cat" → age rand<p input step3="cat", else "dog".
             p=0 → faghat teacher forcing; validation hamishe p=0.
         """
-        regions = self.region_encoder(
+        regions = self._encode_regions(
             images,
             image_ids=image_ids,
             cache_dir=region_cache_dir,
@@ -377,7 +408,12 @@ class SimpleImageCaptioner(BaseImageCaptioner):
             cap: token ids caption tolid shode (N, max_len)
             hidden_steps: list hidden ha ya ``None``
         """
-        regions = self.region_encoder(image, image_ids=image_ids, cache_dir=region_cache_dir)
+        regions = self._encode_regions(
+            image,
+            image_ids=image_ids,
+            cache_dir=region_cache_dir,
+            save_cache=True,
+        )
         n = image.size(0)
         qctx = self._qctx(question_ids, n, image.device)
         h = torch.zeros(n, self.lstm_hidden, device=image.device)

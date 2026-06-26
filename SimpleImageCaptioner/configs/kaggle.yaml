@@ -29,6 +29,8 @@ word_dim: 512
 lstm_hidden: 512
 embed_dim: 512
 region_dim: 2048
+use_gnn: true
+gnn_dim: 512
 device: cuda
 #DDP ro faghat roye Kaggle (2xT4) roshan kon.
 ddp: true

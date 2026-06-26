@@ -732,6 +732,8 @@ def main() -> None:
         embed_dim=int(cfg.get("embed_dim", hidden_dim)),
         region_dim=int(cfg["region_dim"]),
         dropout=float(cfg.get("dropout", 0.5)),
+        use_gnn=bool(cfg.get("use_gnn", True)),
+        gnn_dim=int(cfg["gnn_dim"]) if cfg.get("gnn_dim") is not None else None,
     ).to(device)
     if ddp_on:
         # Finglish: DDP baraye 2xT4 Kaggle. torchrun required.

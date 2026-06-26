@@ -32,6 +32,8 @@ word_dim: 512
 hidden_dim: 512
 embed_dim: 512
 region_dim: 2048
+use_gnn: true
+gnn_dim: 512
 question_dim: 1280
 device: cuda
 ddp: false

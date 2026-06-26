@@ -251,6 +251,8 @@ def build_model_from_ckpt(
         question_vocab_size=question_vocab_size,
         question_pad_id=q_vocab.pad_id if q_vocab else vocab.pad_id,
         dropout=float(cfg.get("dropout", 0.5)),
+        use_gnn=bool(cfg.get("use_gnn", True)),
+        gnn_dim=int(cfg["gnn_dim"]) if cfg.get("gnn_dim") is not None else None,
     )
     model.load_state_dict(cap_state, strict=False)
 
