@@ -207,6 +207,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         region_dim: int = 2048,
         question_vocab_size: Optional[int] = None,
         question_pad_id: Optional[int] = None,
+        dropout: float = 0.5,
     ) -> None:
         """Caption decoder + optional question embedding baraye VQA.
 
@@ -230,6 +231,11 @@ class SimpleImageCaptioner(BaseImageCaptioner):
 
         self.lstm = nn.LSTMCell(word_dim + self.embed_dim, hidden_dim)
 
+        # Finglish — dropout (paper §5, p=0.5):
+        #   Roye hidden LSTM ghabl az classifier; faghat train mode tasir dare.
+        #   Mesal h=[0.2,-0.1,...] → ba p=0.5 nesfe element ha 0 mishan, baghi ×2.
+        #   Inference (eval) dropout off hast — hidden kamel be classifier mire.
+        self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(hidden_dim, vocab_size)
 
         # embedding joda baraye soal VQA — ba word_emb caption share nemikone
@@ -300,7 +306,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         word = self.word_emb(caption_tok)
 
         h, c = self.lstm(torch.cat([word, attended], dim=-1), (h, c))
-        return self.classifier(h), h, c
+        return self.classifier(self.dropout(h)), h, c
 
     def forward_train(
         self,

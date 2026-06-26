@@ -250,6 +250,7 @@ def build_model_from_ckpt(
         region_dim=int(cfg.get("region_dim", 2048)),
         question_vocab_size=question_vocab_size,
         question_pad_id=q_vocab.pad_id if q_vocab else vocab.pad_id,
+        dropout=float(cfg.get("dropout", 0.5)),
     )
     model.load_state_dict(cap_state, strict=False)
 

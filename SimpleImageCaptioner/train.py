@@ -35,6 +35,7 @@ from PIL import Image
 from torch import nn
 from torch.cuda.amp import GradScaler, autocast
 from torch.optim import Adamax
+from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms
@@ -389,6 +390,21 @@ def scheduled_sampling_prob(epoch: int, cfg: Dict[str, Any]) -> float:
     return min(max_p, steps * increment)
 
 
+def build_lr_scheduler(
+    optimizer: torch.optim.Optimizer, cfg: Dict[str, Any]
+) -> StepLR:
+    """Finglish — LR decay (paper §5, Table 2):
+        Har ``lr_decay_interval`` epoch LR × ``lr_decay_factor`` (mesal 0.6).
+        Mesal LR=0.0005: epoch4→0.0003, epoch8→0.00018, epoch12→0.000108.
+        ``scheduler.step()`` ro payan har epoch seda kon.
+    """
+    return StepLR(
+        optimizer,
+        step_size=max(1, int(cfg.get("lr_decay_interval", 4))),
+        gamma=float(cfg.get("lr_decay_factor", 0.6)),
+    )
+
+
 """
     train_epoch
 
@@ -715,6 +731,7 @@ def main() -> None:
         question_dim=int(cfg.get("question_dim", cfg["word_dim"])),
         embed_dim=int(cfg.get("embed_dim", hidden_dim)),
         region_dim=int(cfg["region_dim"]),
+        dropout=float(cfg.get("dropout", 0.5)),
     ).to(device)
     if ddp_on:
         # Finglish: DDP baraye 2xT4 Kaggle. torchrun required.
@@ -727,6 +744,7 @@ def main() -> None:
         )
 
     optimizer = Adamax(model.parameters(), lr=float(cfg["learning_rate"]))
+    scheduler = build_lr_scheduler(optimizer, cfg)
     criterion = nn.CrossEntropyLoss(ignore_index=0)
     use_amp = bool(cfg.get("use_amp", False)) and device.type == "cuda"
     scaler = GradScaler(enabled=use_amp)
@@ -753,11 +771,13 @@ def main() -> None:
         )
         va_loss, va_acc = eval_epoch(model, val_loader, criterion, device, cfg)
         if rank == 0:
+            cur_lr = optimizer.param_groups[0]["lr"]
             print(
-                f"epoch {epoch}/{epochs}  ss_p={ss_p:.2f}  "
+                f"epoch {epoch}/{epochs}  ss_p={ss_p:.2f}  lr={cur_lr:.2e}  "
                 f"train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} "
                 f"val_loss={va_loss:.4f} val_acc={va_acc:.4f}"
             )
+        scheduler.step()
 
         if rank == 0:
             raw_model = unwrap_model(model)

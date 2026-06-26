@@ -11,6 +11,9 @@ num_workers: 0
 batch_size: 10
 epochs: 25
 learning_rate: 0.0005
+dropout: 0.5
+lr_decay_factor: 0.6
+lr_decay_interval: 4
 use_amp: true
 grad_accum_steps: 1
 max_caption_len: 20
