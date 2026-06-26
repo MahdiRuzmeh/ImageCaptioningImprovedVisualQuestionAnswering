@@ -9,16 +9,16 @@ save_dir: outputs/kaggle
 # Kaggle 2xT4: torchrun --nproc_per_node=2 train.py --config configs/kaggle.yaml
 num_workers: 2
 batch_size: 16
-epochs: 25
+epochs: 5
 learning_rate: 0.0005
 use_amp: true
 grad_accum_steps: 1
 max_caption_len: 20
 vocab_min_freq: 4
-max_regions: 32
+max_regions: 16
 cache_regions: true
 region_cache_dir: /kaggle/working/region_cache/captioner
-image_size: 448
+image_size: 224
 pin_memory: true
 persistent_workers: true
 prefetch_factor: 2
