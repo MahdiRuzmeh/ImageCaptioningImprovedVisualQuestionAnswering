@@ -66,9 +66,10 @@ class RegionEncoder(nn.Module):
 
     def _load_cached(self, cache_dir: str, image_id: int, device: torch.device) -> Optional[torch.Tensor]:
         """
-        Finglish:
-        Inja region feature ha ro az disk load mikonim (per image_id).
-        Hadaf: FasterRCNN har epoch dobare run nashe → time training kheili kam mishe.
+        Finglish — Bug 2 fix: cache hala raw ROI (1024D) negahdari mikone, na post-roi_to_region.
+        Shape check ba ROI_FEAT_DIM anjam mishe (na region_dim=2048).
+        In yani roi_to_region har bar az cache load mishe va gradient migire (Bug 1 fix).
+        Cache haye ghadi (2048D) auto-invalidate mishan → dar epoch 1 dobare compute mishan.
         """
         try:
             p = self._cache_path(cache_dir, image_id)
@@ -77,8 +78,8 @@ class RegionEncoder(nn.Module):
             t = torch.load(p, map_location="cpu")
             if not isinstance(t, torch.Tensor):
                 return None
-            # expected shape: (max_regions, region_dim)
-            if t.ndim != 2 or t.shape[0] != self.max_regions or t.shape[1] != self.region_dim:
+            # expected shape: (max_regions, ROI_FEAT_DIM=1024) — raw backbone output
+            if t.ndim != 2 or t.shape[0] != self.max_regions or t.shape[1] != self.ROI_FEAT_DIM:
                 return None
             # AMP training may have saved fp16; model weights are fp32 at eval time.
             return t.float().to(device, non_blocking=(device.type == "cuda"))
@@ -98,7 +99,6 @@ class RegionEncoder(nn.Module):
         except Exception:
             pass
 
-    @torch.no_grad()
     def forward(
         self,
         images: torch.Tensor,
@@ -108,47 +108,54 @@ class RegionEncoder(nn.Module):
     ) -> torch.Tensor:
         """(N,3,H,W) → (N, max_regions, region_dim).
 
-        If ``cache_dir`` and ``image_ids`` are provided, region tensors are loaded/saved
-        per image id. This avoids re-running Faster R-CNN every epoch.
+        Finglish — Bug 1 + Bug 2 fix: @torch.no_grad() az kol forward bardashte shod.
+        Hala faghat backbone (Faster R-CNN) zir with torch.no_grad() ejra mishe.(yani freeze shode mimone)
+        roi_to_region birun az no_grad hast → gradient migire → train mishe.(yani layer FC ke 1024d be 2048d tabdil mikone ham train mishe)
+        Cache hala raw ROI (1024D) negahdari mikone; roi_to_region baad az load ejra mishe.
         """
         device = images.device
         n = images.size(0)
 
+        # --- cache hit: load raw ROI (1024D), then apply trainable roi_to_region ---
         if cache_dir and image_ids is not None and image_ids.numel() == n:
             cached: List[Optional[torch.Tensor]] = [
                 self._load_cached(cache_dir, int(image_ids[i].item()), device) for i in range(n)
             ]
             if all(t is not None for t in cached):
-                return torch.stack([t for t in cached if t is not None], dim=0)
+                raw = torch.stack([t for t in cached if t is not None], dim=0)
+                return self.roi_to_region(raw)
 
-        img_list = list(images)
-        transformed, _ = self.detector.transform(img_list, None)
-        feats = self.detector.backbone(transformed.tensors)
-        proposals, _ = self.detector.rpn(transformed, feats, None)
-        roi = self.detector.roi_heads.box_roi_pool(
-            feats, proposals, transformed.image_sizes
-        )
-        roi = self.detector.roi_heads.box_head(roi)
-        counts = [len(p) for p in proposals]
-        chunks = torch.split(roi, counts)
-        batch_roi: List[torch.Tensor] = []
-        for chunk in chunks:
-            r = chunk[: self.max_regions]
-            if r.size(0) < self.max_regions:
-                pad = torch.zeros(
-                    (self.max_regions - r.size(0), r.size(1)), device=r.device
-                )
-                r = torch.cat([r, pad], dim=0)
-            batch_roi.append(r)
+        # --- cache miss: run frozen Faster R-CNN backbone under no_grad ---
+        with torch.no_grad():
+            img_list = list(images)
+            transformed, _ = self.detector.transform(img_list, None)
+            feats = self.detector.backbone(transformed.tensors)
+            proposals, _ = self.detector.rpn(transformed, feats, None)
+            roi = self.detector.roi_heads.box_roi_pool(
+                feats, proposals, transformed.image_sizes
+            )
+            roi = self.detector.roi_heads.box_head(roi)
+            counts = [len(p) for p in proposals]
+            chunks = torch.split(roi, counts)
+            batch_roi: List[torch.Tensor] = []
+            for chunk in chunks:
+                r = chunk[: self.max_regions]
+                if r.size(0) < self.max_regions:
+                    pad = torch.zeros(
+                        (self.max_regions - r.size(0), r.size(1)), device=r.device
+                    )
+                    r = torch.cat([r, pad], dim=0)
+                batch_roi.append(r)
+            raw_roi = torch.stack(batch_roi, dim=0)  # (N, max_regions, 1024) — no grad
 
-        regions = self.roi_to_region(torch.stack(batch_roi, dim=0))
-
+        # save raw 1024D ROI to cache (before roi_to_region) so cache stays valid
+        # across epochs even as roi_to_region weights change during training.
         if cache_dir and image_ids is not None and image_ids.numel() == n and save_cache:
-            # write per-sample so partial cache hits still help later
             for i in range(n):
-                self._save_cached(cache_dir, int(image_ids[i].item()), regions[i])
+                self._save_cached(cache_dir, int(image_ids[i].item()), raw_roi[i])
 
-        return regions
+        # apply trainable projection outside no_grad → receives gradients every forward pass
+        return self.roi_to_region(raw_roi)
 
 
 class RegionAttention(nn.Module):
@@ -251,6 +258,13 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(hidden_dim, vocab_size)
 
+        # Finglish — Bug 3 fix: LSTM state az mean region initialize mishe (na zeros).
+        # Ghabl h=0 bood → attention dar step 0 koor bood → "a man" mode collapse.(yani hame caption ha avaleshon yeksan shoro mishod ke eshtebah bood)
+        # Hala: h = tanh(W * mean(regions)), c = tanh(W * mean(regions)) — image-specific.
+        # Referens: Xu et al. 2015 "Show, Attend and Tell" — hamoon technique.
+        self.region_init_h = nn.Linear(region_dim, hidden_dim)
+        self.region_init_c = nn.Linear(region_dim, hidden_dim)
+
         # embedding joda baraye soal VQA — ba word_emb caption share nemikone
         self.q_emb: Optional[nn.Embedding] = None
         if question_vocab_size is not None:
@@ -272,6 +286,21 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         super().train(mode)
         self.region_encoder.train(mode)
         return self
+
+    def _init_lstm_state(
+        self, regions: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """LSTM hidden va cell state ro az mean region features initialize mikone.
+
+        Finglish — Bug 3 fix: be jaye zeros, h va c az mean-pool region compute mishan.
+        mean(regions) → (N, region_dim) → Linear → tanh → (N, hidden_dim).
+        In yani step 0 attention ya query mokhtas har tasvir hast, na zero (koor).
+        Referens: Xu et al. 2015 "Show, Attend and Tell", section 3.1.
+        """
+        mean_r = regions.mean(dim=1)
+        h = torch.tanh(self.region_init_h(mean_r))
+        c = torch.tanh(self.region_init_c(mean_r))
+        return h, c
 
     def _qctx(
         self,
@@ -304,7 +333,12 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         cache_dir: Optional[str] = None,
         save_cache: bool = True,
     ) -> torch.Tensor:
-        """Faster R-CNN regions; age ``use_gnn`` → RelationGNN (paper §3.1, §3.3)."""
+        """Faster R-CNN regions; age ``use_gnn`` → RelationGNN (paper §3.1, §3.3).
+
+        Finglish — Bug 4 fix (second part): residual connection be GNN path ezafe shod.
+        Ghabl: regions be kolli ba GNN output replace mishodan → age GNN bad bood, kharab.
+        Hala: regions + gnn_delta → feature asli hifz mishe + GNN context ezafe mishe.
+        """
         regions = self.region_encoder(
             images,
             image_ids=image_ids,
@@ -313,7 +347,8 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         )
         if not self.use_gnn:
             return regions
-        return self.gnn_out(self.gnn(self.gnn_in(regions)))
+        gnn_delta = self.gnn_out(self.gnn(self.gnn_in(regions)))
+        return regions + gnn_delta
 
     def _caption_step(
         self,
@@ -367,8 +402,8 @@ class SimpleImageCaptioner(BaseImageCaptioner):
 
         # toye train question haro nemidim behesh.
         qctx = self._qctx(question_ids, n, images.device)
-        h = torch.zeros(n, self.lstm_hidden, device=images.device)
-        c = torch.zeros_like(h)
+        # Bug 3 fix: h,c az mean region initialize mishan (na zeros) — image-specific start.
+        h, c = self._init_lstm_state(regions)
         logits: List[torch.Tensor] = []
         tok = caption_ids[:, 0]
         use_sampling = scheduled_sampling_p > 0.0
@@ -416,8 +451,8 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         )
         n = image.size(0)
         qctx = self._qctx(question_ids, n, image.device)
-        h = torch.zeros(n, self.lstm_hidden, device=image.device)
-        c = torch.zeros_like(h)
+        # Bug 3 fix: h,c az mean region initialize mishan (na zeros) — image-specific start.
+        h, c = self._init_lstm_state(regions)
         tok = torch.full((n,), 1, dtype=torch.long, device=image.device)
         out = [tok]
         hidden_steps: List[torch.Tensor] = []

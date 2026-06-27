@@ -21,9 +21,15 @@ class RelationGNN(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """(batch, num_regions, dim) → updated region features, same shape."""
+        """(batch, num_regions, dim) → updated region features, same shape.
+
+        Finglish — Bug 4 fix: residual connection ezafe shod.
+        Ghabl: khoroji GNN be kolli region feature haye asli ro replace mikard.
+        Hala: delta (taghir) be x asli ezafe mishe → gradient path hifz mishe
+        va age GNN chizi yad nagirad, x asli barmigarde (training stable mishe).
+        """
         b, k, d = x.shape
         xi = x.unsqueeze(2).expand(b, k, k, d)
         xj = x.unsqueeze(1).expand(b, k, k, d)
         edge_msg = self.edge(torch.cat([xi, xj], dim=-1)).mean(dim=2)
-        return self.node(torch.cat([x, edge_msg], dim=-1))
+        return x + self.node(torch.cat([x, edge_msg], dim=-1))
