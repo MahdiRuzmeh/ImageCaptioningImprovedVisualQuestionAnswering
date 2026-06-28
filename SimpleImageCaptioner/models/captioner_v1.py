@@ -51,6 +51,14 @@ class RegionEncoder(nn.Module):
 
         self.detector.eval()
 
+        # Finglish — double-normalization fix:
+        #   Dataset ghablan image ro ba ImageNet mean/std normalize mikone.
+        #   GeneralizedRCNNTransform default dobare hamon normalize ro mizane → double!
+        #   mean=0,std=1 mizarim ta detector faghat resize kone (na renormalize).
+        #   Bad az in fix region_cache ghadi ghalat hast → cache ro pak kon + retrain.
+        self.detector.transform.image_mean = [0.0, 0.0, 0.0]
+        self.detector.transform.image_std = [1.0, 1.0, 1.0]
+
         # inja ham ba ye linier layer khorouji ro be abaadi ke delemon mikhad tabdil mikonim.
         self.roi_to_region = nn.Linear(self.ROI_FEAT_DIM, region_dim)
 
@@ -258,6 +266,13 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(hidden_dim, vocab_size)
 
+        # Finglish — deep-output grounding (Show-Attend-Tell eq. 7):
+        #   logit faghat az h LSTM nemiyad; attended (image context) va word emb
+        #   mostaghim be classifier ezafe mishan → model nemitone image ro ignore kone.
+        #   ctx_to_logit: context(512)→hidden, word_to_logit: word(512)→hidden.
+        self.ctx_to_logit = nn.Linear(self.embed_dim, hidden_dim)
+        self.word_to_logit = nn.Linear(word_dim, hidden_dim)
+
         # Finglish — Bug 3 fix: LSTM state az mean region initialize mishe (na zeros).
         # Ghabl h=0 bood → attention dar step 0 koor bood → "a man" mode collapse.(yani hame caption ha avaleshon yeksan shoro mishod ke eshtebah bood)
         # Hala: h = tanh(W * mean(regions)), c = tanh(W * mean(regions)) — image-specific.
@@ -372,7 +387,10 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         word = self.word_emb(caption_tok)
 
         h, c = self.lstm(torch.cat([word, attended], dim=-1), (h, c))
-        return self.classifier(self.dropout(h)), h, c
+        # Finglish — deep-output: logit = f(h, attended, word).
+        # image context (attended) mostaghim vared prediction mishe → grounding ejbari.
+        out = self.dropout(h) + self.ctx_to_logit(attended) + self.word_to_logit(word)
+        return self.classifier(out), h, c
 
     def forward_train(
         self,
