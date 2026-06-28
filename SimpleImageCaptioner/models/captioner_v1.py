@@ -485,20 +485,153 @@ class SimpleImageCaptioner(BaseImageCaptioner):
             return cap, hidden_steps
         return cap, None
 
+    @staticmethod
+    def _block_repeat_ngram(
+        logp: torch.Tensor, seqs: torch.Tensor, ngram: int
+    ) -> None:
+        """Finglish — trigram blocking (in-place roye log-prob):
+            Age yek n-gram (mesal 3-tayi) ghablan tooye hamin seq oomade bashe,
+            token-i ke oon n-gram ro tekrar mikone -inf mishe → loop hazf mishe.
+            Mesal: seq=[...,a,horse,a] + ngram=3 → token «horse» block (chon «a horse» tekrari).
+        """
+        rows, length = seqs.shape
+        if length < ngram - 1:
+            return
+        prefix = seqs[:, -(ngram - 1):]
+        for r in range(rows):
+            seq_r = seqs[r]
+            pref_r = prefix[r]
+            for i in range(length - ngram + 1):
+                if torch.equal(seq_r[i : i + ngram - 1], pref_r):
+                    logp[r, int(seq_r[i + ngram - 1])] = float("-inf")
+
+    @torch.no_grad()
+    def _beam_search(
+        self,
+        image: torch.Tensor,
+        question_ids: Optional[torch.Tensor],
+        max_len: int,
+        beam_size: int = 5,
+        length_alpha: float = 0.7,
+        no_repeat_ngram: int = 3,
+        image_ids: Optional[torch.Tensor] = None,
+        region_cache_dir: Optional[str] = None,
+    ) -> torch.Tensor:
+        """Beam search decode — caption behtar az greedy tolid mikone.
+
+        Finglish — beam search chiye?
+            Greedy: har step FAGHAT 1 kalame (argmax) entekhab mikone → age ye kalame
+            eshtebah bashe, dige nemitone jobran kone (caption kharab mishe).
+            Beam search: har step ``beam_size`` ta behtarin "masir" (hypothesis) ro
+            hamzaman negah midare va edame mide → ehtemal peyda kardane caption behtar bishtar.
+
+        Mesal (beam_size=2), score = jam log-probability har kalame:
+            step1 (bad az <bos>):  kandid ha → "a" (-0.2),  "the" (-0.9)   → 2 ta top negah dashte mishan
+            step2:  "a man" (-0.5), "a dog" (-1.1), "the man" (-1.3), ...   → baz 2 ta top: «a man», «a dog»
+            step3:  «a man riding» (-0.8), «a dog running» (-1.4), ...      → va hamintor ta EOS ya max_len
+            akhar: az beyne hame hypothesis ha, behtarin (bad az length-norm) entekhab mishe.
+
+        Se behbood ke ezafe shode (har kodom yek bug-e greedy ro hal mikone):
+            1) EOS-stop: hypothesis ke <eos> bezane "tamum" mishe (freeze) → dige kalame
+               ezafe nemizane → caption mesl «...a table a table a table» nemishe.
+            2) length-norm: score ro bar ``length^length_alpha`` taghsim mikonim. chera?
+               chon jam log-prob baraye jomle boland hamishe manfi-tar (badtar) mishe →
+               bedoon in, model jomle haye kheili kootah ro tarjih mide. alpha=0.7 motavaset.
+            3) trigram block (``no_repeat_ngram``): har 3-gram faghat 1 bar → loop hazf.
+
+        Args:
+            image: (N,3,H,W) — mitone batch bashe (har image joda beam khodesho dare).
+            question_ids: baraye VQA question-guided; None → caption omumi.
+            max_len: max tedad token.
+            beam_size: tedad masir hamzaman (5 default; 1 → greedy ama ba EOS-stop+block).
+            length_alpha: sheddat jarime tool (0=bi-asar, bozorgtar=jomle bolandtar tarjih).
+            no_repeat_ngram: tool n-gram ke nabayad tekrar she (3 = trigram).
+
+        Returns:
+            (N, L) token ids — baraye har image behtarin caption (ba <bos>, ta <eos>/max_len).
+        """
+        bos_id, eos_id, pad_id = 1, 2, 0
+        device = image.device
+        regions = self._encode_regions(
+            image, image_ids=image_ids, cache_dir=region_cache_dir, save_cache=True
+        )
+        n = image.size(0)
+        hidden = self.lstm_hidden
+        beam = max(1, int(beam_size))
+
+        qctx = self._qctx(question_ids, n, device)
+        h, c = self._init_lstm_state(regions)
+
+        r_count, r_dim = regions.size(1), regions.size(2)
+        regions = regions.unsqueeze(1).expand(n, beam, r_count, r_dim).reshape(n * beam, r_count, r_dim)
+        qctx = qctx.unsqueeze(1).expand(n, beam, hidden).reshape(n * beam, hidden)
+        h = h.unsqueeze(1).expand(n, beam, hidden).reshape(n * beam, hidden).contiguous()
+        c = c.unsqueeze(1).expand(n, beam, hidden).reshape(n * beam, hidden).contiguous()
+
+        # faghat beam 0 active-e ta step aval B token motafavet bede (na B beam yeksan)
+        beam_scores = torch.full((n, beam), float("-inf"), device=device)
+        beam_scores[:, 0] = 0.0
+        beam_scores = beam_scores.reshape(n * beam)
+        tok = torch.full((n * beam,), bos_id, dtype=torch.long, device=device)
+        seqs = tok.unsqueeze(1)
+        finished = torch.zeros(n * beam, dtype=torch.bool, device=device)
+
+        for _ in range(max_len - 1):
+            logit, h, c = self._caption_step(regions, tok, h, c, qctx)
+            logp = torch.log_softmax(logit, dim=-1)
+            vocab = logp.size(-1)
+            if no_repeat_ngram > 0:
+                self._block_repeat_ngram(logp, seqs, no_repeat_ngram)
+            # hypothesis haye tamum shode freeze: faghat PAD ba score 0 (taghir nemikone)
+            if bool(finished.any()):
+                logp[finished] = float("-inf")
+                logp[finished, pad_id] = 0.0
+            total = (beam_scores.unsqueeze(-1) + logp).view(n, beam * vocab)
+            top_scores, top_idx = total.topk(beam, dim=-1)
+            beam_id = torch.div(top_idx, vocab, rounding_mode="floor")
+            token_id = top_idx % vocab
+            offset = (torch.arange(n, device=device) * beam).unsqueeze(-1)
+            flat = (beam_id + offset).reshape(n * beam)
+            h, c = h[flat], c[flat]
+            seqs = seqs[flat]
+            finished = finished[flat]
+            beam_scores = top_scores.reshape(n * beam)
+            tok = token_id.reshape(n * beam)
+            seqs = torch.cat([seqs, tok.unsqueeze(1)], dim=1)
+            finished = finished | (tok == eos_id)
+            if bool(finished.all()):
+                break
+
+        lengths = (seqs != pad_id).sum(dim=1).clamp(min=1).float()
+        norm = (beam_scores / lengths.pow(length_alpha)).view(n, beam)
+        best = norm.argmax(dim=-1)
+        seqs = seqs.view(n, beam, -1)
+        return seqs[torch.arange(n, device=device), best]
+
     @torch.no_grad()
     def generate_caption(
         self,
         image: torch.Tensor,
         question_ids: Optional[torch.Tensor] = None,
         max_len: int = 20,
+        beam_size: int = 5,
+        length_alpha: float = 0.7,
+        no_repeat_ngram: int = 3,
     ) -> torch.Tensor:
-        """Greedy decode az BOS (id=1) — baraye inference va eval VQA.
-
-        ``@torch.no_grad()``: inference faghat; train VQA az ``_decode_caption`` ba
-        ``collect_hidden=True`` estefade mikone ta grad dashte bashe.
+        """Finglish — inference decode ba beam search (default beam=5):
+            EOS-stop + length-norm + trigram block → caption tamiz, bedoon tekrar.
+            beam_size=1 → greedy (ama baz ham EOS-stop + trigram block dare).
+            train VQA az in estefade nemikone (oon ``_decode_caption`` ba grad dare).
+            Mesal: «a small plane flying through the sky <eos>».
         """
-        cap, _ = self._decode_caption(image, question_ids, max_len, collect_hidden=False)
-        return cap
+        return self._beam_search(
+            image,
+            question_ids,
+            max_len,
+            beam_size=beam_size,
+            length_alpha=length_alpha,
+            no_repeat_ngram=no_repeat_ngram,
+        )
 
     def encode_caption(self, caption_ids: torch.Tensor) -> torch.Tensor:
         """Mean-pool token embeddings → v_cap (N, word_dim) — paper §3.4."""
