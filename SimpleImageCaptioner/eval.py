@@ -85,6 +85,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
+from metrics import compute_caption_metrics
 from models.captioner_v1 import SimpleImageCaptioner
 from train import (
     CocoCaptionDataset,
@@ -352,11 +353,15 @@ def run_val(
     device: torch.device,
     n_samples: int,
     split: str = "val",
+    metric_images: int = 500,
 ) -> None:
-    """Roye train ya val split: teacher-forcing loss + N ta greedy caption sample.
+    """Roye train ya val split: teacher-forcing loss + BLEU/CIDEr + N ta sample.
 
     Ghabl az sample ha:
         - loss ba teacher forcing (mesl ``train.py`` eval_epoch)
+        - BLEU-1..4 + CIDEr roye caption haye **generate shode** (greedy) baraye
+          ta ``metric_images`` ta image unique. In metric vagheie captioning hast
+          (token accuracy grounding ro nemibine).
 
     Bad:
         - N ta image unique → greedy caption vs ground truth chap mishe
@@ -393,11 +398,45 @@ def run_val(
         f"{split}_loss (teacher forcing): {loss:.4f}  {split}_token_acc: {acc:.4f}"
     )
 
+    # --- generated-caption metrics (BLEU + CIDEr) over unique images ---
+    # Finglish: har image yek bar greedy decode mishe; reference ha = HAME caption
+    # haye an image (na faghat yeki) → mesl COCO eval. metric_images sare-jam cap mikone.
+    caps_by_img = load_caps_json(captions_json)
+    unique_ids: List[int] = []
+    seen_m: set[int] = set()
+    for image_id, _ in ds.samples:
+        if image_id in seen_m:
+            continue
+        seen_m.add(image_id)
+        unique_ids.append(image_id)
+        if metric_images > 0 and len(unique_ids) >= metric_images:
+            break
+
+    hyps: List[List[str]] = []
+    refs: List[List[List[str]]] = []
+    pred_by_id: Dict[int, str] = {}
+    for image_id in unique_ids:
+        image = load_image(
+            image_id, images_dir, filename_template, device, image_size_from_cfg(cfg)
+        )
+        with torch.no_grad():
+            cap_ids = model.generate_caption(image, None, int(cfg["max_caption_len"]))
+        pred = decode_ids(cap_ids[0].tolist(), vocab)
+        pred_by_id[image_id] = pred
+        hyps.append(tok(pred))
+        refs.append([tok(c) for c in caps_by_img.get(image_id, [])])
+
+    if hyps:
+        scores = compute_caption_metrics(hyps, refs)
+        score_str = "  ".join(f"{k}={v:.4f}" for k, v in scores.items())
+        print(f"\nGenerated-caption metrics (n_images={len(hyps)}):\n  {score_str}")
+
     if n_samples <= 0:
         return
 
-    seen: set[int] = set()
+    # reuse already-decoded predictions for qualitative samples (no re-decode)
     examples: List[Tuple[int, str]] = []
+    seen: set[int] = set()
     for image_id, caption in ds.samples:
         if image_id in seen:
             continue
@@ -408,18 +447,17 @@ def run_val(
 
     print(f"\nSample greedy captions (split={split}, n={len(examples)}):")
     for image_id, gt in examples:
-        image = load_image(
-            image_id,
-            images_dir,
-            filename_template,
-            device,
-            image_size_from_cfg(cfg),
-        )
-        with torch.no_grad():
-            cap_ids = model.generate_caption(
-                image, None, int(cfg["max_caption_len"])
+        if image_id in pred_by_id:
+            pred = pred_by_id[image_id]
+        else:
+            image = load_image(
+                image_id, images_dir, filename_template, device, image_size_from_cfg(cfg)
             )
-        pred = decode_ids(cap_ids[0].tolist(), vocab)
+            with torch.no_grad():
+                cap_ids = model.generate_caption(
+                    image, None, int(cfg["max_caption_len"])
+                )
+            pred = decode_ids(cap_ids[0].tolist(), vocab)
         print(f"  [{image_id}] pred: {pred}")
         print(f"           gt:   {gt}")
 
@@ -445,6 +483,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="If set without --image-id, show N greedy caption examples on --split",
+    )
+    p.add_argument(
+        "--metric-images",
+        type=int,
+        default=500,
+        help="Max unique images to score for BLEU/CIDEr (0 = all available)",
     )
     return p.parse_args()
 
@@ -485,7 +529,15 @@ def main() -> None:
         )
     else:
         n = args.samples if args.samples > 0 else 10
-        run_val(model, vocab, cfg, device, n, split=args.split)
+        run_val(
+            model,
+            vocab,
+            cfg,
+            device,
+            n,
+            split=args.split,
+            metric_images=args.metric_images,
+        )
 
 
 if __name__ == "__main__":
