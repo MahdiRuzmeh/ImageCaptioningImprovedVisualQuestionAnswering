@@ -8,8 +8,8 @@ val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 save_dir: outputs/kaggle
 # Kaggle 2xT4: torchrun --nproc_per_node=2 train.py --config configs/kaggle.yaml
 num_workers: 2
-batch_size: 16
-epochs: 5
+batch_size: 32
+epochs: 4
 learning_rate: 0.0005
 dropout: 0.5
 lr_decay_factor: 0.6
@@ -18,10 +18,10 @@ use_amp: true
 grad_accum_steps: 1
 max_caption_len: 20
 vocab_min_freq: 4
-max_regions: 16
+max_regions: 32
 cache_regions: true
 region_cache_dir: /kaggle/working/region_cache/captioner
-image_size: 224
+image_size: 448
 pin_memory: true
 persistent_workers: true
 prefetch_factor: 2
