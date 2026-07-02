@@ -24,6 +24,10 @@ use_amp: true
 max_regions: 16
 cache_regions: true
 region_cache_dir: outputs/region_cache/vqa
+# cache_global: khoroji raw ResNet-101 (2048d, qabl az g_proj) disk save mikone.
+# g_proj linear layer CACHE NEMISHE va hamishe ejra mishe (trainable).
+cache_global: true
+global_cache_dir: outputs/global_cache/vqa
 image_size: 224
 device: cuda
 ddp: false

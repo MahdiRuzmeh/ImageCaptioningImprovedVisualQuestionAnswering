@@ -27,10 +27,14 @@ max_answer_len: 6
 vocab_min_freq: 4
 use_amp: true
 max_regions: 32
-cache_regions: false
+cache_regions: true
 # degat kon age max_regions ya region_dim farg kone cache dige valid nist. 
 # (batch, max_regions, region_dim) example: (N, 32, 2048) 
 region_cache_dir: outputs/region_cache/vqa
+# cache_global: khoroji raw ResNet-101 (2048d, qabl az g_proj) disk save mikone.
+# g_proj linear layer CACHE NEMISHE va hamishe ejra mishe (trainable).
+cache_global: true
+global_cache_dir: outputs/global_cache/vqa
 image_size: 448
 device: cuda
 ddp: false

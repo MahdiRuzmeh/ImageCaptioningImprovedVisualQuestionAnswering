@@ -62,6 +62,10 @@ Finglish note (Kaggle 2xT4 + speed)
 ----------------------------------
 - cache_regions: region feature FasterRCNN ro 1 bar per image hesab mikonim va disk save mikonim.
   in kar time training ro kheili kam mikone (epoch haye badi fast mishan).
+- cache_global: khoroji raw ResNet-101 (pool+flatten → 2048d) ro disk save mikonim.
+  MOHEM: faqat khoroji encoder cache mishe — g_proj (linear 2048→hidden_dim) CACHE NEMISHE
+  va hamishe dar forward pass ejra mishe (trainable projection).
+  Mesl FasterRCNN: Encoder(img) → 2048d [cache inja] → LinearLayer(2048d) → hidden_dim [no cache].
 - use_amp: mixed precision baraye speed/memory.
 - ddp: age ddp=true bashe, ba torchrun do ta GPU ro hamzaman estefade mikonim.
 """
@@ -704,6 +708,96 @@ class VQAModel(nn.Module):
         except Exception:
             pass
 
+    # ------------------------------------------------------------------
+    # ResNet-101 global feature cache
+    # ------------------------------------------------------------------
+
+    def _global_cache_path(self, cache_dir: str, image_id: int) -> Path:
+        """
+        Finglish: path fayle cache baraye yek image_id barmigardonad.
+        Filename: {image_id}_resnet101.pt
+        Chon ResNet-101 hamishe 2048d output dare, niazi be encode kardan dimension nist.
+        """
+        return Path(cache_dir) / f"{int(image_id)}_resnet101.pt"
+
+    def _load_global_cached(
+        self, cache_dir: str, image_ids: torch.Tensor, device: torch.device
+    ) -> Optional[torch.Tensor]:
+        """
+        Finglish: cache disk ro baray yek batch image load mikone.
+        Age hatta yek image cache nadasht ya shape ghalat bood, None bar migardone
+        ta kol batch dobare hesab beshe (hamoon ravesh _load_regions_cached).
+
+        Output:
+            tensor (B, 2048) age hame cache vojood dasht, vagharno None
+        """
+        try:
+            paths = [self._global_cache_path(cache_dir, int(i.item())) for i in image_ids]
+            if not all(p.exists() for p in paths):
+                return None
+            tensors: List[torch.Tensor] = []
+            for p in paths:
+                t = torch.load(p, map_location="cpu")
+                if not isinstance(t, torch.Tensor) or t.ndim != 1 or t.shape[0] != 2048:
+                    return None
+                tensors.append(t)
+            out = torch.stack(tensors, dim=0)  # (B, 2048)
+            return out.to(device, non_blocking=(device.type == "cuda"))
+        except Exception:
+            return None
+
+    def _save_global_cached(
+        self, cache_dir: str, image_ids: torch.Tensor, feats: torch.Tensor
+    ) -> None:
+        """
+        Finglish: ResNet-101 raw feature haro baraye har image disk save mikone.
+        Har file yek tensor (2048,) ast — qabl az g_proj linear layer.
+        Age hata yek error bashe, silent pass mikone ta train interrupt nashe.
+        """
+        try:
+            Path(cache_dir).mkdir(parents=True, exist_ok=True)
+            for i, img_id in enumerate(image_ids):
+                p = self._global_cache_path(cache_dir, int(img_id.item()))
+                torch.save(feats[i].detach().to("cpu"), p)
+        except Exception:
+            pass
+
+    @torch.no_grad()
+    def _global_feat(
+        self,
+        images: torch.Tensor,
+        image_ids: Optional[torch.Tensor] = None,
+        cache_dir: Optional[str] = None,
+        save_cache: bool = True,
+    ) -> torch.Tensor:
+        """
+        Finglish: ResNet-101 global feature ro extract ya az cache load mikone.
+
+        Mohem:
+            - Faqat khoroji ResNet+pool ro cache mikonim (2048d raw) — QABL az g_proj.
+            - g_proj (linear layer) cache nemishe va dar har forward pass ejra mishe.
+            - Agar cache_dir set bashe va image_ids vojood dashte bashe:
+                1. Aval cache disk ro check mikonim.
+                2. Age peyda nashd, ResNet ro ejra mikonim va save mikonim (dar train).
+            - ResNet freeze ast pas @torch.no_grad() safe ast.
+
+        Output:
+            tensor (B, 2048) — raw pooled ResNet feature, QABL az linear projection
+        """
+        device = images.device
+        if cache_dir and image_ids is not None and image_ids.numel() == images.size(0):
+            cached = self._load_global_cached(cache_dir, image_ids, device)
+            if cached is not None:
+                return cached
+
+        # ResNet-101 forward: (B,3,H,W) → (B,2048,h,w) → pool → (B,2048)
+        feat = self.pool(self.resnet(images)).flatten(1)
+
+        if cache_dir and image_ids is not None and image_ids.numel() == images.size(0) and save_cache:
+            self._save_global_cached(cache_dir, image_ids, feat)
+
+        return feat
+
     def train(self, mode: bool = True) -> "VQAModel":
         """Train VQA layers vali ResNet-101 va Faster R-CNN hamishe eval negah dar.
 
@@ -785,6 +879,7 @@ class VQAModel(nn.Module):
         max_answer_len: int = 6,
         image_ids: Optional[torch.Tensor] = None,
         region_cache_dir: Optional[str] = None,
+        global_cache_dir: Optional[str] = None,
     ) -> torch.Tensor:
         """
         Train: ``a_ids`` bede (teacher forcing). Eval: ``a_ids=None`` (greedy).
@@ -804,9 +899,15 @@ class VQAModel(nn.Module):
         Output:
             logits ba shape (batch, answer_len-1, a_vocab_size)
         """
-        # global img feature extract karde.
-        # toye lstm_att estefade mikone.
-        g = self.g_proj(self.pool(self.resnet(images)).flatten(1))
+        # ResNet-101 raw feature az cache ya live hesab mikonim (2048d).
+        # g_proj linear layer CACHE NEMISHE va hamishe ejra mishe (trainable projection).
+        raw_g = self._global_feat(
+            images,
+            image_ids=image_ids,
+            cache_dir=global_cache_dir,
+            save_cache=self.training,
+        )
+        g = self.g_proj(raw_g)
 
         # local feature haye img ro extract mikone.
         local = self._regions(
@@ -1017,6 +1118,8 @@ def train_epoch(
         a = batch["a"].to(device, non_blocking=device.type == "cuda")
 
         region_cache_dir = cfg.get("region_cache_dir") if bool(cfg.get("cache_regions", False)) else None
+        # cache_global: raw ResNet-101 feature (2048d) disk cache — g_proj hamishe ejra mishe.
+        global_cache_dir = cfg.get("global_cache_dir") if bool(cfg.get("cache_global", False)) else None
         with autocast(enabled=use_amp):
             logits = model(
                 images,
@@ -1024,6 +1127,7 @@ def train_epoch(
                 a_ids=a,
                 image_ids=image_ids,
                 region_cache_dir=region_cache_dir,
+                global_cache_dir=global_cache_dir,
             )
             loss = criterion(logits.reshape(-1, logits.size(-1)), a[:, 1:].reshape(-1))
 
@@ -1064,6 +1168,8 @@ def eval_epoch(
         a = batch["a"].to(device, non_blocking=device.type == "cuda")
 
         region_cache_dir = cfg.get("region_cache_dir") if bool(cfg.get("cache_regions", False)) else None
+        # cache_global: raw ResNet-101 feature (2048d) disk cache — g_proj hamishe ejra mishe.
+        global_cache_dir = cfg.get("global_cache_dir") if bool(cfg.get("cache_global", False)) else None
         if greedy:
             logits = model(
                 images,
@@ -1072,6 +1178,7 @@ def eval_epoch(
                 max_answer_len=int(cfg["max_answer_len"]),
                 image_ids=image_ids,
                 region_cache_dir=region_cache_dir,
+                global_cache_dir=global_cache_dir,
             )
         else:
             logits = model(
@@ -1080,6 +1187,7 @@ def eval_epoch(
                 a_ids=a,
                 image_ids=image_ids,
                 region_cache_dir=region_cache_dir,
+                global_cache_dir=global_cache_dir,
             )
             loss = criterion(logits.reshape(-1, logits.size(-1)), a[:, 1:].reshape(-1))
             total_loss += float(loss.item())
