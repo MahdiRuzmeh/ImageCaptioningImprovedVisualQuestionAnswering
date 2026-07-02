@@ -26,10 +26,15 @@ num_workers: 2
 prefetch_factor: 2
 pin_memory: true
 persistent_workers: true
-batch_size: 32
+# OVERFIT-TEST: batch_size kuchik (8) → roye 100 sample ~13 optimizer step/epoch
+#   (ba 32 faghat ~3 step/epoch bud va model be plateau ~2.0 gir mikard).
+#   REVERT baraye train-e kamel: batch_size: 32
+batch_size: 8
 grad_accum_steps: 1
 epochs: 150
-learning_rate: 0.001
+# OVERFIT-TEST: lr 0.0005 (payedar, smooth descent) — lr 0.001 oscillation mid.
+#   REVERT baraye train-e kamel: learning_rate: 0.001 (ya 0.0005)
+learning_rate: 0.0005
 lr_decay_every: 100000
 lr_decay_factor: 0.6
 max_question_len: 14
@@ -45,8 +50,13 @@ cache_global: true
 global_cache_dir: /kaggle/working/global_cache/vqa
 image_size: 448
 device: cuda
-#DDP ro faghat roye Kaggle (2xT4) roshan kon.
-ddp: true
+# OVERFIT-TEST: ddp KHAMUSH — single GPU ba plain `python train.py` ejra kon.
+#   Ba ddp roye 2 GPU, 100 sample beyn 2 GPU split mishe (~50 har kodum) → step-haye
+#   kheili kam/epoch → memorize nemishe. Baraye overfit sanity single-GPU behtare.
+#   MOHEM: ba ddp:false BA torchrun ejra NAKON (2 process bi-sync misazad). Faghat:
+#     python train.py --config configs/kaggle_mini.yaml
+#   REVERT baraye train-e kamel roye 2xT4: ddp: true  +  torchrun --nproc_per_node=2
+ddp: false
 ddp_backend: nccl
 # find_unused_parameters: lazem ast chon model frozen submodule dare (ImageCaptioner).
 # DDP ba in flag autograd graph ro check mikone ta parameters bi-gradient skip beshe.
