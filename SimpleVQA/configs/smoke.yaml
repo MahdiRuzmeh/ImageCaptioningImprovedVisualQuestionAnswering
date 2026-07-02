@@ -40,5 +40,5 @@ fuse_mode: mul
 # smoke: 0.3 — hamoon default ta overfit sanity check ham bebini.
 dropout: 0.3
 save_dir: outputs/smoke
-max_train_qids: 2000
+max_train_qids: 1000
 max_val_qids: 100

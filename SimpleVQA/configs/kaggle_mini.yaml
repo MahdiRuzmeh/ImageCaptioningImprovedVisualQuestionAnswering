@@ -48,6 +48,9 @@ device: cuda
 #DDP ro faghat roye Kaggle (2xT4) roshan kon.
 ddp: true
 ddp_backend: nccl
+# find_unused_parameters: lazem ast chon model frozen submodule dare (ImageCaptioner).
+# DDP ba in flag autograd graph ro check mikone ta parameters bi-gradient skip beshe.
+ddp_find_unused_parameters: true
 hidden_dim: 512
 word_dim: 512
 question_dim: 1280
@@ -57,4 +60,4 @@ fuse_mode: mul
 dropout: 0.3
 save_dir: outputs/kaggle_mini
 max_train_qids: 25000
-max_val_qids: 500
+max_val_qids: 1000
