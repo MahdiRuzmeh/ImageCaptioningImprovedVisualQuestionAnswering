@@ -632,6 +632,15 @@ class VQAModel(nn.Module):
         self.max_regions = max_regions
         self.hidden_dim = hidden_dim
         self.fuse_mode = fuse_mode
+        # Finglish — fuse_mode validation (paper Eq. 12 + ablation §5):
+        #   "mul"    → element-wise multiply (matn-e maghale Eq. 12)
+        #   "add"    → element-wise sum (ablation §5)
+        #   "concat" → concatenation (ablation §5, behtarin natije-ye maghale)
+        # Har chize dige → error, ta config ghalat silent nashe.
+        if fuse_mode not in ("mul", "add", "concat"):
+            raise ValueError(
+                f"fuse_mode bayad 'mul' | 'add' | 'concat' bashe, na '{fuse_mode}'"
+            )
         """
         Constructor for multimodal VQA pipeline.
 
@@ -679,14 +688,24 @@ class VQAModel(nn.Module):
 
         self.a_emb = nn.Embedding(a_vocab_size, word_dim, padding_idx=pad_id)
 
-        # input haye attentsion_LSTM(answer_embed(t-1) + ans_LSTM_h(t-1) + img_global_feature)
+        # LSTM_att (paper Eq. 10): h1_t = LSTM_att(a_{t-1}, h1_{t-1}, [h2_{t-1}; vG])
+        # Inputs concat: answer_embed(t-1) + global_visual_feature(vG=g) + h2(t-1).
         self.lstm_att = nn.LSTMCell(word_dim + hidden_dim + hidden_dim, hidden_dim)
 
-    
-        # input haye answer_LSTM(h_att(t) + v_att + v_cap)
-        # v_att: hasel attention question roye region haye tasvir
-        # v_cap: caption embedding
-        self.lstm_ans = nn.LSTMCell(hidden_dim + hidden_dim + hidden_dim, hidden_dim)
+        # Finglish — dimension-e feature-e fuse shode (v_ft) bastegi be fuse_mode dare:
+        #   mul / add → hidden_dim (element-wise, dim taghir nemikone)
+        #   concat    → hidden_dim * 2 (v_cap va v_att kenar-e ham gozashte mishan)
+        fused_dim = hidden_dim * 2 if fuse_mode == "concat" else hidden_dim
+
+        # LSTM_ans (paper Eq. 13): h2_t = LSTM_ans(h1_t, h2_{t-1}, v_ft, q)
+        # CONFLICT FIX: question vector `q` mostaghim be answer LSTM dade mishe.
+        #   Ghablan `q` faghat gheyr-e mostaghim (az tarigh-e v_att) mi-rasid → answer decoder
+        #   nemitoonest beyn chand soal-e yek tasvir tafrigh bede va roye 100 sample
+        #   train_acc dar ~0.40 gir mikard. Tebghe Eq. 13, `q` bayad voroudi-ye mostaghim
+        #   -e LSTM_ans bashe. Inputs concat: h1_t + h2_{t-1} + v_ft + q_vec.
+        self.lstm_ans = nn.LSTMCell(
+            hidden_dim + hidden_dim + fused_dim + hidden_dim, hidden_dim
+        )
 
         self.out = nn.Linear(hidden_dim, a_vocab_size)
 
@@ -723,7 +742,11 @@ class VQAModel(nn.Module):
                 t = torch.load(p, map_location="cpu")
                 if not isinstance(t, torch.Tensor) or t.ndim != 2:
                     return None
-                tensors.append(t)
+                # BUG FIX (dtype): cache momkene fp16 zakhire shode bashe (AMP run).
+                #   Bedoon-e .float(), vaghti AMP khamush ast, local_proj (fp32) ba
+                #   voroudi-ye Half error mide ("mat1 and mat2 must have same dtype").
+                #   Hamun kari ke RegionEncoder-e captioner ham mikone.
+                tensors.append(t.float())
             out = torch.stack(tensors, dim=0)
             # shape: (B, max_regions, 1024) — raw encoder output, NOT projected
             if out.shape[1] != self.max_regions or out.shape[2] != 1024:
@@ -779,7 +802,9 @@ class VQAModel(nn.Module):
                 t = torch.load(p, map_location="cpu")
                 if not isinstance(t, torch.Tensor) or t.ndim != 1 or t.shape[0] != 2048:
                     return None
-                tensors.append(t)
+                # BUG FIX (dtype): cache momkene fp16 bashe (AMP). Bedoon-e .float()
+                #   ba AMP khamush, g_proj (fp32) error mide. Hamishe fp32 bar migardoonim.
+                tensors.append(t.float())
             out = torch.stack(tensors, dim=0)  # (B, 2048)
             return out.to(device, non_blocking=(device.type == "cuda"))
         except Exception:
@@ -951,7 +976,9 @@ class VQAModel(nn.Module):
         Eval mode:
             - a_ids=None
             - greedy decoding estefade mishavad
-            - v_cap az ``word_emb`` caption tolid shode (paper)
+            - v_cap ham az hamun hidden-state mean (differentiable=True) hesab mishe
+              (dakhel-e torch.no_grad), pas train va eval yek namayesh-e v_cap darand
+              (paper §3.4). q_vec ham mostaghim vared-e LSTM_ans mishe (paper Eq. 13).
 
         Output:
             logits ba shape (batch, answer_len-1, a_vocab_size)
@@ -991,18 +1018,37 @@ class VQAModel(nn.Module):
         v_att = self.drop(self._attend(rel, q_vec))
 
         # caption marboot be in tasvir va question — v_cap baraye fuse ba v_att.
-        # train: differentiable=True ta answer loss → q_emb update beshe.
-        # eval: v_cap az word_emb caption tolid shode (paper §3.4).
+        #
+        # CONFLICT/BUG FIX (paper §3.4): v_cap = miangin (average pool) hidden-state
+        #   -haye LSTM captioner ast — NA miangin word-embedding.
+        #   Ghablan `differentiable=self.training` bood, yani:
+        #     train → v_cap az hidden states (differentiable)
+        #     eval  → v_cap az word_emb (motefavet!)
+        #   In do namayesh-e kamelan motefavet boodan → model roye yek v_cap train
+        #   mishod va ba yek v_cap-e digar eval mishod → val_loss (~7.9) kheili balatar
+        #   az train_loss (~1.6) va val_acc collapse mikard.
+        #   Hala har do halat az hamun hidden-state mean estefade mikonan (train/eval
+        #   yeksan). Dar train gradient be q_emb miresad; dar eval (torch.no_grad)
+        #   faghat forward hesab mishe. In ham ba paper §3.4 mokhtabe ast.
         v_cap, _ = self.captioner.get_caption_embedding(
             images,
             q_ids,
-            differentiable=self.training,
+            differentiable=True,
             image_ids=image_ids,
             region_cache_dir=region_cache_dir,
         )
 
-        # fused visual feature, ke tarkib caption_features va v_att hast.
-        v = v_cap * v_att if self.fuse_mode == "mul" else v_cap + v_att
+        # fused visual feature v_ft (paper Eq. 12): tarkib-e v_cap va v_att.
+        #   concat → [v_cap ; v_att]  (ablation §5: behtarin natije; pishnahad-e maghale)
+        #   add    → v_cap + v_att    (ablation §5)
+        #   mul    → v_cap * v_att    (matn-e Eq. 12; vali roye v_cap-e frozen mikone
+        #            dim-haye v_att ro squash kone, pas concat pishnahad mishe)
+        if self.fuse_mode == "concat":
+            v = torch.cat([v_cap, v_att], dim=-1)
+        elif self.fuse_mode == "add":
+            v = v_cap + v_att
+        else:
+            v = v_cap * v_att
 
         batch = images.size(0)
         h1 = torch.zeros((batch, self.hidden_dim), device=images.device)
@@ -1025,8 +1071,12 @@ class VQAModel(nn.Module):
             h1, c1 = self.lstm_att(torch.cat([a_prev, g, h2], dim=-1), (h1, c1))
 
             # [dropout 5/6] baade lstm_att — h1 qabl az voroodi be lstm_ans
-            # input haye answer_LSTM(h_att(t) + v_att + v_cap)
-            h2, c2 = self.lstm_ans(torch.cat([self.drop(h1), h2, v], dim=-1), (h2, c2))
+            # paper Eq. 13: LSTM_ans(h1_t, h2_{t-1}, v_ft, q)
+            #   voroudi = [h1_t (drop shode), h2_{t-1}, v_ft, q_vec]
+            #   q_vec dar hame step-ha yeksan ast (question representation-e sabet).
+            h2, c2 = self.lstm_ans(
+                torch.cat([self.drop(h1), h2, v, q_vec], dim=-1), (h2, c2)
+            )
 
             # [dropout 6/6] baade lstm_ans — h2 qabl az classifier
             logit = self.out(self.drop(h2))
