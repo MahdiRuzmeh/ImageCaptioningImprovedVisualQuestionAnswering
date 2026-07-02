@@ -487,7 +487,7 @@ class RelationGNN(nn.Module):
     """
 
 
-    def __init__(self, dim: int = 512) -> None:
+    def __init__(self, dim: int = 512, dropout: float = 0.3) -> None:
         super().__init__()
         """
         Edge va node MLP-ha baraye message passing rooye region embeddings.
@@ -497,12 +497,19 @@ class RelationGNN(nn.Module):
         - node: message aggregated shode ra ba feature asli har node combine mikone
 
         dim: dimensionality-e representation-e har region.
+        dropout: baade ReLU va qabl az linear dovvom — jelo overfit ro migirad.
 
         input: 512 + 512 (engar dota region ro concat mikone va be onvan vouroudi migire)
         output: 512 (va ye representation jadid az tarkib hardo voroudi misaze va be onvan khorouji mide)
         """
-        self.edge = nn.Sequential(nn.Linear(dim * 2, dim), nn.ReLU(), nn.Linear(dim, dim))
-        self.node = nn.Sequential(nn.Linear(dim * 2, dim), nn.ReLU(), nn.Linear(dim, dim))
+        # Finglish: Dropout baade ReLU mizarim ta GNN be rahat overfit nakone
+        # (fully-connected graph O(K^2) edge dare — kheili high-capacity ast).
+        self.edge = nn.Sequential(
+            nn.Linear(dim * 2, dim), nn.ReLU(), nn.Dropout(dropout), nn.Linear(dim, dim)
+        )
+        self.node = nn.Sequential(
+            nn.Linear(dim * 2, dim), nn.ReLU(), nn.Dropout(dropout), nn.Linear(dim, dim)
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -618,6 +625,7 @@ class VQAModel(nn.Module):
         question_dim: int = 1280,
         max_regions: int = 32,
         fuse_mode: str = "mul",
+        dropout: float = 0.3,
     ) -> None:
         super().__init__()
         self.captioner = captioner
@@ -637,7 +645,11 @@ class VQAModel(nn.Module):
             question_dim: GRU output dimension for question encoding
             max_regions: maximum number of region proposals kept from detector
             fuse_mode: how v_cap and v_att are fused ('mul' or 'add')
+            dropout: dropout probability applied after all trainable projections and LSTM outputs
         """
+        # Finglish: yek Dropout module baraye kol model — probability az config miad.
+        # dar eval mode (.eval()) PyTorch khod Dropout ro غیرفعال mikone.
+        self.drop = nn.Dropout(dropout)
 
         backbone = resnet101(weights=ResNet101_Weights.DEFAULT)
         self.resnet = nn.Sequential(*list(backbone.children())[:-2])
@@ -661,7 +673,7 @@ class VQAModel(nn.Module):
         self.q_gru = nn.GRU(word_dim, question_dim, batch_first=True)
         self.q_proj = nn.Linear(question_dim, hidden_dim)
 
-        self.gnn = RelationGNN(hidden_dim)
+        self.gnn = RelationGNN(hidden_dim, dropout=dropout)
         self.attn = nn.Linear(hidden_dim * 2, hidden_dim)
         self.attn_score = nn.Linear(hidden_dim, 1)
 
@@ -952,7 +964,8 @@ class VQAModel(nn.Module):
             cache_dir=global_cache_dir,
             save_cache=self.training,
         )
-        g = self.g_proj(raw_g)
+        # [dropout 1/6] baade g_proj — global visual feature qabl az LSTM
+        g = self.drop(self.g_proj(raw_g))
 
         # local feature haye img ro extract mikone.
         local = self._regions(
@@ -961,16 +974,21 @@ class VQAModel(nn.Module):
             cache_dir=region_cache_dir,
             save_cache=self.training,
         )
+        # [dropout 2/6] baade local_proj — region feature ha qabl az GNN
+        local = self.drop(local)
 
         # question feature ba estefade az GRU extract karde.
         _, h = self.q_gru(self.q_emb(q_ids))
-        q_vec = self.q_proj(h[-1])
+        # [dropout 3/6] baade q_proj — question vector qabl az attention
+        q_vec = self.drop(self.q_proj(h[-1]))
 
         # local feature haro mide be GNN ta relation region haro toye feature hash emal kone.
+        # GNN dakhel khod ham Dropout dare (baade ReLU dar edge va node MLP).
         rel = self.gnn(local)
 
         # attention mizanim beyn image_regions va question
-        v_att = self._attend(rel, q_vec)
+        # [dropout 4/6] baade attention — attended visual vector qabl az fusion
+        v_att = self.drop(self._attend(rel, q_vec))
 
         # caption marboot be in tasvir va question — v_cap baraye fuse ba v_att.
         # train: differentiable=True ta answer loss → q_emb update beshe.
@@ -1006,10 +1024,12 @@ class VQAModel(nn.Module):
             # input haye attentsion_LSTM(answer_embed(t-1) + ans_LSTM_h(t-1) + img_global_feature)
             h1, c1 = self.lstm_att(torch.cat([a_prev, g, h2], dim=-1), (h1, c1))
 
+            # [dropout 5/6] baade lstm_att — h1 qabl az voroodi be lstm_ans
             # input haye answer_LSTM(h_att(t) + v_att + v_cap)
-            h2, c2 = self.lstm_ans(torch.cat([h1, h2, v], dim=-1), (h2, c2))
+            h2, c2 = self.lstm_ans(torch.cat([self.drop(h1), h2, v], dim=-1), (h2, c2))
 
-            logit = self.out(h2)
+            # [dropout 6/6] baade lstm_ans — h2 qabl az classifier
+            logit = self.out(self.drop(h2))
             logits.append(logit)
             prev = logit.argmax(dim=-1) if a_ids is None else a_ids[:, t + 1]
 
@@ -1129,6 +1149,7 @@ def build_vqa_model(
         int(cfg["question_dim"]),
         int(cfg["max_regions"]),
         str(cfg["fuse_mode"]),
+        float(cfg.get("dropout", 0.3)),
     ).to(device)
     return model, captioner
 

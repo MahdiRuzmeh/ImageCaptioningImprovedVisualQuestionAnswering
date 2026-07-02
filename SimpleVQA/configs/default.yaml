@@ -43,6 +43,9 @@ hidden_dim: 512
 word_dim: 512
 question_dim: 1280
 fuse_mode: mul
+# dropout: ba'de har projection (g_proj, local_proj, q_proj, v_att) va bayn LSTM cells va qabl az classifier.
+# 0.3 standard baraye VQA ast (Bottom-Up & Top-Down paper ham hamin estefade mikone).
+dropout: 0.3
 save_dir: outputs/default
 max_train_qids: null
 max_val_qids: null
