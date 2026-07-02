@@ -179,11 +179,16 @@ def load_image(
     Output:
         tensor ba shape (1, 3, image_size, image_size)
     """
-    path = Path(images_dir) / filename_template.format(image_id=image_id)
+    path = image_path(image_id, images_dir, filename_template)
     if not path.exists():
         raise FileNotFoundError(f"Image not found: {path}")
     tensor = image_transform(image_size)(Image.open(path).convert("RGB"))
     return tensor.unsqueeze(0).to(device)
+
+
+def image_path(image_id: int, images_dir: str, filename_template: str) -> Path:
+    """Absolute-ish image path for a COCO image_id (based on config template)."""
+    return Path(images_dir) / filename_template.format(image_id=image_id)
 
 
 def encode_question(
@@ -316,6 +321,7 @@ def run_single(
     va caption bedoon soal tolid mishe.
     """
     images_dir, template, captions_json = split_paths(cfg, split)
+    img_path = image_path(image_id, images_dir, template)
     image = load_image(
         image_id, images_dir, template, device, image_size_from_cfg(cfg)
     )
@@ -337,13 +343,17 @@ def run_single(
     pred = decode_ids(cap_ids[0].tolist(), vocab)
 
     gt_caps = load_caps_json(captions_json).get(image_id, [])
+    gt0 = gt_caps[0] if len(gt_caps) > 0 else None
+    gt4 = gt_caps[4] if len(gt_caps) > 4 else None
 
-    print(f"image_id={image_id}  split={split}")
+    print(f"split={split}")
+    print(f"image_id: {image_id}")
+    print(f"image_file: {img_path.name}")
     if question:
         print(f"question: {question}")
-    print(f"caption: {pred}")
-    if gt_caps:
-        print(f"ground_truth (first): {gt_caps[0]}")
+    print(f"pred: {pred}")
+    print(f"gt caption[0]: {gt0}")
+    print(f"gt caption[4]: {gt4}")
 
 
 def run_val(
@@ -447,6 +457,7 @@ def run_val(
 
     print(f"\nSample greedy captions (split={split}, n={len(examples)}):")
     for image_id, gt in examples:
+        img_path = image_path(image_id, images_dir, filename_template)
         if image_id in pred_by_id:
             pred = pred_by_id[image_id]
         else:
@@ -458,8 +469,14 @@ def run_val(
                     image, None, int(cfg["max_caption_len"])
                 )
             pred = decode_ids(cap_ids[0].tolist(), vocab)
-        print(f"  [{image_id}] pred: {pred}")
-        print(f"           gt:   {gt}")
+        all_gt = caps_by_img.get(image_id, [])
+        gt0 = all_gt[0] if len(all_gt) > 0 else None
+        gt4 = all_gt[4] if len(all_gt) > 4 else None
+        print(f"\nimage_id: {image_id}")
+        print(f"image_file: {img_path.name}")
+        print(f"pred: {pred}")
+        print(f"gt caption[0]: {gt0}")
+        print(f"gt caption[4]: {gt4}")
 
 
 def parse_args() -> argparse.Namespace:
