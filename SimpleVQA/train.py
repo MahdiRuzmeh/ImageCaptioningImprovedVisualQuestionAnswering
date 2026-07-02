@@ -60,12 +60,14 @@ TOKEN_RE = re.compile(r"[a-z0-9']+")
 """
 Finglish note (Kaggle 2xT4 + speed)
 ----------------------------------
-- cache_regions: region feature FasterRCNN ro 1 bar per image hesab mikonim va disk save mikonim.
-  in kar time training ro kheili kam mikone (epoch haye badi fast mishan).
-- cache_global: khoroji raw ResNet-101 (pool+flatten → 2048d) ro disk save mikonim.
+- cache_regions: raw FasterRCNN region feature ha (max_regions, 1024) disk save mikonim.
+  MOHEM: faqat khoroji box_head encoder cache mishe (1024d) — local_proj (1024→hidden_dim)
+  CACHE NEMISHE va hamishe ejra mishe (trainable). Epoch haye badi kheili faster mishan.
+  FasterRCNN(img) → 1024d [cache inja] → local_proj(1024→hidden_dim) [no cache, trains].
+- cache_global: raw ResNet-101 feature (pool+flatten → 2048d) disk save mikonim.
   MOHEM: faqat khoroji encoder cache mishe — g_proj (linear 2048→hidden_dim) CACHE NEMISHE
   va hamishe dar forward pass ejra mishe (trainable projection).
-  Mesl FasterRCNN: Encoder(img) → 2048d [cache inja] → LinearLayer(2048d) → hidden_dim [no cache].
+  ResNet101(img) → 2048d [cache inja] → g_proj(2048→hidden_dim) [no cache, trains].
 - use_amp: mixed precision baraye speed/memory.
 - ddp: age ddp=true bashe, ba torchrun do ta GPU ro hamzaman estefade mikonim.
 """
@@ -677,11 +679,29 @@ class VQAModel(nn.Module):
         self.out = nn.Linear(hidden_dim, a_vocab_size)
 
     def _regions_cache_path(self, cache_dir: str, image_id: int) -> Path:
-        return Path(cache_dir) / f"{int(image_id)}_k{int(self.max_regions)}_d{int(self.hidden_dim)}.pt"
+        """
+        Finglish: path fayle cache baraye yek image_id barmigardonad.
+        Filename: {image_id}_k{max_regions}_raw1024.pt
+        Chon raw FasterRCNN output hamishe 1024d ast (fixed by box_head),
+        niazi be encode kardan dimension nist — faqat max_regions encode mishe.
+        (qabl az in _d{hidden_dim} encode mishod ke ghalat bood — projected dim cache mishod)
+        """
+        return Path(cache_dir) / f"{int(image_id)}_k{int(self.max_regions)}_raw1024.pt"
 
     def _load_regions_cached(
         self, cache_dir: str, image_ids: torch.Tensor, device: torch.device
     ) -> Optional[torch.Tensor]:
+        """
+        Finglish: raw FasterRCNN region feature ha ro az cache disk load mikone.
+        Age hatta yek image cache nadasht ya shape ghalat bood, None bar migardone
+        ta kol batch dobare hesab beshe.
+
+        Shape validation: (max_regions, 1024) — raw box_head output qabl az local_proj.
+        (1024 fixed ast chon box_head architecture fix ast)
+
+        Output:
+            tensor (B, max_regions, 1024) age hame cache vojood dasht, vagharno None
+        """
         try:
             paths = [self._regions_cache_path(cache_dir, int(i.item())) for i in image_ids]
             if not all(p.exists() for p in paths):
@@ -693,13 +713,20 @@ class VQAModel(nn.Module):
                     return None
                 tensors.append(t)
             out = torch.stack(tensors, dim=0)
-            if out.shape[1] != self.max_regions or out.shape[2] != self.hidden_dim:
+            # shape: (B, max_regions, 1024) — raw encoder output, NOT projected
+            if out.shape[1] != self.max_regions or out.shape[2] != 1024:
                 return None
             return out.to(device, non_blocking=(device.type == "cuda"))
         except Exception:
             return None
 
     def _save_regions_cached(self, cache_dir: str, image_ids: torch.Tensor, regions: torch.Tensor) -> None:
+        """
+        Finglish: raw FasterRCNN region feature haro baraye har image disk save mikone.
+        Har file yek tensor (max_regions, 1024) ast — raw box_head output QABL az local_proj.
+        local_proj (trainable linear) cache NEMISHE va hamishe ejra mishe.
+        Age hata yek error bashe, silent pass mikone ta train interrupt nashe.
+        """
         try:
             Path(cache_dir).mkdir(parents=True, exist_ok=True)
             for i, img_id in enumerate(image_ids):
@@ -812,7 +839,6 @@ class VQAModel(nn.Module):
         self.captioner.eval()
         return self
 
-    @torch.no_grad()
     def _regions(
         self,
         images: torch.Tensor,
@@ -821,39 +847,58 @@ class VQAModel(nn.Module):
         save_cache: bool = True,
     ) -> torch.Tensor:
         """
-        In func be tadad max_regions region extract mikone va be hidden_dim darkhsti(local_proj) project mikone.
+        Finglish: FasterRCNN region feature ha ro extract ya az cache load mikone,
+        bad ba local_proj be hidden_dim project mikone.
 
-        Important:
-            - detector freeze ast
-            - output fixed-size region tensor ast
-            - agar region count kamtar az max_regions bashe, با zero pad tamam mishavad
+        Mohem (cache boundary):
+            - Faqat raw box_head output (max_regions, 1024) cache mishe — QABL az local_proj.
+            - local_proj (Linear 1024→hidden_dim) CACHE NEMISHE va hamishe ejra mishe
+              ta gradient ha be in layer beresand (trainable projection).
+            - @torch.no_grad() faqat dakhel func roye FasterRCNN parts estefade mishe,
+              na roye kol method — chon local_proj bayad gradient dashtee bashe.
+
+        Flow:
+            cache hit  → (B, max_regions, 1024) load → local_proj → (B, max_regions, hidden_dim)
+            cache miss → FasterRCNN (no_grad) → raw 1024d → save cache → local_proj → return
+
+        Output:
+            tensor (B, max_regions, hidden_dim)
         """
         device = images.device
+
+        # Aval cache raw 1024d ro check mikonim; age peyda shod local_proj ro rosh ejra mikonim.
         if cache_dir and image_ids is not None and image_ids.numel() == images.size(0):
             cached = self._load_regions_cached(cache_dir, image_ids, device)
             if cached is not None:
-                return cached
+                # cached: (B, max_regions, 1024) — local_proj trainable, hamishe ejra mishe
+                return self.local_proj(cached)
 
-        transformed, _ = self.detector.transform(list(images), None)
-        feats = self.detector.backbone(transformed.tensors)
-        props, _ = self.detector.rpn(transformed, feats, None)
-        roi = self.detector.roi_heads.box_roi_pool(feats, props, transformed.image_sizes)
-        roi = self.detector.roi_heads.box_head(roi)
-        counts = [len(p) for p in props]
-        chunks = torch.split(roi, counts)
-        padded = []
-        for chunk in chunks:
-            chunk = chunk[: self.max_regions]
-            if chunk.size(0) < self.max_regions:
-                pad = torch.zeros(
-                    (self.max_regions - chunk.size(0), chunk.size(1)), device=chunk.device
-                )
-                chunk = torch.cat([chunk, pad], dim=0)
-            padded.append(chunk)
-        regions = self.local_proj(torch.stack(padded, dim=0))
+        # FasterRCNN freeze ast — no_grad faqat baraye in bakhsh
+        with torch.no_grad():
+            transformed, _ = self.detector.transform(list(images), None)
+            feats = self.detector.backbone(transformed.tensors)
+            props, _ = self.detector.rpn(transformed, feats, None)
+            roi = self.detector.roi_heads.box_roi_pool(feats, props, transformed.image_sizes)
+            roi = self.detector.roi_heads.box_head(roi)  # (total_regions, 1024) raw output
+            counts = [len(p) for p in props]
+            chunks = torch.split(roi, counts)
+            padded = []
+            for chunk in chunks:
+                chunk = chunk[: self.max_regions]
+                if chunk.size(0) < self.max_regions:
+                    pad = torch.zeros(
+                        (self.max_regions - chunk.size(0), chunk.size(1)), device=chunk.device
+                    )
+                    chunk = torch.cat([chunk, pad], dim=0)
+                padded.append(chunk)
+            raw = torch.stack(padded, dim=0)  # (B, max_regions, 1024) — raw encoder output
+
+        # Cache raw 1024d QABL az local_proj
         if cache_dir and image_ids is not None and image_ids.numel() == images.size(0) and save_cache:
-            self._save_regions_cached(cache_dir, image_ids, regions)
-        return regions
+            self._save_regions_cached(cache_dir, image_ids, raw)
+
+        # local_proj trainable ast — kharij az no_grad ejra mishe ta gradient beresad
+        return self.local_proj(raw)
 
     def _attend(self, regions: torch.Tensor, q_vec: torch.Tensor) -> torch.Tensor:
         """
