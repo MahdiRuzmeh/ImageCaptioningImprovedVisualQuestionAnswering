@@ -619,15 +619,21 @@ class VQAModel(nn.Module):
         q_vocab_size: int,
         a_vocab_size: int,
         pad_id: int,
-        captioner: nn.Module,
+        captioner: Optional[nn.Module],
         word_dim: int = 512,
         hidden_dim: int = 512,
         question_dim: int = 1280,
         max_regions: int = 32,
         fuse_mode: str = "mul",
         dropout: float = 0.3,
+        use_captioner: bool = True,
     ) -> None:
         super().__init__()
+        self.use_captioner = use_captioner
+        if use_captioner and captioner is None:
+            raise ValueError("use_captioner=True vali captioner=None — load_captioner() ro seda bezan.")
+        if not use_captioner and captioner is not None:
+            raise ValueError("use_captioner=False vali captioner dade shode — faghat yeki ro entekhab kon.")
         self.captioner = captioner
         self.max_regions = max_regions
         self.hidden_dim = hidden_dim
@@ -692,10 +698,14 @@ class VQAModel(nn.Module):
         # Inputs concat: answer_embed(t-1) + global_visual_feature(vG=g) + h2(t-1).
         self.lstm_att = nn.LSTMCell(word_dim + hidden_dim + hidden_dim, hidden_dim)
 
-        # Finglish — dimension-e feature-e fuse shode (v_ft) bastegi be fuse_mode dare:
-        #   mul / add → hidden_dim (element-wise, dim taghir nemikone)
-        #   concat    → hidden_dim * 2 (v_cap va v_att kenar-e ham gozashte mishan)
-        fused_dim = hidden_dim * 2 if fuse_mode == "concat" else hidden_dim
+        # Finglish — dimension-e feature-e fuse shode (v_ft) bastegi be use_captioner + fuse_mode dare:
+        #   use_captioner=False → v = v_att → hidden_dim
+        #   use_captioner=True, mul/add → hidden_dim
+        #   use_captioner=True, concat    → hidden_dim * 2
+        if use_captioner and fuse_mode == "concat":
+            fused_dim = hidden_dim * 2
+        else:
+            fused_dim = hidden_dim
 
         # LSTM_ans (paper Eq. 13): h2_t = LSTM_ans(h1_t, h2_{t-1}, v_ft, q)
         # CONFLICT FIX: question vector `q` mostaghim be answer LSTM dade mishe.
@@ -873,7 +883,8 @@ class VQAModel(nn.Module):
         super().train(mode)
         self.resnet.eval()
         self.detector.eval()
-        self.captioner.eval()
+        if self.captioner is not None:
+            self.captioner.eval()
         return self
 
     def _regions(
@@ -1017,38 +1028,26 @@ class VQAModel(nn.Module):
         # [dropout 4/6] baade attention — attended visual vector qabl az fusion
         v_att = self.drop(self._attend(rel, q_vec))
 
-        # caption marboot be in tasvir va question — v_cap baraye fuse ba v_att.
-        #
-        # CONFLICT/BUG FIX (paper §3.4): v_cap = miangin (average pool) hidden-state
-        #   -haye LSTM captioner ast — NA miangin word-embedding.
-        #   Ghablan `differentiable=self.training` bood, yani:
-        #     train → v_cap az hidden states (differentiable)
-        #     eval  → v_cap az word_emb (motefavet!)
-        #   In do namayesh-e kamelan motefavet boodan → model roye yek v_cap train
-        #   mishod va ba yek v_cap-e digar eval mishod → val_loss (~7.9) kheili balatar
-        #   az train_loss (~1.6) va val_acc collapse mikard.
-        #   Hala har do halat az hamun hidden-state mean estefade mikonan (train/eval
-        #   yeksan). Dar train gradient be q_emb miresad; dar eval (torch.no_grad)
-        #   faghat forward hesab mishe. In ham ba paper §3.4 mokhtabe ast.
-        v_cap, _ = self.captioner.get_caption_embedding(
-            images,
-            q_ids,
-            differentiable=True,
-            image_ids=image_ids,
-            region_cache_dir=region_cache_dir,
-        )
-
-        # fused visual feature v_ft (paper Eq. 12): tarkib-e v_cap va v_att.
-        #   concat → [v_cap ; v_att]  (ablation §5: behtarin natije; pishnahad-e maghale)
-        #   add    → v_cap + v_att    (ablation §5)
-        #   mul    → v_cap * v_att    (matn-e Eq. 12; vali roye v_cap-e frozen mikone
-        #            dim-haye v_att ro squash kone, pas concat pishnahad mishe)
-        if self.fuse_mode == "concat":
-            v = torch.cat([v_cap, v_att], dim=-1)
-        elif self.fuse_mode == "add":
-            v = v_cap + v_att
+        # Age estefade az captioner enabled bashe miyaym v_att va v_cap ro be raveshi ke taeen shode fuse mikonim.
+        # age estefade az captioner enabled nist bashe miyaym fagat az v_att 
+        # (question dependent image feature) estefade mikonim.
+        if self.use_captioner:
+            # CONFLICT/BUG FIX (paper §3.4): v_cap = miangin hidden-state LSTM captioner.
+            v_cap, _ = self.captioner.get_caption_embedding(
+                images,
+                q_ids,
+                differentiable=True,
+                image_ids=image_ids,
+                region_cache_dir=region_cache_dir,
+            )
+            if self.fuse_mode == "concat":
+                v = torch.cat([v_cap, v_att], dim=-1)
+            elif self.fuse_mode == "add":
+                v = v_cap + v_att
+            else:
+                v = v_cap * v_att
         else:
-            v = v_cap * v_att
+            v = v_att
 
         batch = images.size(0)
         h1 = torch.zeros((batch, self.hidden_dim), device=images.device)
@@ -1186,9 +1185,14 @@ def build_loaders(
 
 def build_vqa_model(
     cfg: Dict[str, Any], q_vocab: Vocab, a_vocab: Vocab, device: torch.device
-) -> Tuple[VQAModel, nn.Module]:
-    """Captioner freeze + VQAModel ro besaz va be device befrest."""
-    captioner = load_captioner(cfg, len(q_vocab.itos), q_vocab.pad_id, device)
+) -> Tuple[VQAModel, Optional[nn.Module]]:
+    """VQAModel besaz; age ``use_captioner`` true bashe captioner ham load mishe."""
+    use_captioner = bool(cfg.get("use_captioner", True))
+    captioner: Optional[nn.Module] = None
+    if use_captioner:
+        captioner = load_captioner(cfg, len(q_vocab.itos), q_vocab.pad_id, device)
+    else:
+        print("use_captioner=false — v_att faghat (bedoon v_cap fusion) estefade mishe.")
     model = VQAModel(
         len(q_vocab.itos),
         len(a_vocab.itos),
@@ -1200,6 +1204,7 @@ def build_vqa_model(
         int(cfg["max_regions"]),
         str(cfg["fuse_mode"]),
         float(cfg.get("dropout", 0.3)),
+        use_captioner=use_captioner,
     ).to(device)
     return model, captioner
 
@@ -1445,6 +1450,7 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
     if rank == 0:
         print(
             f"device={device} ddp={ddp_on} world={world} "
+            f"use_captioner={bool(cfg.get('use_captioner', True))} "
             f"train={len(train_loader.dataset)} val={len(val_loader.dataset)} "
             f"q_vocab={len(q_vocab.itos)} a_vocab={len(a_vocab.itos)}"
         )

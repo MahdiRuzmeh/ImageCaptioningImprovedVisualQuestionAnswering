@@ -7,6 +7,7 @@ train_images_dir: ../dataset/train2014
 val_images_dir: ../dataset/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
+use_captioner: true
 captioner_project_root: ../SimpleImageCaptioner
 captioner_ckpt: ../SimpleImageCaptioner/outputs/smoke/best.pt
 captioner_class: SimpleImageCaptioner

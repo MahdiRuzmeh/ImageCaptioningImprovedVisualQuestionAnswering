@@ -143,7 +143,8 @@ python train.py --config configs/default.yaml --eval --ckpt outputs/default/best
 | `val_annotations_json` | (see yaml) | Val answers |
 | `train_images_dir` | `../dataset/train2014` | COCO train images |
 | `val_images_dir` | `../dataset/val2014` | COCO val images |
-| `captioner_project_root` | `../SimpleImageCaptioner` | Captioner code path |
+| `use_captioner` | `true` | `true`: fuse `v_cap` + `v_att`; `false`: `v = v_att` only (no captioner load) |
+| `captioner_project_root` | `../SimpleImageCaptioner` | Captioner code path (ignored when `use_captioner: false`) |
 | `captioner_ckpt` | `../SimpleImageCaptioner/outputs/default/best.pt` | Stage-1 weights |
 | `captioner_class` | `SimpleImageCaptioner` | Class name in `captioner_v1.py` |
 
@@ -161,7 +162,7 @@ python train.py --config configs/default.yaml --eval --ckpt outputs/default/best
 | `max_answer_len` | 6 | Max answer tokens |
 | `vocab_min_freq` | 4 | Min token freq for q/a vocabs |
 | `use_amp` | true | Mixed precision (CUDA) |
-| `fuse_mode` | `mul` | `mul` or `add` for `v_cap` and `v_att` |
+| `fuse_mode` | `mul` | `mul`, `add`, or `concat` for `v_cap` and `v_att` (only when `use_captioner: true`) |
 | `max_train_qids` | null | Cap train size (smoke: 100) |
 | `max_val_qids` | null | Cap val size (smoke: 100) |
 

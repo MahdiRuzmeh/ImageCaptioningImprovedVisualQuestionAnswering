@@ -9,6 +9,7 @@ val_images_dir: ../dataset/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 # Captioner freeze shode az SimpleImageCaptioner load mishe (marhale 2 paper).
+use_captioner: true
 captioner_project_root: ../SimpleImageCaptioner
 captioner_ckpt: ../SimpleImageCaptioner/outputs/default/best.pt
 captioner_class: SimpleImageCaptioner
