@@ -13,7 +13,7 @@ Chera in file?
 Input / Output
 --------------
 - **Input:** ``image_id`` + matn soal, ya ``question_id`` az VQA JSON
-- **Output:** javab (greedy decode) + ground truth (mode answer) agar dar dataset bashe
+- **Output:** javab (greedy decode) + question-conditioned caption + ground truth (mode answer) agar dar dataset bashe
 
 Pish-niaz
 ---------
@@ -197,7 +197,7 @@ def encode_question_tensor(
 
 def load_question_record(
     cfg: Dict[str, Any], question_id: int
-) -> Tuple[int, str, List[str], str]:
+) -> Tuple[int, str, List[str], str, str]:
     """``question_id`` ro dar val/train JSON peyda kon.
 
     Aval val ro check mikone, bad train — ta betooni har do split ro test koni.
@@ -206,14 +206,14 @@ def load_question_record(
         question_id: mesl 262148000 (VQA v2 format)
 
     Output:
-        image_id, matn soal, list 10 javab annotator, mode answer (por-tekrar-tarin)
+        image_id, matn soal, list 10 javab annotator, mode answer, split (``train``/``val``)
 
     Raises:
         KeyError: age question_id toye hich JSON nabashe
     """
-    for q_json, a_json in (
-        (cfg["val_questions_json"], cfg["val_annotations_json"]),
-        (cfg["train_questions_json"], cfg["train_annotations_json"]),
+    for split_name, q_json, a_json in (
+        ("val", cfg["val_questions_json"], cfg["val_annotations_json"]),
+        ("train", cfg["train_questions_json"], cfg["train_annotations_json"]),
     ):
         with Path(q_json).open("r", encoding="utf-8") as f:
             qs = {int(x["question_id"]): x for x in json.load(f)["questions"]}
@@ -224,7 +224,13 @@ def load_question_record(
         q = qs[question_id]
         ann = anns[question_id]
         answers = [x["answer"] for x in ann["answers"]]
-        return int(q["image_id"]), q["question"], answers, mode_answer(answers)
+        return (
+            int(q["image_id"]),
+            q["question"],
+            answers,
+            mode_answer(answers),
+            split_name,
+        )
     raise KeyError(f"question_id {question_id} not found in train/val JSON")
 
 
@@ -263,10 +269,98 @@ def split_image_paths(cfg: Dict[str, Any], split: str) -> Tuple[str, str]:
     raise ValueError(f"split must be train or val, got {split!r}")
 
 
+def image_filename(image_id: int, template: str) -> str:
+    """COCO image filename baraye chap dar eval (mesl ``COCO_val2014_000262148.jpg``)."""
+    return template.format(image_id=image_id)
+
+
+def load_caption_vocab(cfg: Dict[str, Any]) -> Optional[Vocab]:
+    """Caption vocabulary ro az checkpoint captioner (stage 1) load kon."""
+    if not bool(cfg.get("use_captioner", True)):
+        return None
+    ckpt_path = Path(cfg["captioner_ckpt"])
+    if not ckpt_path.exists():
+        return None
+    state = torch.load(ckpt_path, map_location="cpu")
+    vocab_itos = state.get("vocab")
+    if vocab_itos is None:
+        return None
+    return vocab_from_itos(vocab_itos)
+
+
+def max_caption_len_from_cfg(cfg: Dict[str, Any]) -> int:
+    """``max_caption_len`` ro az config captioner checkpoint ya YAML begir."""
+    if "max_caption_len" in cfg:
+        return int(cfg["max_caption_len"])
+    ckpt_path = Path(cfg.get("captioner_ckpt", ""))
+    if ckpt_path.exists():
+        cap_cfg = torch.load(ckpt_path, map_location="cpu").get("config", {})
+        if "max_caption_len" in cap_cfg:
+            return int(cap_cfg["max_caption_len"])
+    return 20
+
+
+def print_sample_report(
+    *,
+    image_id: int,
+    image_file: str,
+    question: str,
+    pred_caption: str,
+    pred_answer: str,
+    answer: Optional[str] = None,
+) -> None:
+    """Chap yek sample VQA ba caption tolid shode."""
+    print("---")
+    print(f"img_id:       {image_id}")
+    print(f"img_file:     {image_file}")
+    print(f"question:     {question}")
+    print(f"pred_caption: {pred_caption}")
+    print(f"pred_answer:  {pred_answer}")
+    if answer is not None:
+        print(f"gt mode answer:  {answer}")
+    print()
+
+
+@torch.no_grad()
+def predict_vqa_sample(
+    model: torch.nn.Module,
+    image: torch.Tensor,
+    q: torch.Tensor,
+    a_vocab: Vocab,
+    cap_vocab: Optional[Vocab],
+    cfg: Dict[str, Any],
+) -> Tuple[str, str]:
+    """Greedy answer + question-conditioned caption baraye yek (image, question)."""
+    logits = model(
+        image,
+        q,
+        a_ids=None,
+        max_answer_len=int(cfg["max_answer_len"]),
+    )
+    pred_answer = decode_ids(logits.argmax(dim=-1)[0].tolist(), a_vocab)
+
+    if (
+        not bool(cfg.get("use_captioner", True))
+        or cap_vocab is None
+        or getattr(model, "captioner", None) is None
+    ):
+        pred_caption = "(captioner disabled)"
+    else:
+        cap_ids = model.captioner.generate_caption(
+            image,
+            q,
+            max_caption_len_from_cfg(cfg),
+        )
+        pred_caption = decode_ids(cap_ids[0].tolist(), cap_vocab)
+
+    return pred_answer, pred_caption
+
+
 def run_single(
     model: torch.nn.Module,
     q_vocab: Vocab,
     a_vocab: Vocab,
+    cap_vocab: Optional[Vocab],
     cfg: Dict[str, Any],
     device: torch.device,
     image_id: int,
@@ -275,41 +369,40 @@ def run_single(
     gt_answers: Optional[List[str]] = None,
     gt_mode: Optional[str] = None,
 ) -> None:
-    """Yek sample VQA: image + soal → javab (greedy decode) chap kon.
+    """Yek sample VQA: image + soal → caption + javab (greedy decode) chap kon.
 
     Flow:
         1. image load
         2. soal encode
-        3. ``model.forward`` ba ``a_ids=None`` → greedy decode
-        4. chap pred + optional GT (age az ``--question-id`` omade)
+        3. captioner ``generate_caption(image, question)``
+        4. ``model.forward`` ba ``a_ids=None`` → greedy answer decode
+        5. chap pred + optional GT (age az ``--question-id`` omade)
 
     Input optional:
         gt_answers, gt_mode — baraye moghayese ba annotator ha
     """
     images_dir, template = split_image_paths(cfg, split)
+    img_file = image_filename(image_id, template)
     image = load_image_tensor(
         image_id, images_dir, template, device, image_size_from_cfg(cfg)
     )
     q = encode_question_tensor(
         question, q_vocab, int(cfg["max_question_len"]), device
     )
-    with torch.no_grad():
-        logits = model(
-            image,
-            q,
-            a_ids=None,
-            max_answer_len=int(cfg["max_answer_len"]),
-        )
-    pred_ids = logits.argmax(dim=-1)[0].tolist()
-    answer = decode_ids(pred_ids, a_vocab)
-
-    print(f"image_id={image_id}  split={split}")
-    print(f"question: {question}")
-    print(f"answer:   {answer}")
-    if gt_mode is not None:
-        print(f"gt_mode:  {gt_mode}")
+    pred_answer, pred_caption = predict_vqa_sample(
+        model, image, q, a_vocab, cap_vocab, cfg
+    )
+    print_sample_report(
+        image_id=image_id,
+        image_file=img_file,
+        question=question,
+        pred_caption=pred_caption,
+        pred_answer=pred_answer,
+        answer=gt_mode,
+    )
     if gt_answers:
-        print(f"gt_all:   {gt_answers[:5]}{'...' if len(gt_answers) > 5 else ''}")
+        print(f"gt_all: {gt_answers[:5]}{'...' if len(gt_answers) > 5 else ''}")
+        print()
 
 
 def build_val_loader(
@@ -375,15 +468,17 @@ def run_val_samples(
     model: torch.nn.Module,
     q_vocab: Vocab,
     a_vocab: Vocab,
+    cap_vocab: Optional[Vocab],
     cfg: Dict[str, Any],
     device: torch.device,
     n: int,
 ) -> None:
-    """N ta sample random az val — soal, pred, gt ro chap kon.
+    """N ta sample random az val — caption, soal, pred, gt ro chap kon.
 
     Seed az config (``seed: 42``) → har run hamoon sample ha (reproducible).
     Baraye didan model chikar mikone bedoon run kamel val.
     """
+    template = cfg["val_image_filename_template"]
     va_qids = cap_list(all_qids(cfg["val_questions_json"]), cfg.get("max_val_qids"))
     ds = VQADataset(
         cfg["val_questions_json"],
@@ -402,23 +497,23 @@ def run_val_samples(
 
     print(f"\nSample predictions (n={len(indices)}):")
     for idx in indices:
+        sample = ds.samples[idx]
+        image_id = int(sample["image_id"])
         batch = collate_batch([ds[idx]])
         images = batch["images"].to(device)
         q = batch["q"].to(device)
-        with torch.no_grad():
-            logits = model(
-                images,
-                q,
-                a_ids=None,
-                max_answer_len=int(cfg["max_answer_len"]),
-            )
-        pred = decode_ids(logits.argmax(dim=-1)[0].tolist(), a_vocab)
+        pred_answer, pred_caption = predict_vqa_sample(
+            model, images, q, a_vocab, cap_vocab, cfg
+        )
         gt = decode_ids(batch["a"][0].tolist(), a_vocab)
-        q_text = decode_ids(batch["q"][0].tolist(), q_vocab)
-        print(f"  q: {q_text}")
-        print(f"     pred: {pred}")
-        print(f"     gt:   {gt}")
-        print()
+        print_sample_report(
+            image_id=image_id,
+            image_file=image_filename(image_id, template),
+            question=sample["question"],
+            pred_caption=pred_caption,
+            pred_answer=pred_answer,
+            answer=gt,
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -468,15 +563,23 @@ def main() -> None:
     )
     ckpt_path = Path(args.ckpt).expanduser().resolve()
     model, q_vocab, a_vocab = load_vqa_checkpoint(cfg, ckpt_path, device)
+    cap_vocab = load_caption_vocab(cfg)
+    if bool(cfg.get("use_captioner", True)) and cap_vocab is None:
+        print(
+            "Warning: use_captioner=true but caption vocab not found in "
+            f"{cfg.get('captioner_ckpt')} — pred_caption will be unavailable."
+        )
     print(f"config={config_path}  ckpt={ckpt_path}  device={device}")
 
     if args.question_id is not None:
-        image_id, question, answers, mode = load_question_record(cfg, args.question_id)
-        split = "val"
+        image_id, question, answers, mode, split = load_question_record(
+            cfg, args.question_id
+        )
         run_single(
             model,
             q_vocab,
             a_vocab,
+            cap_vocab,
             cfg,
             device,
             image_id,
@@ -490,6 +593,7 @@ def main() -> None:
             model,
             q_vocab,
             a_vocab,
+            cap_vocab,
             cfg,
             device,
             args.image_id,
@@ -501,7 +605,7 @@ def main() -> None:
     else:
         run_val_metrics(model, q_vocab, a_vocab, cfg, device)
         n = args.samples if args.samples > 0 else 10
-        run_val_samples(model, q_vocab, a_vocab, cfg, device, n)
+        run_val_samples(model, q_vocab, a_vocab, cap_vocab, cfg, device, n)
 
 
 if __name__ == "__main__":
