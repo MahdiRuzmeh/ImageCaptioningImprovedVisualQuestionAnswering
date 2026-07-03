@@ -31,11 +31,11 @@ persistent_workers: true
 batch_size: 32
 grad_accum_steps: 1
 # HARNESS: budget-e sabet — hame azmayesh-ha ba hamin epochs moghayese mishan.
-epochs: 20
+epochs: 30
 # HARNESS: lr 0.001 ba schedule-e decay (na overfit-e 100 sample).
 learning_rate: 0.001
-# HARNESS: schedule-e vaghei — har 2 epoch lr ro nesf kon.
-lr_decay_every: 2
+# HARNESS: schedule-e vaghei — har n epoch lr ro nesf kon.
+lr_decay_every: 8
 lr_decay_factor: 0.5
 max_question_len: 14
 max_answer_len: 6
@@ -65,7 +65,7 @@ question_dim: 1280
 fuse_mode: concat
 # dropout: ba'de har projection (g_proj, local_proj, q_proj, v_att) va bayn LSTM cells va qabl az classifier.
 # 0.3 standard baraye VQA ast (Bottom-Up & Top-Down paper ham hamin estefade mikone).
-dropout: 0.3
+dropout: 0.1
 save_dir: outputs/kaggle_mini
 # HARNESS (architecture comparison): zir-majmue-ye "mini vali vaghei" —
 #   bozorg baraye neshoon dadan-e farq-e generalization, kuchik baraye iterate-e sari.
