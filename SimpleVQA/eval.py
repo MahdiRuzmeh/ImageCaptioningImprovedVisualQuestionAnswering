@@ -31,8 +31,9 @@ CLI arguments
 ``--image-id``     COCO image_id (ba ``--question`` estefade mishe)
 ``--question``     matn soal (ba ``--image-id``)
 ``--question-id``  VQA question_id — image + soal + GT az JSON load mishe
-``--split``        ``train`` ya ``val`` (default: ``val``) — baraye ``--image-id`` mode
-``--samples``      ba val mode: tedad sample random (default 10)
+``--split``        ``train`` ya ``val`` (default: ``val``) — ham baraye ``--image-id``
+                   mode va ham baraye metrics/samples mode (kodum split eval beshe)
+``--samples``      ba metrics/samples mode: tedad sample random (default 10)
 
 Che mode ee ejra mishe?
 -----------------------
@@ -405,27 +406,69 @@ def run_single(
         print()
 
 
-def build_val_loader(
-    cfg: Dict[str, Any], q_vocab: Vocab, a_vocab: Vocab
-) -> DataLoader:
-    """DataLoader val besaz — vocab haye checkpoint (na rebuild az JSON).
+def split_sources(
+    cfg: Dict[str, Any], split: str
+) -> Tuple[str, str, str, str, Optional[int]]:
+    """Finglish: manba haye yek split ro bar migardone.
 
-    ``max_val_qids`` az config cap mikone (mesl smoke/kaggle_mini).
-    Hamoon ``VQADataset`` + ``collate_batch`` train estefade mishe.
+    Baraye ``train`` ya ``val``, tuple zir ro mide:
+        (questions_json, annotations_json, images_dir, filename_template, max_qids_cap)
+
+    ``max_qids_cap`` = ``max_train_qids`` baraye train va ``max_val_qids`` baraye val
+    (hamoon cap-i ke train.py estefade mikone, ta sample-ha ba training yeksan bashan).
     """
-    va_qids = cap_list(all_qids(cfg["val_questions_json"]), cfg.get("max_val_qids"))
-    val_ds = VQADataset(
-        cfg["val_questions_json"],
-        cfg["val_annotations_json"],
-        cfg["val_images_dir"],
-        cfg["val_image_filename_template"],
+    if split == "train":
+        return (
+            cfg["train_questions_json"],
+            cfg["train_annotations_json"],
+            cfg["train_images_dir"],
+            cfg["train_image_filename_template"],
+            cfg.get("max_train_qids"),
+        )
+    if split == "val":
+        return (
+            cfg["val_questions_json"],
+            cfg["val_annotations_json"],
+            cfg["val_images_dir"],
+            cfg["val_image_filename_template"],
+            cfg.get("max_val_qids"),
+        )
+    raise ValueError(f"split must be train or val, got {split!r}")
+
+
+def build_split_dataset(
+    cfg: Dict[str, Any], q_vocab: Vocab, a_vocab: Vocab, split: str
+) -> VQADataset:
+    """``VQADataset`` baraye split entekhab shode (train/val) besaz.
+
+    Vocab ha az checkpoint miyan (na rebuild az JSON). qids ba ``max_{split}_qids``
+    cap mishan ta ba dade-i ke train.py dide yeksan bashe.
+    """
+    q_json, a_json, images_dir, template, max_qids = split_sources(cfg, split)
+    qids = cap_list(all_qids(q_json), max_qids)
+    return VQADataset(
+        q_json,
+        a_json,
+        images_dir,
+        template,
         q_vocab,
         a_vocab,
         int(cfg["max_question_len"]),
         int(cfg["max_answer_len"]),
-        qids=va_qids,
+        qids=qids,
         image_size=image_size_from_cfg(cfg),
     )
+
+
+def build_split_loader(
+    cfg: Dict[str, Any], q_vocab: Vocab, a_vocab: Vocab, split: str
+) -> DataLoader:
+    """DataLoader baraye split entekhab shode (train ya val) besaz.
+
+    Finglish — bug fix: ghablan hamishe val ro estefade mikard va ``--split`` ro
+    ignore mikard. Hala az ``split`` (train/val) manba dorost ro migire.
+    """
+    ds = build_split_dataset(cfg, q_vocab, a_vocab, split)
     device_is_cuda = cfg.get("device") == "cuda" and torch.cuda.is_available()
     loader_kw: Dict[str, Any] = {
         "batch_size": int(cfg["batch_size"]),
@@ -436,66 +479,59 @@ def build_val_loader(
     if int(cfg["num_workers"]) > 0:
         loader_kw["persistent_workers"] = bool(cfg.get("persistent_workers", False))
         loader_kw["prefetch_factor"] = int(cfg.get("prefetch_factor", 2))
-    return DataLoader(val_ds, shuffle=False, **loader_kw)
+    return DataLoader(ds, shuffle=False, **loader_kw)
 
 
-def run_val_metrics(
+def run_split_metrics(
     model: torch.nn.Module,
     q_vocab: Vocab,
     a_vocab: Vocab,
     cfg: Dict[str, Any],
     device: torch.device,
+    split: str,
 ) -> None:
-    """Greedy decode roye val → VQA v2 soft accuracy chap kon.
+    """Greedy decode roye split entekhab shode → VQA v2 soft accuracy chap kon.
 
     Hamoon metric ``train.py`` eval: ``vqa_acc`` ba 10 javab annotator.
-    Accuracy ro chap mikone (mesl ``0.1167`` baraye smoke).
+    ``split`` ('train' ya 'val') taeen mikone roye kodum dade eval beshe.
     """
-    val_loader = build_val_loader(cfg, q_vocab, a_vocab)
+    loader = build_split_loader(cfg, q_vocab, a_vocab, split)
     acc = eval_epoch(
         model,
-        val_loader,
+        loader,
         nn.CrossEntropyLoss(),
         a_vocab,
         cfg,
         device,
         greedy=True,
     )[1]
-    print(f"Validation VQA accuracy (greedy, soft v2): {acc:.4f}")
+    print(f"{split} VQA accuracy (greedy, soft v2): {acc:.4f}")
 
 
-def run_val_samples(
+def run_split_samples(
     model: torch.nn.Module,
     q_vocab: Vocab,
     a_vocab: Vocab,
     cap_vocab: Optional[Vocab],
     cfg: Dict[str, Any],
     device: torch.device,
+    split: str,
     n: int,
 ) -> None:
-    """N ta sample random az val — caption, soal, pred, gt ro chap kon.
+    """N ta sample random az split entekhab shode — caption, soal, pred, gt chap kon.
+
+    Finglish — bug fix: ghablan hamishe val ro estefade mikard. Hala ``split``
+    (train/val) manba dorost (images + JSON) ro entekhab mikone.
 
     Seed az config (``seed: 42``) → har run hamoon sample ha (reproducible).
-    Baraye didan model chikar mikone bedoon run kamel val.
+    Baraye didan model chikar mikone bedoon run kamel.
     """
-    template = cfg["val_image_filename_template"]
-    va_qids = cap_list(all_qids(cfg["val_questions_json"]), cfg.get("max_val_qids"))
-    ds = VQADataset(
-        cfg["val_questions_json"],
-        cfg["val_annotations_json"],
-        cfg["val_images_dir"],
-        cfg["val_image_filename_template"],
-        q_vocab,
-        a_vocab,
-        int(cfg["max_question_len"]),
-        int(cfg["max_answer_len"]),
-        qids=va_qids,
-        image_size=image_size_from_cfg(cfg),
-    )
+    _, _, _, template, _ = split_sources(cfg, split)
+    ds = build_split_dataset(cfg, q_vocab, a_vocab, split)
     rng = random.Random(int(cfg.get("seed", 42)))
     indices = rng.sample(range(len(ds)), min(n, len(ds)))
 
-    print(f"\nSample predictions (n={len(indices)}):")
+    print(f"\nSample predictions ({split}, n={len(indices)}):")
     for idx in indices:
         sample = ds.samples[idx]
         image_id = int(sample["image_id"])
@@ -603,9 +639,11 @@ def main() -> None:
     elif args.image_id is not None or args.question:
         raise SystemExit("Provide both --image-id and --question, or use --question-id.")
     else:
-        run_val_metrics(model, q_vocab, a_vocab, cfg, device)
+        run_split_metrics(model, q_vocab, a_vocab, cfg, device, args.split)
         n = args.samples if args.samples > 0 else 10
-        run_val_samples(model, q_vocab, a_vocab, cap_vocab, cfg, device, n)
+        run_split_samples(
+            model, q_vocab, a_vocab, cap_vocab, cfg, device, args.split, n
+        )
 
 
 if __name__ == "__main__":
