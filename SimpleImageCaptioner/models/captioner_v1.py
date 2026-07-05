@@ -675,7 +675,29 @@ class SimpleImageCaptioner(BaseImageCaptioner):
                 region_cache_dir=region_cache_dir,
             )
             assert hidden_steps is not None
-            v_cap = torch.stack(hidden_steps, dim=1).mean(dim=1)
+            # ----------------------------------------------------------
+            # EOS-aware masked mean pooling for v_cap
+            # ----------------------------------------------------------
+            # EN: `_decode_caption` always runs the full `max_len` steps and never
+            #     stops at <eos>, so hidden states produced AFTER the caption ends
+            #     are meaningless padding-ish noise. Averaging all 20 steps dilutes
+            #     v_cap. Here we mask every step from the FIRST <eos> onward (keep the
+            #     <eos> step itself) and average only the valid caption steps, so
+            #     v_cap reflects the real caption content and is a stronger signal.
+            # FA: `_decode_caption` hamishe hame `max_len` step ro ejra mikone va sar-e
+            #     <eos> nemi-iste, pas hidden-state-haye baad az payan-e caption noise
+            #     hastan. Miangin gereftan az har 20 step v_cap ro raqiq mikone. Inja
+            #     az avvalin <eos> be baad (khod-e <eos> ro negah midarim) mask mizanim
+            #     va faghat az step-haye motabar miangin migirim ta v_cap mohtava-ye
+            #     vaghei-e caption ro neshun bede (signal-e ghavi-tar).
+            hidden = torch.stack(hidden_steps, dim=1)  # (N, T, hidden_dim)
+            # cap[:, 1:] are the generated tokens aligned 1-to-1 with hidden steps.
+            gen = cap[:, 1:]  # (N, T)
+            eos = (gen == 2)
+            # number of <eos> strictly before position t; keep positions with 0.
+            prev_eos = eos.long().cumsum(dim=1) - eos.long()
+            mask = (prev_eos == 0).to(hidden.dtype).unsqueeze(-1)  # (N, T, 1)
+            v_cap = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
             return v_cap, cap.detach()
 
         with torch.no_grad():

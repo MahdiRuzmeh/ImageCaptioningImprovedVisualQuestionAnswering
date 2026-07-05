@@ -627,6 +627,7 @@ class VQAModel(nn.Module):
         fuse_mode: str = "mul",
         dropout: float = 0.3,
         use_captioner: bool = True,
+        caption_repr: str = "hidden",
     ) -> None:
         super().__init__()
         self.use_captioner = use_captioner
@@ -647,6 +648,32 @@ class VQAModel(nn.Module):
             raise ValueError(
                 f"fuse_mode bayad 'mul' | 'add' | 'concat' bashe, na '{fuse_mode}'"
             )
+        # ------------------------------------------------------------------
+        # caption_repr — how the caption becomes v_cap
+        # ------------------------------------------------------------------
+        # EN: Two ways to build v_cap from the frozen captioner:
+        #       "hidden" (default) → mean of the caption LSTM hidden states.
+        #                 Faithful to the current code; carries little NEW info
+        #                 because it re-pools the SAME frozen region features and
+        #                 the generated caption TEXT is discarded.
+        #       "text"   → generate the caption tokens (frozen, greedy) and read
+        #                 them with a small TRAINABLE GRU over the captioner's word
+        #                 embeddings. This injects the caption's semantic content as
+        #                 real text (paper Sharma & Jalal §3.4) and gives the model a
+        #                 trainable channel to actually use captions.
+        # FA: Do ravesh baraye sakht-e v_cap az captioner-e frozen:
+        #       "hidden" (pishfarz) → miangin hidden-state-haye LSTM-e caption.
+        #                 Etela'at-e jadid kam dare chon hamun region-feature-haye
+        #                 frozen ro dobare pool mikone va matn-e caption dor rikhte mishe.
+        #       "text"   → token-haye caption ro (frozen, greedy) tolid mikone va ba
+        #                 yek GRU-ye TRAINABLE roye word-embedding-e captioner mikhune.
+        #                 Ma'na-ye caption ro be onvan matn-e vaghei tazrigh mikone
+        #                 (maghale §3.4) va yek masir-e trainable baraye estefade az caption mide.
+        if caption_repr not in ("hidden", "text"):
+            raise ValueError(
+                f"caption_repr bayad 'hidden' ya 'text' bashe, na '{caption_repr}'"
+            )
+        self.caption_repr = caption_repr
         """
         Constructor for multimodal VQA pipeline.
 
@@ -718,6 +745,23 @@ class VQAModel(nn.Module):
         )
 
         self.out = nn.Linear(hidden_dim, a_vocab_size)
+
+        # ------------------------------------------------------------------
+        # Trainable caption-text encoder (only for caption_repr == "text")
+        # ------------------------------------------------------------------
+        # EN: Reads the generated caption tokens (embedded with the captioner's
+        #     FROZEN word_emb) and encodes them into a hidden_dim vector v_cap.
+        #     The captioner (generator) stays frozen; only THIS GRU trains, giving
+        #     the model a learnable way to consume caption text. Output dim is
+        #     hidden_dim, so fuse_mode ("mul"/"add"/"concat") logic is unchanged.
+        # FA: Token-haye caption-e tolid-shode ro (ba word_emb-e FROZEN-e captioner
+        #     embed shode) mikhune va be yek vector-e hidden_dim (v_cap) tabdil mikone.
+        #     Khod-e captioner frozen mimune; faghat HAMIN GRU train mishe ta model
+        #     betune az matn-e caption estefade kone. Khoruji hidden_dim ast, pas
+        #     mantegh-e fuse_mode taghir nemikone.
+        self.cap_txt_gru: Optional[nn.GRU] = None
+        if use_captioner and caption_repr == "text":
+            self.cap_txt_gru = nn.GRU(word_dim, hidden_dim, batch_first=True)
 
     def _regions_cache_path(self, cache_dir: str, image_id: int) -> Path:
         """
@@ -1032,14 +1076,40 @@ class VQAModel(nn.Module):
         # age estefade az captioner enabled nist bashe miyaym fagat az v_att 
         # (question dependent image feature) estefade mikonim.
         if self.use_captioner:
-            # CONFLICT/BUG FIX (paper §3.4): v_cap = miangin hidden-state LSTM captioner.
-            v_cap, _ = self.captioner.get_caption_embedding(
-                images,
-                q_ids,
-                differentiable=True,
-                image_ids=image_ids,
-                region_cache_dir=region_cache_dir,
-            )
+            # --------------------------------------------------------------
+            # v_cap — caption representation (two modes, see __init__)
+            # --------------------------------------------------------------
+            # EN: "text" mode generates caption tokens once (frozen, greedy, reusing
+            #     the region cache) and encodes them with the trainable GRU → the
+            #     caption's semantic content enters as real text. "hidden" mode keeps
+            #     the original behaviour (mean of caption LSTM hidden states, now
+            #     EOS-masked inside the captioner).
+            # FA: Halat-e "text" token-haye caption ro yek-bar (frozen, greedy, ba
+            #     estefade az region cache) tolid mikone va ba GRU-ye trainable encode
+            #     mikone → ma'na-ye caption be onvan matn vared mishe. Halat-e "hidden"
+            #     hamun raftar-e ghabli (miangin hidden-state, hala EOS-mask shode).
+            if self.caption_repr == "text":
+                with torch.no_grad():
+                    cap_ids, _ = self.captioner._decode_caption(
+                        images,
+                        q_ids,
+                        max_len=20,
+                        collect_hidden=False,
+                        image_ids=image_ids,
+                        region_cache_dir=region_cache_dir,
+                    )
+                cap_emb = self.captioner.word_emb(cap_ids)
+                _, h_cap = self.cap_txt_gru(cap_emb)
+                v_cap = self.drop(h_cap[-1])
+            else:
+                # CONFLICT/BUG FIX (paper §3.4): v_cap = miangin hidden-state LSTM captioner.
+                v_cap, _ = self.captioner.get_caption_embedding(
+                    images,
+                    q_ids,
+                    differentiable=True,
+                    image_ids=image_ids,
+                    region_cache_dir=region_cache_dir,
+                )
             if self.fuse_mode == "concat":
                 v = torch.cat([v_cap, v_att], dim=-1)
             elif self.fuse_mode == "add":
@@ -1205,6 +1275,9 @@ def build_vqa_model(
         str(cfg["fuse_mode"]),
         float(cfg.get("dropout", 0.3)),
         use_captioner=use_captioner,
+        # EN: caption_repr chooses "hidden" (legacy) vs "text" (paper-faithful) v_cap.
+        # FA: caption_repr beyn "hidden" (ghadimi) va "text" (motabegh-e maghale) entekhab mikone.
+        caption_repr=str(cfg.get("caption_repr", "hidden")),
     ).to(device)
     return model, captioner
 
@@ -1410,7 +1483,22 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
             find_unused_parameters=bool(cfg.get("ddp_find_unused_parameters", False)),
         )
 
-    optimizer = Adamax(model.parameters(), lr=float(cfg["learning_rate"]))
+    # ------------------------------------------------------------------
+    # Optimizer + weight decay (anti-overfit knob)
+    # ------------------------------------------------------------------
+    # EN: `weight_decay` adds L2 regularization to the trainable params. On the
+    #     20k-qid mini set the model overfits hard (train_acc ~0.58 vs val ~0.38),
+    #     so a small decay (e.g. 1e-4) pulls weights toward 0 and improves val.
+    #     Default 0.0 => identical behaviour to the previous runs (reproducible).
+    # FA: `weight_decay` yek regularization-e L2 roye parameter-haye trainable
+    #     ezafe mikone. Roye mini set (20k) model shadidan overfit mikone, pas
+    #     yek decay-e kuchik (masalan 1e-4) vazn-ha ro samt-e sefr mikeshe va
+    #     val_acc ro behtar mikone. Default 0.0 => raftar-e daghighan mesl-e ghabl.
+    optimizer = Adamax(
+        model.parameters(),
+        lr=float(cfg["learning_rate"]),
+        weight_decay=float(cfg.get("weight_decay", 0.0)),
+    )
     scheduler = StepLR(
         optimizer,
         step_size=int(cfg["lr_decay_every"]),
@@ -1418,7 +1506,20 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
     )
     use_amp = bool(cfg["use_amp"]) and device.type == "cuda"
     scaler = GradScaler(enabled=use_amp)
-    criterion = nn.CrossEntropyLoss(ignore_index=0)
+    # ------------------------------------------------------------------
+    # Loss + label smoothing (anti-overfit knob)
+    # ------------------------------------------------------------------
+    # EN: `label_smoothing` softens the one-hot answer target so the model is not
+    #     pushed to be over-confident. This directly targets the symptom where
+    #     val_loss keeps rising (over-confidence) while val_acc stays flat.
+    #     Default 0.0 => plain cross-entropy (previous behaviour).
+    # FA: `label_smoothing` target-e one-hot ro narm mikone ta model bish-az-had
+    #     motmaen nashe. Daghighan hamun moshkeli ke val_loss balatar mire vali
+    #     val_acc sabet mimune ro hadaf migire. Default 0.0 => cross-entropy-e sade.
+    criterion = nn.CrossEntropyLoss(
+        ignore_index=0,
+        label_smoothing=float(cfg.get("label_smoothing", 0.0)),
+    )
 
     save_dir = Path(cfg["save_dir"])
     save_dir.mkdir(parents=True, exist_ok=True)

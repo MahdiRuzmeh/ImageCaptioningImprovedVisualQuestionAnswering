@@ -19,7 +19,19 @@ train_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/tr
 val_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
-use_captioner: false
+use_captioner: true
+# ---------------------------------------------------------------------------
+# caption_repr — chegunegi-e sakht-e v_cap (faghat vaghti use_captioner: true)
+# ---------------------------------------------------------------------------
+# EN: "hidden" = legacy (mean of caption LSTM hidden states, now EOS-masked).
+#     "text"   = paper-faithful: generate caption tokens then encode them with a
+#                small trainable GRU → injects real caption semantics. Use "text"
+#                to test whether captions actually help (recommended ablation).
+# FA: "hidden" = ghadimi (miangin hidden-state, hala EOS-mask shode).
+#     "text"   = motabegh-e maghale: token-haye caption tolid va ba yek GRU-ye
+#                trainable encode mishan → ma'na-ye vaghei-e caption tazrigh mishe.
+#                Baraye test-e inke aya caption komak mikone "text" ro emtehan kon.
+caption_repr: text
 captioner_project_root: /kaggle/working/ImageCaptioningImprovedVisualQuestionAnswering/SimpleImageCaptioner
 captioner_ckpt: /kaggle/input/notebooks/mahdirouzmeh/vqa-firstbasepaper/outputs/kaggle_mini/best.pt
 captioner_class: SimpleImageCaptioner
@@ -37,6 +49,19 @@ learning_rate: 0.001
 # HARNESS: schedule-e vaghei — har n epoch lr ro nesf kon.
 lr_decay_every: 8
 lr_decay_factor: 0.5
+# ---------------------------------------------------------------------------
+# Anti-overfit knobs (jadid)
+# ---------------------------------------------------------------------------
+# EN: weight_decay = L2 regularization in the optimizer. 0.0 reproduces the old
+#     runs; 1e-4 is a good starting point to fight the train/val gap on 20k qids.
+# FA: weight_decay = regularization-e L2 dar optimizer. 0.0 = raftar-e ghadimi;
+#     1e-4 noghte-ye shoru-e khubi baraye kam kardan-e fasele-ye train/val roye 20k.
+weight_decay: 0.0001
+# EN: label_smoothing softens the answer target (0.0 = plain CE). Helps the case
+#     where val_loss climbs (over-confidence) while val_acc is flat.
+# FA: label_smoothing target-e javab ro narm mikone (0.0 = CE-ye sade). Baraye
+#     halati ke val_loss bala mire vali val_acc sabete komak mikone.
+label_smoothing: 0.1
 max_question_len: 14
 max_answer_len: 6
 vocab_min_freq: 4
