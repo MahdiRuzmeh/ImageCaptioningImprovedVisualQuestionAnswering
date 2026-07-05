@@ -43,7 +43,7 @@ persistent_workers: true
 batch_size: 32
 grad_accum_steps: 1
 # HARNESS: budget-e sabet — hame azmayesh-ha ba hamin epochs moghayese mishan.
-epochs: 30
+epochs: 20
 # HARNESS: lr 0.001 ba schedule-e decay (na overfit-e 100 sample).
 learning_rate: 0.001
 # HARNESS: schedule-e vaghei — har n epoch lr ro nesf kon.
