@@ -43,11 +43,11 @@ persistent_workers: true
 batch_size: 32
 grad_accum_steps: 1
 # HARNESS: budget-e sabet — hame azmayesh-ha ba hamin epochs moghayese mishan.
-epochs: 20
+epochs: 30
 # HARNESS: lr 0.001 ba schedule-e decay (na overfit-e 100 sample).
 learning_rate: 0.001
 # HARNESS: schedule-e vaghei — har n epoch lr ro nesf kon.
-lr_decay_every: 8
+lr_decay_every: 10
 lr_decay_factor: 0.5
 # ---------------------------------------------------------------------------
 # Anti-overfit knobs (jadid)
@@ -61,7 +61,7 @@ weight_decay: 0.0001
 #     where val_loss climbs (over-confidence) while val_acc is flat.
 # FA: label_smoothing target-e javab ro narm mikone (0.0 = CE-ye sade). Baraye
 #     halati ke val_loss bala mire vali val_acc sabete komak mikone.
-label_smoothing: 0.1
+label_smoothing: 0.05
 max_question_len: 14
 max_answer_len: 6
 vocab_min_freq: 4
