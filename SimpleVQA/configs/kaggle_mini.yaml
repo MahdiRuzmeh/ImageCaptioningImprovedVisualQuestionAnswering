@@ -19,7 +19,7 @@ train_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/tr
 val_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
-use_captioner: true
+use_captioner: false
 captioner_project_root: /kaggle/working/ImageCaptioningImprovedVisualQuestionAnswering/SimpleImageCaptioner
 captioner_ckpt: /kaggle/input/notebooks/mahdirouzmeh/vqa-firstbasepaper/outputs/kaggle_mini/best.pt
 captioner_class: SimpleImageCaptioner
