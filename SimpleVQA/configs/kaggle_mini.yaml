@@ -19,7 +19,7 @@ train_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/tr
 val_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
-use_captioner: false
+use_captioner: False
 # ---------------------------------------------------------------------------
 # caption_repr — chegunegi-e sakht-e v_cap (faghat vaghti use_captioner: true)
 # ---------------------------------------------------------------------------
