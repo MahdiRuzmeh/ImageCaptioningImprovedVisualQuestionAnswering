@@ -516,6 +516,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         no_repeat_ngram: int = 3,
         image_ids: Optional[torch.Tensor] = None,
         region_cache_dir: Optional[str] = None,
+        save_region_cache: bool = True,
     ) -> torch.Tensor:
         """Beam search decode — caption behtar az greedy tolid mikone.
 
@@ -553,7 +554,10 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         bos_id, eos_id, pad_id = 1, 2, 0
         device = image.device
         regions = self._encode_regions(
-            image, image_ids=image_ids, cache_dir=region_cache_dir, save_cache=True
+            image,
+            image_ids=image_ids,
+            cache_dir=region_cache_dir,
+            save_cache=save_region_cache,
         )
         n = image.size(0)
         hidden = self.lstm_hidden
@@ -617,6 +621,9 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         beam_size: int = 5,
         length_alpha: float = 0.7,
         no_repeat_ngram: int = 3,
+        image_ids: Optional[torch.Tensor] = None,
+        region_cache_dir: Optional[str] = None,
+        save_region_cache: bool = True,
     ) -> torch.Tensor:
         """Finglish — inference decode ba beam search (default beam=5):
             EOS-stop + length-norm + trigram block → caption tamiz, bedoon tekrar.
@@ -631,6 +638,9 @@ class SimpleImageCaptioner(BaseImageCaptioner):
             beam_size=beam_size,
             length_alpha=length_alpha,
             no_repeat_ngram=no_repeat_ngram,
+            image_ids=image_ids,
+            region_cache_dir=region_cache_dir,
+            save_region_cache=save_region_cache,
         )
 
     def encode_caption(self, caption_ids: torch.Tensor) -> torch.Tensor:

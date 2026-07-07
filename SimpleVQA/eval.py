@@ -97,8 +97,10 @@ from train import (
     cap_list,
     collate_batch,
     eval_epoch,
+    global_cache_dir_for_split,
     load_config,
     mode_answer,
+    region_cache_dir_for_split,
     resolve_path_fields,
     set_seed,
     tok,
@@ -330,13 +332,25 @@ def predict_vqa_sample(
     a_vocab: Vocab,
     cap_vocab: Optional[Vocab],
     cfg: Dict[str, Any],
+    split: str = "val",
+    image_id: Optional[int] = None,
 ) -> Tuple[str, str]:
     """Greedy answer + question-conditioned caption baraye yek (image, question)."""
+    # Finglish: eval/infer ham cache split ro respct mikone (train/val dir joda).
+    region_cache_dir = region_cache_dir_for_split(cfg, split)
+    global_cache_dir = global_cache_dir_for_split(cfg, split)
+    image_ids = None
+    if image_id is not None:
+        image_ids = torch.tensor([image_id], dtype=torch.long, device=image.device)
     logits = model(
         image,
         q,
         a_ids=None,
         max_answer_len=int(cfg["max_answer_len"]),
+        image_ids=image_ids,
+        region_cache_dir=region_cache_dir,
+        global_cache_dir=global_cache_dir,
+        save_cache=True,
     )
     pred_answer = decode_ids(logits.argmax(dim=-1)[0].tolist(), a_vocab)
 
@@ -351,6 +365,9 @@ def predict_vqa_sample(
             image,
             q,
             max_caption_len_from_cfg(cfg),
+            image_ids=image_ids,
+            region_cache_dir=region_cache_dir,
+            save_region_cache=True,
         )
         pred_caption = decode_ids(cap_ids[0].tolist(), cap_vocab)
 
@@ -391,7 +408,7 @@ def run_single(
         question, q_vocab, int(cfg["max_question_len"]), device
     )
     pred_answer, pred_caption = predict_vqa_sample(
-        model, image, q, a_vocab, cap_vocab, cfg
+        model, image, q, a_vocab, cap_vocab, cfg, split=split, image_id=image_id
     )
     print_sample_report(
         image_id=image_id,
@@ -504,6 +521,7 @@ def run_split_metrics(
         cfg,
         device,
         greedy=True,
+        split=split,
     )[1]
     print(f"{split} VQA accuracy (greedy, soft v2): {acc:.4f}")
 
@@ -539,7 +557,7 @@ def run_split_samples(
         images = batch["images"].to(device)
         q = batch["q"].to(device)
         pred_answer, pred_caption = predict_vqa_sample(
-            model, images, q, a_vocab, cap_vocab, cfg
+            model, images, q, a_vocab, cap_vocab, cfg, split=split, image_id=image_id
         )
         gt = decode_ids(batch["a"][0].tolist(), a_vocab)
         print_sample_report(

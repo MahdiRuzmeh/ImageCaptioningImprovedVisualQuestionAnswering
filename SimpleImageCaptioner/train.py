@@ -55,6 +55,7 @@ In script 3 ta feature jadid darim ke baraye Kaggle GPU limit (2xT4) kheili mohe
 2) grad_accum_steps: batch effective ro bozorg mikone bedoon OOM.
 3) region_cache: region feature FasterRCNN ro 1bar baraye har image hesab mikone va save mikone
    ta har epoch dobare detector run nashe (time saver asli).
+   train/val dir joda: train_region_cache_dir vs val_region_cache_dir.
 4) DDP: age ddp=true bashe, ba torchrun do ta GPU hamzaman estefade mishe.
 """
 
@@ -122,6 +123,22 @@ def image_cap(value: Any) -> Optional[int]:
     except (TypeError, ValueError):
         return None
     return n if n > 0 else None
+
+
+# ---------------------------------------------------------------------------
+# Region cache dirs (train / val joda)
+# ---------------------------------------------------------------------------
+def region_cache_dir_for_split(cfg: Dict[str, Any], split: str) -> Optional[str]:
+    """Finglish — path cache FasterRCNN baraye train ya val.
+
+    age ``cache_regions: false`` → None (detector har bar live).
+    train → ``train_region_cache_dir`` ; val → ``val_region_cache_dir``.
+    val ham mesl train read+write mikone ta epoch haye badi sari bashe.
+    """
+    if not bool(cfg.get("cache_regions", False)):
+        return None
+    key = "train_region_cache_dir" if split == "train" else "val_region_cache_dir"
+    return cfg.get(key)
 
 
 def tok(text: str) -> List[str]:
@@ -461,10 +478,8 @@ def train_epoch(
 
         # dar pytorch gradient ha accumulative hastan(yani besorat default baham jaam mishan)
         # vali ma niyaz nadarim jameshon konim pas toye ebtedaye har batch gradient gabli ro none mikonim.
-        # Finglish: cache_regions age true bashe, region feature ha ro disk save/load mikonim.
-        region_cache_dir = (
-            cfg.get("region_cache_dir") if bool(cfg.get("cache_regions", False)) else None
-        )
+        # Finglish: train split → train_region_cache_dir ; miss → save (hamoon step train).
+        region_cache_dir = region_cache_dir_for_split(cfg, "train")
         with autocast(enabled=use_amp):
             # feed forward mikonim ta caption ro baraye har image toye in batch peyda konim.
             logits = unwrap_model(model).forward_train(
@@ -526,27 +541,26 @@ def eval_epoch(
     criterion: nn.Module,
     device: torch.device,
     cfg: Dict[str, Any],
+    split: str = "val",
 ) -> Tuple[float, float]:
     """Validation loss and token accuracy (pure teacher forcing)."""
     model.eval()
     total_loss = 0.0
     total_acc = 0.0
+    # Finglish: val split → val_region_cache_dir ; miss → save (mesl train loop).
+    region_cache_dir = region_cache_dir_for_split(cfg, split)
     for batch in tqdm(loader, desc="val", leave=False):
         images = batch["images"].to(device, non_blocking=device.type == "cuda")
         caps = batch["captions"].to(device, non_blocking=device.type == "cuda")
         image_ids = batch["image_ids"].to(device, non_blocking=device.type == "cuda")
 
         # inja serfan feed forward anjam midim(backward nadarim)
-        # Finglish: val ro cache save nemikonim (faghat read).
-        region_cache_dir = (
-            cfg.get("region_cache_dir") if bool(cfg.get("cache_regions", False)) else None
-        )
         logits = unwrap_model(model).forward_train(
             images,
             caps,
             image_ids=image_ids,
             region_cache_dir=region_cache_dir,
-            save_region_cache=False,
+            save_region_cache=True,
             scheduled_sampling_p=0.0,
         )
         loss = criterion(
@@ -646,6 +660,8 @@ def main() -> None:
             "train_images_dir",
             "val_images_dir",
             "save_dir",
+            "train_region_cache_dir",
+            "val_region_cache_dir",
         ),
     )
     ddp_on, world, rank, local_rank = ddp_setup(cfg)

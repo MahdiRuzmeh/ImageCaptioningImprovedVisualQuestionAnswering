@@ -96,6 +96,7 @@ from train import (
     image_cap,
     load_caps_json,
     load_config,
+    region_cache_dir_for_split,
     resolve_path_fields,
     set_seed,
     tok,
@@ -108,6 +109,8 @@ PATH_KEYS = (
     "train_images_dir",
     "val_images_dir",
     "save_dir",
+    "train_region_cache_dir",
+    "val_region_cache_dir",
 )
 
 def image_size_from_cfg(cfg: Dict[str, Any]) -> int:
@@ -339,7 +342,17 @@ def run_single(
             )
 
     with torch.no_grad():
-        cap_ids = model.generate_caption(image, q_ids, int(cfg["max_caption_len"]))
+        # Finglish: inference ham cache split ro respct mikone (train/val dir joda).
+        cache_dir = region_cache_dir_for_split(cfg, split)
+        img_ids = torch.tensor([image_id], dtype=torch.long, device=device)
+        cap_ids = model.generate_caption(
+            image,
+            q_ids,
+            int(cfg["max_caption_len"]),
+            image_ids=img_ids,
+            region_cache_dir=cache_dir,
+            save_region_cache=True,
+        )
     pred = decode_ids(cap_ids[0].tolist(), vocab)
 
     gt_caps = load_caps_json(captions_json).get(image_id, [])
@@ -402,7 +415,7 @@ def run_val(
         collate_fn=collate_batch,
     )
     loss, acc = eval_epoch(
-        model, loader, nn.CrossEntropyLoss(ignore_index=0), device, cfg
+        model, loader, nn.CrossEntropyLoss(ignore_index=0), device, cfg, split=split
     )
     print(
         f"{split}_loss (teacher forcing): {loss:.4f}  {split}_token_acc: {acc:.4f}"
@@ -425,12 +438,22 @@ def run_val(
     hyps: List[List[str]] = []
     refs: List[List[List[str]]] = []
     pred_by_id: Dict[int, str] = {}
+    # Finglish: BLEU/CIDEr ham az val/train cache estefade mikone (generate_caption).
+    cache_dir = region_cache_dir_for_split(cfg, split)
     for image_id in unique_ids:
         image = load_image(
             image_id, images_dir, filename_template, device, image_size_from_cfg(cfg)
         )
         with torch.no_grad():
-            cap_ids = model.generate_caption(image, None, int(cfg["max_caption_len"]))
+            img_ids = torch.tensor([image_id], dtype=torch.long, device=device)
+            cap_ids = model.generate_caption(
+                image,
+                None,
+                int(cfg["max_caption_len"]),
+                image_ids=img_ids,
+                region_cache_dir=cache_dir,
+                save_region_cache=True,
+            )
         pred = decode_ids(cap_ids[0].tolist(), vocab)
         pred_by_id[image_id] = pred
         hyps.append(tok(pred))
@@ -465,8 +488,14 @@ def run_val(
                 image_id, images_dir, filename_template, device, image_size_from_cfg(cfg)
             )
             with torch.no_grad():
+                img_ids = torch.tensor([image_id], dtype=torch.long, device=device)
                 cap_ids = model.generate_caption(
-                    image, None, int(cfg["max_caption_len"])
+                    image,
+                    None,
+                    int(cfg["max_caption_len"]),
+                    image_ids=img_ids,
+                    region_cache_dir=cache_dir,
+                    save_region_cache=True,
                 )
             pred = decode_ids(cap_ids[0].tolist(), vocab)
         all_gt = caps_by_img.get(image_id, [])

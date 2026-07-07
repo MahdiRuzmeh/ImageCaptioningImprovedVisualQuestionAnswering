@@ -64,10 +64,12 @@ Finglish note (Kaggle 2xT4 + speed)
   MOHEM: faqat khoroji box_head encoder cache mishe (1024d) — local_proj (1024→hidden_dim)
   CACHE NEMISHE va hamishe ejra mishe (trainable). Epoch haye badi kheili faster mishan.
   FasterRCNN(img) → 1024d [cache inja] → local_proj(1024→hidden_dim) [no cache, trains].
+  train/val dir joda: train_region_cache_dir vs val_region_cache_dir.
 - cache_global: raw ResNet-101 feature (pool+flatten → 2048d) disk save mikonim.
   MOHEM: faqat khoroji encoder cache mishe — g_proj (linear 2048→hidden_dim) CACHE NEMISHE
   va hamishe dar forward pass ejra mishe (trainable projection).
   ResNet101(img) → 2048d [cache inja] → g_proj(2048→hidden_dim) [no cache, trains].
+  train/val dir joda: train_global_cache_dir vs val_global_cache_dir.
 - use_amp: mixed precision baraye speed/memory.
 - ddp: age ddp=true bashe, ba torchrun do ta GPU ro hamzaman estefade mikonim.
 """
@@ -132,6 +134,33 @@ def cap_list(items: List[int], cap: Optional[int]) -> List[int]:
     if cap is None or cap <= 0:
         return items
     return items[: int(cap)]
+
+
+# ---------------------------------------------------------------------------
+# Feature cache dirs (train / val joda — FasterRCNN + ResNet-101)
+# ---------------------------------------------------------------------------
+def region_cache_dir_for_split(cfg: Dict[str, Any], split: str) -> Optional[str]:
+    """Finglish — path cache region FasterRCNN baraye train ya val.
+
+    age ``cache_regions: false`` → None.
+    train → ``train_region_cache_dir`` ; val → ``val_region_cache_dir``.
+    """
+    if not bool(cfg.get("cache_regions", False)):
+        return None
+    key = "train_region_cache_dir" if split == "train" else "val_region_cache_dir"
+    return cfg.get(key)
+
+
+def global_cache_dir_for_split(cfg: Dict[str, Any], split: str) -> Optional[str]:
+    """Finglish — path cache global ResNet-101 baraye train ya val.
+
+    age ``cache_global: false`` → None.
+    train → ``train_global_cache_dir`` ; val → ``val_global_cache_dir``.
+    """
+    if not bool(cfg.get("cache_global", False)):
+        return None
+    key = "train_global_cache_dir" if split == "train" else "val_global_cache_dir"
+    return cfg.get(key)
 
 
 # ---------------------------------------------------------------------------
@@ -1017,6 +1046,7 @@ class VQAModel(nn.Module):
         image_ids: Optional[torch.Tensor] = None,
         region_cache_dir: Optional[str] = None,
         global_cache_dir: Optional[str] = None,
+        save_cache: bool = True,
     ) -> torch.Tensor:
         """
         Train: ``a_ids`` bede (teacher forcing). Eval: ``a_ids=None`` (greedy).
@@ -1044,7 +1074,7 @@ class VQAModel(nn.Module):
             images,
             image_ids=image_ids,
             cache_dir=global_cache_dir,
-            save_cache=self.training,
+            save_cache=save_cache,
         )
         # [dropout 1/6] baade g_proj — global visual feature qabl az LSTM
         g = self.drop(self.g_proj(raw_g))
@@ -1054,7 +1084,7 @@ class VQAModel(nn.Module):
             images,
             image_ids=image_ids,
             cache_dir=region_cache_dir,
-            save_cache=self.training,
+            save_cache=save_cache,
         )
         # [dropout 2/6] baade local_proj — region feature ha qabl az GNN
         local = self.drop(local)
@@ -1183,6 +1213,10 @@ PATH_KEYS = (
     "captioner_project_root",
     "captioner_ckpt",
     "save_dir",
+    "train_region_cache_dir",
+    "val_region_cache_dir",
+    "train_global_cache_dir",
+    "val_global_cache_dir",
 )
 
 
@@ -1311,9 +1345,8 @@ def train_epoch(
         q = batch["q"].to(device, non_blocking=device.type == "cuda")
         a = batch["a"].to(device, non_blocking=device.type == "cuda")
 
-        region_cache_dir = cfg.get("region_cache_dir") if bool(cfg.get("cache_regions", False)) else None
-        # cache_global: raw ResNet-101 feature (2048d) disk cache — g_proj hamishe ejra mishe.
-        global_cache_dir = cfg.get("global_cache_dir") if bool(cfg.get("cache_global", False)) else None
+        region_cache_dir = region_cache_dir_for_split(cfg, "train")
+        global_cache_dir = global_cache_dir_for_split(cfg, "train")
         with autocast(enabled=use_amp):
             logits = model(
                 images,
@@ -1322,6 +1355,7 @@ def train_epoch(
                 image_ids=image_ids,
                 region_cache_dir=region_cache_dir,
                 global_cache_dir=global_cache_dir,
+                save_cache=True,
             )
             loss = criterion(logits.reshape(-1, logits.size(-1)), a[:, 1:].reshape(-1))
 
@@ -1347,11 +1381,15 @@ def eval_epoch(
     cfg: Dict[str, Any],
     device: torch.device,
     greedy: bool = False,
+    split: str = "val",
 ) -> Tuple[float, float]:
     """Validation — teacher forcing ya greedy decode (``greedy=True``)."""
     model.eval()
     total_loss = 0.0
     total_acc = 0.0
+    # Finglish: val split cache joda az train ; miss → save (mesl train loop).
+    region_cache_dir = region_cache_dir_for_split(cfg, split)
+    global_cache_dir = global_cache_dir_for_split(cfg, split)
 
     for batch in tqdm(loader, desc="val", leave=False):
         images = batch["images"].to(device, non_blocking=device.type == "cuda")
@@ -1361,9 +1399,6 @@ def eval_epoch(
         q = batch["q"].to(device, non_blocking=device.type == "cuda")
         a = batch["a"].to(device, non_blocking=device.type == "cuda")
 
-        region_cache_dir = cfg.get("region_cache_dir") if bool(cfg.get("cache_regions", False)) else None
-        # cache_global: raw ResNet-101 feature (2048d) disk cache — g_proj hamishe ejra mishe.
-        global_cache_dir = cfg.get("global_cache_dir") if bool(cfg.get("cache_global", False)) else None
         if greedy:
             logits = model(
                 images,
@@ -1373,6 +1408,7 @@ def eval_epoch(
                 image_ids=image_ids,
                 region_cache_dir=region_cache_dir,
                 global_cache_dir=global_cache_dir,
+                save_cache=True,
             )
         else:
             logits = model(
@@ -1382,6 +1418,7 @@ def eval_epoch(
                 image_ids=image_ids,
                 region_cache_dir=region_cache_dir,
                 global_cache_dir=global_cache_dir,
+                save_cache=True,
             )
             loss = criterion(logits.reshape(-1, logits.size(-1)), a[:, 1:].reshape(-1))
             total_loss += float(loss.item())

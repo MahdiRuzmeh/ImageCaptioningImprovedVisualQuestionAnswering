@@ -19,7 +19,8 @@ max_caption_len: 20
 vocab_min_freq: 2
 max_regions: 32
 cache_regions: true
-region_cache_dir: outputs/region_cache/captioner
+train_region_cache_dir: outputs/region_cache/captioner/train
+val_region_cache_dir: outputs/region_cache/captioner/val
 image_size: 448
 pin_memory: true
 persistent_workers: false

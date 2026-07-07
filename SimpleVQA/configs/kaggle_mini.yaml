@@ -69,11 +69,13 @@ vocab_min_freq: 4
 use_amp: true
 max_regions: 32
 cache_regions: true
-region_cache_dir: /kaggle/working/region_cache/vqa
+train_region_cache_dir: /kaggle/working/region_cache/vqa/train
+val_region_cache_dir: /kaggle/working/region_cache/vqa/val
 # cache_global: khoroji raw ResNet-101 (2048d, qabl az g_proj) disk save mikone.
 # g_proj linear layer CACHE NEMISHE va hamishe ejra mishe (trainable).
 cache_global: true
-global_cache_dir: /kaggle/working/global_cache/vqa
+train_global_cache_dir: /kaggle/working/global_cache/vqa/train
+val_global_cache_dir: /kaggle/working/global_cache/vqa/val
 image_size: 448
 device: cuda
 # HARNESS: ddp roshan baraye 2xT4. Ejra:

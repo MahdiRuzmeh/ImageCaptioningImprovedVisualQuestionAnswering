@@ -20,10 +20,10 @@ max_caption_len: 20
 vocab_min_freq: 4
 max_regions: 32
 cache_regions: false
-# baraye local test off bezar; age roshan kardi, region feature ha save/load mishan.
-# degat kon age max_regions ya region_dim farg kone cache dige valid nist. 
-# (batch, max_regions, region_dim) example: (N, 32, 2048) 
-region_cache_dir: outputs/region_cache/captioner
+# Finglish: train/val cache joda — raw FasterRCNN ROI (1024d) ghabl az roi_to_region.
+# degat kon age max_regions farg kone cache dige valid nist.
+train_region_cache_dir: outputs/region_cache/captioner/train
+val_region_cache_dir: outputs/region_cache/captioner/val
 image_size: 448
 pin_memory: true
 persistent_workers: false
