@@ -20,6 +20,7 @@ save_dir: outputs/kaggle_mini
 num_workers: 2
 batch_size: 32
 epochs: 10
+eval_every: 1
 learning_rate: 0.0005
 dropout: 0.3
 lr_decay_factor: 0.6

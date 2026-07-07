@@ -141,6 +141,17 @@ def region_cache_dir_for_split(cfg: Dict[str, Any], split: str) -> Optional[str]
     return cfg.get(key)
 
 
+def should_run_eval(epoch: int, total_epochs: int, cfg: Dict[str, Any]) -> bool:
+    """Finglish — validation har chand epoch yek bar?
+
+    ``eval_every: 1`` → har epoch (raftar-e ghadimi).
+    ``eval_every: n`` → faghat vaghti ``epoch % n == 0`` ya akharin epoch.
+    Mesal: n=5, epochs=30 → val roye 5,10,15,20,25,30 (train har epoch edame dare).
+    """
+    every = max(1, int(cfg.get("eval_every", 1)))
+    return (epoch % every == 0) or (epoch == total_epochs)
+
+
 def tok(text: str) -> List[str]:
     """Lowercase alphanumeric tokenizer (same convention as ImageCaptioner/VQA)."""
     return TOKEN_RE.findall(text.lower())
@@ -787,14 +798,21 @@ def main() -> None:
         tr_loss, tr_acc = train_epoch(
             model, train_loader, optimizer, scaler, criterion, device, cfg, epoch
         )
-        va_loss, va_acc = eval_epoch(model, val_loader, criterion, device, cfg)
+        # Finglish: eval har n epoch — na har dafe (eval_every az config).
+        run_eval = should_run_eval(epoch, epochs, cfg)
+        if run_eval:
+            va_loss, va_acc = eval_epoch(model, val_loader, criterion, device, cfg)
         if rank == 0:
             cur_lr = optimizer.param_groups[0]["lr"]
-            print(
+            msg = (
                 f"epoch {epoch}/{epochs}  ss_p={ss_p:.2f}  lr={cur_lr:.2e}  "
-                f"train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} "
-                f"val_loss={va_loss:.4f} val_acc={va_acc:.4f}"
+                f"train_loss={tr_loss:.4f} train_acc={tr_acc:.4f}"
             )
+            if run_eval:
+                msg += f"  val_loss={va_loss:.4f} val_acc={va_acc:.4f}"
+            else:
+                msg += f"  val=skip (eval_every={max(1, int(cfg.get('eval_every', 1)))})"
+            print(msg)
         scheduler.step()
 
         if rank == 0:
@@ -806,7 +824,7 @@ def main() -> None:
                 "config": cfg,
             }
             torch.save(state, save_dir / "last.pt")
-            if va_loss < best_val:
+            if run_eval and va_loss < best_val:
                 best_val = va_loss
                 torch.save(state, save_dir / "best.pt")
 

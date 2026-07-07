@@ -163,6 +163,17 @@ def global_cache_dir_for_split(cfg: Dict[str, Any], split: str) -> Optional[str]
     return cfg.get(key)
 
 
+def should_run_eval(epoch: int, total_epochs: int, cfg: Dict[str, Any]) -> bool:
+    """Finglish — validation har chand epoch yek bar?
+
+    ``eval_every: 1`` → har epoch (mesl alan).
+    ``eval_every: n`` → faghat roye ``epoch % n == 0`` + akharin epoch.
+    Mesal: n=5, epochs=30 → val: 5,10,15,20,25,30 ; train har epoch jari.
+    """
+    every = max(1, int(cfg.get("eval_every", 1)))
+    return (epoch % every == 0) or (epoch == total_epochs)
+
+
 # ---------------------------------------------------------------------------
 # Tokenizer & Vocab
 # ---------------------------------------------------------------------------
@@ -1602,15 +1613,22 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
         tr_loss, tr_acc = train_epoch(
             model, train_loader, optimizer, scaler, criterion, a_vocab, cfg, device
         )
-        va_loss, va_acc = eval_epoch(
-            model, val_loader, criterion, a_vocab, cfg, device, greedy=False
-        )
+        # Finglish: eval har n epoch — na har dafe (eval_every az YAML).
+        run_eval = should_run_eval(epoch, epochs, cfg)
+        if run_eval:
+            va_loss, va_acc = eval_epoch(
+                model, val_loader, criterion, a_vocab, cfg, device, greedy=False
+            )
         scheduler.step()
         if rank == 0:
-            print(
-                f"epoch {epoch}/{epochs}  train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} "
-                f"val_loss={va_loss:.4f} val_acc={va_acc:.4f}"
+            msg = (
+                f"epoch {epoch}/{epochs}  train_loss={tr_loss:.4f} train_acc={tr_acc:.4f}"
             )
+            if run_eval:
+                msg += f"  val_loss={va_loss:.4f} val_acc={va_acc:.4f}"
+            else:
+                msg += f"  val=skip (eval_every={max(1, int(cfg.get('eval_every', 1)))})"
+            print(msg)
 
         if rank == 0:
             raw_model = unwrap_model(model)
@@ -1626,7 +1644,7 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
                 "config": cfg,
             }
             torch.save(state, save_dir / "last.pt")
-            if va_acc > best_acc:
+            if run_eval and va_acc > best_acc:
                 best_acc = va_acc
                 state["best"] = best_acc
                 torch.save(state, save_dir / "best.pt")

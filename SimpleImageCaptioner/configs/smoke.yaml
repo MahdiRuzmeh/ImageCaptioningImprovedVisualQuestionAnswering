@@ -9,6 +9,7 @@ save_dir: outputs/smoke
 num_workers: 0
 batch_size: 8
 epochs: 4
+eval_every: 1
 learning_rate: 0.0005
 dropout: 0.5
 lr_decay_factor: 0.6

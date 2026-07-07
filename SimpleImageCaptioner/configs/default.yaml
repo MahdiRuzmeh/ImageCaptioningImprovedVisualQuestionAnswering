@@ -10,6 +10,8 @@ save_dir: outputs/default
 num_workers: 0
 batch_size: 10
 epochs: 25
+# Finglish: eval_every — validation har chand epoch? 1=har epoch ; 5=har 5 epoch + akhar.
+eval_every: 1
 learning_rate: 0.0005
 dropout: 0.5
 lr_decay_factor: 0.6

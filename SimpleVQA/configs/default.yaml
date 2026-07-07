@@ -20,6 +20,8 @@ persistent_workers: true
 batch_size: 4
 grad_accum_steps: 4
 epochs: 25
+# Finglish: eval_every — validation har chand epoch? 1=har epoch ; 5=har 5 epoch + akhar.
+eval_every: 1
 learning_rate: 0.0005
 lr_decay_every: 4
 lr_decay_factor: 0.6
