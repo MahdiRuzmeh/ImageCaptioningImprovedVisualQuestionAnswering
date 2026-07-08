@@ -9,9 +9,9 @@ save_dir: outputs/kaggle
 # Kaggle 2xT4: torchrun --nproc_per_node=2 train.py --config configs/kaggle.yaml
 num_workers: 2
 batch_size: 32
-epochs: 1
+epochs: 3
 # Finglish: eval_every — val har n epoch (1=har epoch). Akharin epoch hamishe eval mishe.
-eval_every: 2
+eval_every: 4
 learning_rate: 0.0005
 dropout: 0.5
 lr_decay_factor: 0.6
