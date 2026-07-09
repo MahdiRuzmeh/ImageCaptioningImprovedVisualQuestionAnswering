@@ -7,6 +7,14 @@ val_images_dir: ../dataset/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 save_dir: outputs/default
+# save_model_type: "epoch" = save last.pt after each train epoch; "item" = every n samples.
+# degat kon in fagat nahve update shodan last.pt ro moshakhas mikone.
+#  best.pt hamishe ba best validation accurcy updaye mishe.
+save_model_type: epoch
+# in hyperparameter vagti estefade mishe ke "save_model_type" = "item" bashe.
+# save_every_samples: global train samples between last.pt writes (when save_model_type=item).
+# One sample = one (image, caption) pair.
+save_every_samples: 5000
 num_workers: 0
 batch_size: 10
 epochs: 25

@@ -174,6 +174,150 @@ def should_run_eval(epoch: int, total_epochs: int, cfg: Dict[str, Any]) -> bool:
     return (epoch % every == 0) or (epoch == total_epochs)
 
 
+def parse_save_model_type(cfg: Dict[str, Any]) -> str:
+    """Read ``save_model_type`` from config.
+
+    Allowed values: ``epoch`` (save after each train epoch) or
+    ``item`` (save every ``save_every_samples`` training samples).
+    Raises ``ValueError`` for unknown types.
+    """
+    kind = str(cfg.get("save_model_type", "epoch")).strip().lower()
+    if kind not in ("epoch", "item"):
+        raise ValueError(f"save_model_type must be 'epoch' or 'item', got {kind!r}")
+    return kind
+
+
+def save_every_samples(cfg: Dict[str, Any]) -> int:
+    """Return ``save_every_samples`` when ``save_model_type`` is ``item``.
+
+    Must be a positive integer. Ignored when save type is ``epoch``.
+    """
+    n = int(cfg.get("save_every_samples", 0))
+    if n <= 0:
+        raise ValueError(
+            "save_every_samples must be > 0 when save_model_type='item'"
+        )
+    return n
+
+
+def init_next_save_at(samples_seen: int, every_n: int) -> int:
+    """Compute the next global sample count that triggers a checkpoint save.
+
+    First save at ``every_n``; later saves at ``2*every_n``, ``3*every_n``, ...
+    Resume restores ``samples_seen`` and recomputes the next threshold.
+    """
+    if every_n <= 0:
+        return 0
+    if samples_seen <= 0:
+        return every_n
+    return ((samples_seen // every_n) + 1) * every_n
+
+
+def global_batch_samples(batch_size: int, ddp_on: bool) -> int:
+    """Global training samples in this batch (sum across DDP ranks).
+
+    Single-process training returns ``batch_size`` unchanged.
+    Under DDP, all-reduces so ``save_every_samples`` is a global count.
+    """
+    if batch_size <= 0 or not ddp_on:
+        return batch_size
+    if not dist.is_initialized():
+        return batch_size
+    t = torch.tensor([batch_size], dtype=torch.long)
+    if torch.cuda.is_available():
+        t = t.cuda()
+    dist.all_reduce(t, op=dist.ReduceOp.SUM)
+    return int(t.item())
+
+
+def build_vqa_checkpoint_state(
+    model: nn.Module,
+    q_vocab: "Vocab",
+    a_vocab: "Vocab",
+    cfg: Dict[str, Any],
+    epoch: int,
+    best_acc: float,
+    samples_seen: int,
+    optimizer: torch.optim.Optimizer,
+    scheduler: StepLR,
+    scaler: Optional[GradScaler],
+) -> Dict[str, Any]:
+    """Build the ``.pt`` dict written to ``last.pt`` / ``best.pt``.
+
+    Includes model, vocabs, optimizer, scheduler, scaler, epoch,
+    best val accuracy, and cumulative training samples.
+    """
+    return {
+        "epoch": epoch,
+        "best": best_acc,
+        "samples_seen": samples_seen,
+        "model": unwrap_model(model).state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "scaler": scaler.state_dict() if scaler is not None else None,
+        "q_vocab": q_vocab.itos,
+        "a_vocab": a_vocab.itos,
+        "config": cfg,
+    }
+
+
+def write_vqa_checkpoint(
+    path: Path,
+    state: Dict[str, Any],
+    rank: int,
+) -> None:
+    """Write checkpoint file on rank 0 only (no-op on other DDP ranks)."""
+    if rank != 0:
+        return
+    torch.save(state, path)
+
+
+def maybe_save_by_samples(
+    cfg: Dict[str, Any],
+    model: nn.Module,
+    q_vocab: "Vocab",
+    a_vocab: "Vocab",
+    save_dir: Path,
+    epoch: int,
+    best_acc: float,
+    samples_seen: int,
+    next_save_at: int,
+    rank: int,
+    ddp_on: bool,
+    batch_size: int,
+    optimizer: torch.optim.Optimizer,
+    scheduler: StepLR,
+    scaler: Optional[GradScaler],
+) -> Tuple[int, int]:
+    """Update sample counter; save ``last.pt`` when item threshold is crossed.
+
+    Returns updated ``(samples_seen, next_save_at)``.
+    No-op when ``save_model_type`` is ``epoch``.
+    """
+    if parse_save_model_type(cfg) != "item":
+        return samples_seen, next_save_at
+    every_n = save_every_samples(cfg)
+    samples_seen += global_batch_samples(batch_size, ddp_on)
+    while samples_seen >= next_save_at:
+        state = build_vqa_checkpoint_state(
+            model,
+            q_vocab,
+            a_vocab,
+            cfg,
+            epoch,
+            best_acc,
+            samples_seen,
+            optimizer,
+            scheduler,
+            scaler,
+        )
+        write_vqa_checkpoint(save_dir / "last.pt", state, rank)
+        if rank == 0:
+            print(f"  checkpoint saved at samples_seen={samples_seen}")
+        next_save_at += every_n
+    return samples_seen, next_save_at
+
+
 # ---------------------------------------------------------------------------
 # Tokenizer & Vocab
 # ---------------------------------------------------------------------------
@@ -1339,8 +1483,21 @@ def train_epoch(
     a_vocab: Vocab,
     cfg: Dict[str, Any],
     device: torch.device,
-) -> Tuple[float, float]:
-    """Yek epoch train — CE loss + batch ``vqa_acc``."""
+    epoch: int = 1,
+    save_dir: Optional[Path] = None,
+    q_vocab: Optional[Vocab] = None,
+    rank: int = 0,
+    ddp_on: bool = False,
+    best_acc: float = 0.0,
+    samples_seen: int = 0,
+    next_save_at: int = 0,
+    scheduler: Optional[StepLR] = None,
+) -> Tuple[float, float, int, int]:
+    """Yek epoch train — CE loss + batch ``vqa_acc``.
+
+    When ``save_model_type=item``, saves ``last.pt`` every ``save_every_samples``
+    global training samples (see ``maybe_save_by_samples``).
+    """
     model.train()
     total_loss = 0.0
     total_acc = 0.0
@@ -1379,8 +1536,32 @@ def train_epoch(
         total_loss += float(loss.item())
         total_acc += vqa_acc(logits.argmax(dim=-1), batch["answers"], a_vocab)
 
+        if (
+            save_dir is not None
+            and q_vocab is not None
+            and scheduler is not None
+            and parse_save_model_type(cfg) == "item"
+        ):
+            samples_seen, next_save_at = maybe_save_by_samples(
+                cfg,
+                model,
+                q_vocab,
+                a_vocab,
+                save_dir,
+                epoch,
+                best_acc,
+                samples_seen,
+                next_save_at,
+                rank,
+                ddp_on,
+                images.size(0),
+                optimizer,
+                scheduler,
+                scaler,
+            )
+
     n = max(1, len(loader))
-    return total_loss / n, total_acc / n
+    return total_loss / n, total_acc / n, samples_seen, next_save_at
 
 
 @torch.no_grad()
@@ -1468,16 +1649,16 @@ def load_checkpoint(
     scheduler: Optional[StepLR],
     scaler: Optional[GradScaler],
     device: torch.device,
-) -> Tuple[int, float]:
-    """Checkpoint load kon; epoch va best acc ro bargardoon."""
+) -> Tuple[int, float, int]:
+    """Checkpoint load kon; epoch, best acc, va samples_seen ro bargardoon."""
     if not path.exists():
         print(f"Checkpoint peyda nashod: {path} — az aval shoro mikonim.")
-        return 1, 0.0
+        return 1, 0.0, 0
 
     ckpt = torch.load(path, map_location=device)
     if not isinstance(ckpt, dict) or "model" not in ckpt:
         print(f"Format checkpoint eshtebah: {path}")
-        return 1, 0.0
+        return 1, 0.0, 0
 
     unwrap_model(model).load_state_dict(ckpt["model"])
     if optimizer is not None and "optimizer" in ckpt:
@@ -1492,8 +1673,12 @@ def load_checkpoint(
 
     start_epoch = int(ckpt.get("epoch", 0)) + 1
     best = float(ckpt.get("best", 0.0))
-    print(f"Resume az {path} (next_epoch={start_epoch}, best_val_acc={best:.4f})")
-    return start_epoch, best
+    samples_seen = int(ckpt.get("samples_seen", 0))
+    print(
+        f"Resume az {path} (next_epoch={start_epoch}, "
+        f"best_val_acc={best:.4f}, samples_seen={samples_seen})"
+    )
+    return start_epoch, best, samples_seen
 
 
 def run_eval(cfg: Dict[str, Any], ckpt_path: str, device: torch.device) -> None:
@@ -1573,6 +1758,8 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
     save_dir.mkdir(parents=True, exist_ok=True)
     best_acc = 0.0
     start_epoch = 1
+    samples_seen = 0
+    save_type = parse_save_model_type(cfg)
 
     if args.fresh and args.do_continue:
         raise SystemExit("Yekish ro entekhab kon: --fresh ya --continue")
@@ -1586,7 +1773,7 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
             resume_path = str(cfg["resume_from"])
 
     if resume_path:
-        start_epoch, best_acc = load_checkpoint(
+        start_epoch, best_acc, samples_seen = load_checkpoint(
             Path(resume_path).expanduser().resolve(),
             model,
             optimizer,
@@ -1595,14 +1782,23 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
             device,
         )
 
+    next_save_at = (
+        init_next_save_at(samples_seen, save_every_samples(cfg))
+        if save_type == "item"
+        else 0
+    )
+
     epochs = int(cfg["epochs"])
     if rank == 0:
         print(
             f"device={device} ddp={ddp_on} world={world} "
             f"use_captioner={bool(cfg.get('use_captioner', True))} "
             f"train={len(train_loader.dataset)} val={len(val_loader.dataset)} "
-            f"q_vocab={len(q_vocab.itos)} a_vocab={len(a_vocab.itos)}"
+            f"q_vocab={len(q_vocab.itos)} a_vocab={len(a_vocab.itos)} "
+            f"save_model_type={save_type}"
         )
+        if save_type == "item":
+            print(f"save_every_samples={save_every_samples(cfg)}")
 
     for epoch in range(start_epoch, epochs + 1):
         # Finglish: DistributedSampler baraye shuffle bayad har epoch set_epoch beshe.
@@ -1610,8 +1806,24 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
             sampler = getattr(train_loader, "sampler", None)
             if isinstance(sampler, DistributedSampler):
                 sampler.set_epoch(epoch)
-        tr_loss, tr_acc = train_epoch(
-            model, train_loader, optimizer, scaler, criterion, a_vocab, cfg, device
+        tr_loss, tr_acc, samples_seen, next_save_at = train_epoch(
+            model,
+            train_loader,
+            optimizer,
+            scaler,
+            criterion,
+            a_vocab,
+            cfg,
+            device,
+            epoch=epoch,
+            save_dir=save_dir,
+            q_vocab=q_vocab,
+            rank=rank,
+            ddp_on=ddp_on,
+            best_acc=best_acc,
+            samples_seen=samples_seen,
+            next_save_at=next_save_at,
+            scheduler=scheduler,
         )
         # Finglish: eval har n epoch — na har dafe (eval_every az YAML).
         run_eval = should_run_eval(epoch, epochs, cfg)
@@ -1631,23 +1843,39 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
             print(msg)
 
         if rank == 0:
-            raw_model = unwrap_model(model)
-            state = {
-                "epoch": epoch,
-                "best": best_acc,
-                "model": raw_model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict(),
-                "scaler": scaler.state_dict() if scaler is not None else None,
-                "q_vocab": q_vocab.itos,
-                "a_vocab": a_vocab.itos,
-                "config": cfg,
-            }
-            torch.save(state, save_dir / "last.pt")
+            state = build_vqa_checkpoint_state(
+                model,
+                q_vocab,
+                a_vocab,
+                cfg,
+                epoch,
+                best_acc,
+                samples_seen,
+                optimizer,
+                scheduler,
+                scaler,
+            )
+            if save_type == "epoch":
+                write_vqa_checkpoint(save_dir / "last.pt", state, rank)
             if run_eval and va_acc > best_acc:
                 best_acc = va_acc
                 state["best"] = best_acc
-                torch.save(state, save_dir / "best.pt")
+                write_vqa_checkpoint(save_dir / "best.pt", state, rank)
+
+    if rank == 0 and save_type == "item":
+        state = build_vqa_checkpoint_state(
+            model,
+            q_vocab,
+            a_vocab,
+            cfg,
+            epochs,
+            best_acc,
+            samples_seen,
+            optimizer,
+            scheduler,
+            scaler,
+        )
+        write_vqa_checkpoint(save_dir / "last.pt", state, rank)
 
     if ddp_on:
         dist.destroy_process_group()

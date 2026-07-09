@@ -47,5 +47,10 @@ fuse_mode: concat
 # smoke: 0.3 — hamoon default ta overfit sanity check ham bebini.
 dropout: 0
 save_dir: outputs/smoke
+# save_model_type: "epoch" = save last.pt after each train epoch; "item" = every n samples.
+save_model_type: epoch
+# in hyperparameter vagti estefade mishe ke "save_model_type" = "item" bashe.
+# save_every_samples: global train samples between last.pt writes (when save_model_type=item).
+save_every_samples: 50
 max_train_qids: 100
 max_val_qids: 100

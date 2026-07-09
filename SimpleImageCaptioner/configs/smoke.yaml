@@ -6,6 +6,11 @@ val_images_dir: ../dataset/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 save_dir: outputs/smoke
+# save_model_type: "epoch" = save last.pt after each train epoch; "item" = every n samples.
+save_model_type: epoch
+# in hyperparameter vagti estefade mishe ke "save_model_type" = "item" bashe.
+# save_every_samples: global train samples between last.pt writes (when save_model_type=item).
+save_every_samples: 50
 num_workers: 0
 batch_size: 8
 epochs: 4
@@ -35,7 +40,7 @@ gnn_dim: 512
 device: cuda
 ddp: false
 ddp_backend: nccl
-max_train_images: 200
+max_train_images: 2000
 max_val_images: 50
 # Paper §5 scheduled sampling (GT token mixed with model prediction during train)
 # scheduled_sampling_p dar aval kar 0 khahad bood (kamalan teacher forcing hast)

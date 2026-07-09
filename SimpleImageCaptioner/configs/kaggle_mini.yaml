@@ -17,6 +17,11 @@ val_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/val2
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 save_dir: outputs/kaggle_mini
+# save_model_type: "epoch" = save last.pt after each train epoch; "item" = every n samples.
+save_model_type: epoch
+# in hyperparameter vagti estefade mishe ke "save_model_type" = "item" bashe.
+# save_every_samples: global train samples between last.pt writes (when save_model_type=item).
+save_every_samples: 5000
 num_workers: 2
 batch_size: 32
 epochs: 10

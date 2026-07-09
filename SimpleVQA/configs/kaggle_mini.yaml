@@ -96,6 +96,11 @@ fuse_mode: concat
 # 0.3 standard baraye VQA ast (Bottom-Up & Top-Down paper ham hamin estefade mikone).
 dropout: 0.1
 save_dir: outputs/kaggle_mini
+# save_model_type: "epoch" = save last.pt after each train epoch; "item" = every n samples.
+save_model_type: epoch
+# in hyperparameter vagti estefade mishe ke "save_model_type" = "item" bashe.
+# save_every_samples: global train samples between last.pt writes (when save_model_type=item).
+save_every_samples: 5000
 # HARNESS (architecture comparison): zir-majmue-ye "mini vali vaghei" —
 #   bozorg baraye neshoon dadan-e farq-e generalization, kuchik baraye iterate-e sari.
 #   Roye 100 sample nemishe memari entekhab kard (val=noise); in andaze meaningful ast.

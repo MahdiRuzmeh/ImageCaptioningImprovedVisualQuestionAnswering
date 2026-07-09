@@ -51,5 +51,13 @@ fuse_mode: mul
 # 0.3 standard baraye VQA ast (Bottom-Up & Top-Down paper ham hamin estefade mikone).
 dropout: 0.3
 save_dir: outputs/default
+# save_model_type: "epoch" = save last.pt after each train epoch; "item" = every n samples.
+# degat kon in fagat nahve update shodan last.pt ro moshakhas mikone.
+#  best.pt hamishe ba best validation accurcy updaye mishe.
+save_model_type: epoch
+# in hyperparameter vagti estefade mishe ke "save_model_type" = "item" bashe.
+# save_every_samples: global train samples between last.pt writes (when save_model_type=item).
+# One sample = one (image, question, answer) triplet.
+save_every_samples: 2000
 max_train_qids: null
 max_val_qids: null

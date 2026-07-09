@@ -152,6 +152,128 @@ def should_run_eval(epoch: int, total_epochs: int, cfg: Dict[str, Any]) -> bool:
     return (epoch % every == 0) or (epoch == total_epochs)
 
 
+def parse_save_model_type(cfg: Dict[str, Any]) -> str:
+    """Read ``save_model_type`` from config.
+
+    Allowed values: ``epoch`` (save after each train epoch) or
+    ``item`` (save every ``save_every_samples`` training samples).
+    Raises ``ValueError`` for unknown types.
+    """
+    kind = str(cfg.get("save_model_type", "epoch")).strip().lower()
+    if kind not in ("epoch", "item"):
+        raise ValueError(f"save_model_type must be 'epoch' or 'item', got {kind!r}")
+    return kind
+
+
+def save_every_samples(cfg: Dict[str, Any]) -> int:
+    """Return ``save_every_samples`` when ``save_model_type`` is ``item``.
+
+    Must be a positive integer. Ignored when save type is ``epoch``.
+    """
+    n = int(cfg.get("save_every_samples", 0))
+    if n <= 0:
+        raise ValueError(
+            "save_every_samples must be > 0 when save_model_type='item'"
+        )
+    return n
+
+
+def init_next_save_at(samples_seen: int, every_n: int) -> int:
+    """Compute the next global sample count that triggers a checkpoint save.
+
+    First save at ``every_n``; later saves at ``2*every_n``, ``3*every_n``, ...
+    Resume restores ``samples_seen`` and recomputes the next threshold.
+    """
+    if every_n <= 0:
+        return 0
+    if samples_seen <= 0:
+        return every_n
+    return ((samples_seen // every_n) + 1) * every_n
+
+
+def global_batch_samples(batch_size: int, ddp_on: bool) -> int:
+    """Global training samples in this batch (sum across DDP ranks).
+
+    Single-process training returns ``batch_size`` unchanged.
+    Under DDP, all-reduces so ``save_every_samples`` is a global count.
+    """
+    if batch_size <= 0 or not ddp_on:
+        return batch_size
+    import torch.distributed as dist
+
+    if not dist.is_initialized():
+        return batch_size
+    t = torch.tensor([batch_size], dtype=torch.long)
+    if torch.cuda.is_available():
+        t = t.cuda()
+    dist.all_reduce(t, op=dist.ReduceOp.SUM)
+    return int(t.item())
+
+
+def build_captioner_checkpoint_state(
+    model: nn.Module,
+    vocab: "Vocab",
+    cfg: Dict[str, Any],
+    epoch: int,
+    samples_seen: int,
+) -> Dict[str, Any]:
+    """Build the ``.pt`` dict written to ``last.pt`` / ``best.pt``.
+
+    Includes model weights, vocabulary, full config, epoch index,
+    and cumulative training samples for item-based resume.
+    """
+    return {
+        "epoch": epoch,
+        "samples_seen": samples_seen,
+        "model": unwrap_model(model).state_dict(),
+        "vocab": vocab.itos,
+        "config": cfg,
+    }
+
+
+def write_captioner_checkpoint(
+    path: Path,
+    state: Dict[str, Any],
+    rank: int,
+) -> None:
+    """Write checkpoint file on rank 0 only (no-op on other DDP ranks)."""
+    if rank != 0:
+        return
+    torch.save(state, path)
+
+
+def maybe_save_by_samples(
+    cfg: Dict[str, Any],
+    model: nn.Module,
+    vocab: "Vocab",
+    save_dir: Path,
+    epoch: int,
+    samples_seen: int,
+    next_save_at: int,
+    rank: int,
+    ddp_on: bool,
+    batch_size: int,
+) -> Tuple[int, int]:
+    """Update sample counter; save ``last.pt`` when item threshold is crossed.
+
+    Returns updated ``(samples_seen, next_save_at)``.
+    No-op when ``save_model_type`` is ``epoch``.
+    """
+    if parse_save_model_type(cfg) != "item":
+        return samples_seen, next_save_at
+    every_n = save_every_samples(cfg)
+    samples_seen += global_batch_samples(batch_size, ddp_on)
+    while samples_seen >= next_save_at:
+        state = build_captioner_checkpoint_state(
+            model, vocab, cfg, epoch, samples_seen
+        )
+        write_captioner_checkpoint(save_dir / "last.pt", state, rank)
+        if rank == 0:
+            print(f"  checkpoint saved at samples_seen={samples_seen}")
+        next_save_at += every_n
+    return samples_seen, next_save_at
+
+
 def tok(text: str) -> List[str]:
     """Lowercase alphanumeric tokenizer (same convention as ImageCaptioner/VQA)."""
     return TOKEN_RE.findall(text.lower())
@@ -469,8 +591,18 @@ def train_epoch(
     device: torch.device,
     cfg: Dict[str, Any],
     epoch: int,
-) -> Tuple[float, float]:
-    """One training pass; returns mean cross-entropy loss and token accuracy."""
+    save_dir: Optional[Path] = None,
+    vocab: Optional["Vocab"] = None,
+    rank: int = 0,
+    ddp_on: bool = False,
+    samples_seen: int = 0,
+    next_save_at: int = 0,
+) -> Tuple[float, float, int, int]:
+    """One training pass; returns mean loss, acc, and sample-checkpoint counters.
+
+    When ``save_model_type=item``, saves ``last.pt`` every ``save_every_samples``
+    global training samples (see ``maybe_save_by_samples``).
+    """
     model.train()
     total_loss = 0.0
     total_acc = 0.0
@@ -522,8 +654,27 @@ def train_epoch(
             loss=f"{loss.item():.4f}",
             acc=f"{caption_token_acc(logits, targets):.4f}",
         )
+
+        if (
+            save_dir is not None
+            and vocab is not None
+            and parse_save_model_type(cfg) == "item"
+        ):
+            samples_seen, next_save_at = maybe_save_by_samples(
+                cfg,
+                model,
+                vocab,
+                save_dir,
+                epoch,
+                samples_seen,
+                next_save_at,
+                rank,
+                ddp_on,
+                images.size(0),
+            )
+
     n = max(1, len(loader))
-    return total_loss / n, total_acc / n
+    return total_loss / n, total_acc / n, samples_seen, next_save_at
 
 
 """
@@ -782,21 +933,43 @@ def main() -> None:
     save_dir.mkdir(parents=True, exist_ok=True)
     best_val = float("inf")
     epochs = int(cfg["epochs"])
+    save_type = parse_save_model_type(cfg)
+    samples_seen = 0
+    next_save_at = (
+        init_next_save_at(0, save_every_samples(cfg))
+        if save_type == "item"
+        else 0
+    )
 
     if rank == 0:
         print(f"config={config_path}")
         print(
             f"device={device} ddp={ddp_on} world={world} "
             f"train_rows={len(train_ds)} val_rows={len(val_ds)} "
-            f"vocab={len(vocab.itos)}"
+            f"vocab={len(vocab.itos)} save_model_type={save_type}"
         )
+        if save_type == "item":
+            print(f"save_every_samples={save_every_samples(cfg)}")
 
     for epoch in range(1, epochs + 1):
         if ddp_on and train_sampler is not None:
             train_sampler.set_epoch(epoch)
         ss_p = scheduled_sampling_prob(epoch, cfg)
-        tr_loss, tr_acc = train_epoch(
-            model, train_loader, optimizer, scaler, criterion, device, cfg, epoch
+        tr_loss, tr_acc, samples_seen, next_save_at = train_epoch(
+            model,
+            train_loader,
+            optimizer,
+            scaler,
+            criterion,
+            device,
+            cfg,
+            epoch,
+            save_dir=save_dir,
+            vocab=vocab,
+            rank=rank,
+            ddp_on=ddp_on,
+            samples_seen=samples_seen,
+            next_save_at=next_save_at,
         )
         # Finglish: eval har n epoch — na har dafe (eval_every az config).
         run_eval = should_run_eval(epoch, epochs, cfg)
@@ -816,17 +989,20 @@ def main() -> None:
         scheduler.step()
 
         if rank == 0:
-            raw_model = unwrap_model(model)
-            state = {
-                "epoch": epoch,
-                "model": raw_model.state_dict(),
-                "vocab": vocab.itos,
-                "config": cfg,
-            }
-            torch.save(state, save_dir / "last.pt")
+            state = build_captioner_checkpoint_state(
+                model, vocab, cfg, epoch, samples_seen
+            )
+            if save_type == "epoch":
+                write_captioner_checkpoint(save_dir / "last.pt", state, rank)
             if run_eval and va_loss < best_val:
                 best_val = va_loss
-                torch.save(state, save_dir / "best.pt")
+                write_captioner_checkpoint(save_dir / "best.pt", state, rank)
+
+    if rank == 0 and save_type == "item":
+        state = build_captioner_checkpoint_state(
+            model, vocab, cfg, epochs, samples_seen
+        )
+        write_captioner_checkpoint(save_dir / "last.pt", state, rank)
 
     if ddp_on:
         import torch.distributed as dist
