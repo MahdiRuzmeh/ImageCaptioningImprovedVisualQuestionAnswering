@@ -9,9 +9,9 @@ save_dir: outputs/kaggle
 # Kaggle 2xT4: torchrun --nproc_per_node=2 train.py --config configs/kaggle.yaml
 num_workers: 2
 batch_size: 32
-epochs: 4
+epochs: 10
 # Finglish: eval_every — val har n epoch (1=har epoch). Akharin epoch hamishe eval mishe.
-eval_every: 2
+eval_every: 3
 learning_rate: 0.0005
 dropout: 0.5
 lr_decay_factor: 0.6
@@ -40,7 +40,7 @@ device: cuda
 ddp: true
 ddp_backend: nccl
 max_train_images: null
-max_val_images: 1000
+max_val_images: 3000
 # Paper §5 scheduled sampling (GT token mixed with model prediction during train)
 # scheduled_sampling_p dar aval kar 0 khahad bood (kamalan teacher forcing hast)
 scheduled_sampling_max_prob: 0.24
