@@ -12,13 +12,13 @@ save_model_type: epoch
 # save_every_samples: global train samples between last.pt writes (when save_model_type=item).
 save_every_samples: 50
 num_workers: 0
-batch_size: 8
-epochs: 4
-eval_every: 1
+batch_size: 16
+epochs: 50
+eval_every: 10
 learning_rate: 0.0005
 dropout: 0.5
 lr_decay_factor: 0.6
-lr_decay_interval: 4
+lr_decay_interval: 20
 use_amp: true
 grad_accum_steps: 1
 max_caption_len: 20
@@ -40,7 +40,7 @@ gnn_dim: 512
 device: cuda
 ddp: false
 ddp_backend: nccl
-max_train_images: 2000
+max_train_images: 100
 max_val_images: 50
 # Paper §5 scheduled sampling (GT token mixed with model prediction during train)
 # scheduled_sampling_p dar aval kar 0 khahad bood (kamalan teacher forcing hast)

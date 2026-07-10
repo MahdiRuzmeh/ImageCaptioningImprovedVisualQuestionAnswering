@@ -19,18 +19,18 @@ use_captioner: true
 #     "text"   = motabegh-e maghale: token-haye caption tolid va ba yek GRU-ye
 #                trainable encode mishan → ma'na-ye vaghei-e caption tazrigh mishe.
 #                Baraye test-e inke aya caption komak mikone "text" ro emtehan kon.
-caption_repr: text
+caption_repr: hidden
 captioner_project_root: ../SimpleImageCaptioner
 captioner_ckpt: ../SimpleImageCaptioner/outputs/smoke/best.pt
 captioner_class: SimpleImageCaptioner
 num_workers: 0
 batch_size: 8
 grad_accum_steps: 1
-epochs: 150
+epochs: 100
 eval_every: 10
 # overfit sanity: LR balatar + bedoon decay ta 100 sample kamel memorize beshe.
 learning_rate: 0.001
-lr_decay_every: 100000
+lr_decay_every: 30
 lr_decay_factor: 0.6
 max_question_len: 14
 max_answer_len: 6
