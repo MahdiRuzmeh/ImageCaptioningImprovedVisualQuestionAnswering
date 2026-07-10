@@ -8,6 +8,18 @@ val_images_dir: ../dataset/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 use_captioner: true
+# ---------------------------------------------------------------------------
+# caption_repr — chegunegi-e sakht-e v_cap (faghat vaghti use_captioner: true)
+# ---------------------------------------------------------------------------
+# EN: "hidden" = legacy (mean of caption LSTM hidden states, now EOS-masked).
+#     "text"   = paper-faithful: generate caption tokens then encode them with a
+#                small trainable GRU → injects real caption semantics. Use "text"
+#                to test whether captions actually help (recommended ablation).
+# FA: "hidden" = ghadimi (miangin hidden-state, hala EOS-mask shode).
+#     "text"   = motabegh-e maghale: token-haye caption tolid va ba yek GRU-ye
+#                trainable encode mishan → ma'na-ye vaghei-e caption tazrigh mishe.
+#                Baraye test-e inke aya caption komak mikone "text" ro emtehan kon.
+caption_repr: text
 captioner_project_root: ../SimpleImageCaptioner
 captioner_ckpt: ../SimpleImageCaptioner/outputs/smoke/best.pt
 captioner_class: SimpleImageCaptioner
@@ -15,7 +27,7 @@ num_workers: 0
 batch_size: 8
 grad_accum_steps: 1
 epochs: 150
-eval_every: 1
+eval_every: 10
 # overfit sanity: LR balatar + bedoon decay ta 100 sample kamel memorize beshe.
 learning_rate: 0.001
 lr_decay_every: 100000
