@@ -198,18 +198,19 @@ class RegionAttention(nn.Module):
 
 
 class SimpleImageCaptioner(BaseImageCaptioner):
-    """Captioner sade ba per-step region attention — VQA-ready.
+    """Captioner sade ba per-step region attention — VQA-ready + QD train.
 
     Paper §3.3: attention dar har timestep ba m_{t-1}.
-    VQA: soal (question_ids) az ``q_emb`` joda az ``word_emb`` encode mishan ta
-    caption vocabulary va question vocabulary mixed nashan.
+    QD / VQA: soal az ``q_emb`` + ``q_gru`` encode mishe (joda az ``word_emb``).
 
     Do vocabulary joda:
-        - ``word_emb`` + ``classifier`` → token haye **caption** (train roye MSCOCO)
-        - ``q_emb`` → token haye **soal** VQA (faghat vaghti ``question_vocab_size`` pass shode)
-        - dar VQA train: faghat ``q_emb`` + ``q_proj`` update mishan (indirect az answer loss)
+        - ``word_emb`` + ``classifier`` → token haye **caption**
+        - ``q_emb`` + ``q_gru`` → token haye **soal** (vaghti ``question_vocab_size`` set shode)
 
-    Init signature hamoon ImageCaptionerV1 hast ta ``captioner_adapter`` kar kone.
+    Conditioning:
+        - ``qctx`` → attention query: ``h + qctx``
+        - ``qctx`` → LSTM input: ``[word; attended; qctx]``
+        - age ``question_ids=None`` → ``qctx=0`` (backward compat MSCOCO-only)
     """
 
     def __init__(
@@ -228,13 +229,12 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         use_gnn: bool = True,
         gnn_dim: Optional[int] = None,
     ) -> None:
-        """Caption decoder + optional question embedding baraye VQA.
+        """Caption decoder + optional GRU question encoder baraye QD / VQA.
 
         Args:
             vocab_size: size vocabulary **caption** (``word_emb``, ``classifier``).
             pad_id: index PAD baraye caption tokens.
-            question_vocab_size: age set shavad, ``q_emb`` sakhte mishavad baraye soal VQA.
-                Dar train caption-only (``SimpleImageCaptioner/train.py``) pass nemishe.
+            question_vocab_size: age set shavad, ``q_emb`` + ``q_gru`` sakhte mishavad.
             question_pad_id: PAD baraye ``q_emb``; default hamoon ``pad_id``.
         """
         super().__init__()
@@ -243,6 +243,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         self.word_dim = word_dim
         self.region_dim = region_dim
         self.use_gnn = use_gnn
+        self.question_pad_id = pad_id if question_pad_id is None else int(question_pad_id)
 
         self.region_encoder = RegionEncoder(max_regions, region_dim)
 
@@ -257,7 +258,11 @@ class SimpleImageCaptioner(BaseImageCaptioner):
 
         self.word_emb = nn.Embedding(vocab_size, word_dim, padding_idx=pad_id)
 
-        self.lstm = nn.LSTMCell(word_dim + self.embed_dim, hidden_dim)
+        # Finglish — LSTM input = word + attended context + qctx (QD strong conditioning).
+        # Age soal nabashe qctx=0 → behave mesl ghabl, ama input size bozorgtar ast.
+        self.lstm = nn.LSTMCell(
+            word_dim + self.embed_dim + hidden_dim, hidden_dim
+        )
 
         # Finglish — dropout (paper §5, p=0.5):
         #   Roye hidden LSTM ghabl az classifier; faghat train mode tasir dare.
@@ -280,21 +285,22 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         self.region_init_h = nn.Linear(region_dim, hidden_dim)
         self.region_init_c = nn.Linear(region_dim, hidden_dim)
 
-        # embedding joda baraye soal VQA — ba word_emb caption share nemikone
+        # embedding + GRU joda baraye soal — ba word_emb caption share nemikone
         self.q_emb: Optional[nn.Embedding] = None
+        self.q_gru: Optional[nn.GRU] = None
         if question_vocab_size is not None:
-            q_pad = pad_id if question_pad_id is None else question_pad_id
             self.q_emb = nn.Embedding(
-                question_vocab_size, word_dim, padding_idx=q_pad
+                question_vocab_size, word_dim, padding_idx=self.question_pad_id
+            )
+            # Finglish — GRU soal: sequence token → last hidden = qctx (hidden_dim).
+            # behtar az mean-pool: tartib kalamat soal hefz mishe.
+            self.q_gru = nn.GRU(
+                word_dim, hidden_dim, batch_first=True
             )
 
-        # agar word_dim != hidden_dim, soal ro project mikonim (VQA compat)
-        self.q_proj = (
-            nn.Linear(word_dim, hidden_dim)
-            if word_dim != hidden_dim
-            else nn.Identity()
-        )
-        _ = question_dim  # baraye YAML parity ba VQA; pool shode word_dim hast
+        # q_proj digar lazem nist (GRU mostaghim hidden_dim mide); Identity baraye compat
+        self.q_proj = nn.Identity()
+        _ = question_dim  # baraye YAML parity ba VQA
 
     def train(self, mode: bool = True) -> "SimpleImageCaptioner":
         """Train caption layers; Faster R-CNN hamishe eval."""
@@ -323,23 +329,30 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         batch: int,
         device: torch.device,
     ) -> torch.Tensor:
-        """Soal ro be vector bias tabdil mikone baraye attention.
+        """Soal ro ba GRU encode mikone → qctx (N, hidden_dim).
 
-        Agar question_ids=None (caption-only train), zero vector bar migardune.
-        VQA: mean-pool ``q_emb(question_ids)`` → ``q_proj`` → be ``h_{t-1}`` ezafe
-        mishavad ta caption **question-guided** beshe (na caption omumi).
+        Agar question_ids=None, zero vector (caption omumi / backward compat).
+        Agar soal dare: ``q_emb`` → ``q_gru`` (PAD-aware last state) → qctx.
 
-        ``word_emb`` faghat baraye token haye caption dar decode estefade mishe.
+        qctx ham be attention (h + qctx) mire, ham be LSTM input concat.
         """
         if question_ids is None:
             return torch.zeros(batch, self.lstm_hidden, device=device)
-        if self.q_emb is None:
+        if self.q_emb is None or self.q_gru is None:
             raise RuntimeError(
-                "question_ids provided but captioner has no q_emb; "
-                "pass question_vocab_size when loading for VQA."
+                "question_ids provided but captioner has no q_emb/q_gru; "
+                "pass question_vocab_size when building the model."
             )
-        qe = self.q_emb(question_ids).mean(dim=1)
-        return self.q_proj(qe)
+        # (N, T, word_dim)
+        qe = self.q_emb(question_ids)
+        # mask PAD: length >= 1 baraye har sample (khali → 1)
+        lengths = (question_ids != self.question_pad_id).sum(dim=1).clamp(min=1)
+        packed = nn.utils.rnn.pack_padded_sequence(
+            qe, lengths.cpu(), batch_first=True, enforce_sorted=False
+        )
+        _, h_n = self.q_gru(packed)
+        # h_n: (1, N, hidden) → (N, hidden)
+        return h_n.squeeze(0)
 
     def _encode_regions(
         self,
@@ -373,20 +386,13 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         c: torch.Tensor,
         qctx: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Yek step decode: attention + LSTM + logits."""
-        # toye inja question vector va caption vector baham jaam mishan va
-        # be onvan query be img feature zade mishan. 
-        # attention query vector dimention= [N* 512] (natije attention be ezaye har tasvir ye vector 512d hast.)
-        # img feature dimention [N* 32* 2048] hast.
-        # baraye mohasebe similarity bayad project konim be space ba dimention
-        # [N* 32 * 512]. alan mishe similarity hesab kard.
-        # similarity([32* 512], [512])= [32]
-        # result attention dimention= [N* 32]
+        """Yek step decode: attention (h+qctx) + LSTM([word; attended; qctx]) + logits."""
+        # Finglish — strong QD conditioning:
+        #   1) attention query = h + qctx → region-haye related be soal
+        #   2) LSTM input = [word; attended; qctx] → soal mostaghim toye decode
         attended = self.attention(regions, h + qctx)
-        
         word = self.word_emb(caption_tok)
-
-        h, c = self.lstm(torch.cat([word, attended], dim=-1), (h, c))
+        h, c = self.lstm(torch.cat([word, attended, qctx], dim=-1), (h, c))
         # Finglish — deep-output: logit = f(h, attended, word).
         # image context (attended) mostaghim vared prediction mishe → grounding ejbari.
         out = self.dropout(h) + self.ctx_to_logit(attended) + self.word_to_logit(word)

@@ -15,6 +15,7 @@ Run from ``SimpleImageCaptioner/`` (paths in YAML are relative to that folder)::
 
     cd SimpleImageCaptioner
     python train.py --config configs/default.yaml
+    python train.py --config configs/default.yaml --continue
 """
 
 from __future__ import annotations
@@ -216,19 +217,35 @@ def build_captioner_checkpoint_state(
     cfg: Dict[str, Any],
     epoch: int,
     samples_seen: int,
+    q_vocab: Optional["Vocab"] = None,
+    best_val: float = float("inf"),
+    optimizer: Optional[torch.optim.Optimizer] = None,
+    scheduler: Optional[StepLR] = None,
+    scaler: Optional[GradScaler] = None,
 ) -> Dict[str, Any]:
     """Build the ``.pt`` dict written to ``last.pt`` / ``best.pt``.
 
-    Includes model weights, vocabulary, full config, epoch index,
-    and cumulative training samples for item-based resume.
+    Includes model weights, caption vocabulary, optional question vocabulary
+    (QD train), optimizer/scheduler/scaler, best val loss, full config, epoch
+    index, and cumulative training samples.
     """
-    return {
+    state: Dict[str, Any] = {
         "epoch": epoch,
+        "best": best_val,
         "samples_seen": samples_seen,
         "model": unwrap_model(model).state_dict(),
         "vocab": vocab.itos,
         "config": cfg,
     }
+    if q_vocab is not None:
+        state["q_vocab"] = q_vocab.itos
+    if optimizer is not None:
+        state["optimizer"] = optimizer.state_dict()
+    if scheduler is not None:
+        state["scheduler"] = scheduler.state_dict()
+    if scaler is not None:
+        state["scaler"] = scaler.state_dict()
+    return state
 
 
 def write_captioner_checkpoint(
@@ -253,6 +270,11 @@ def maybe_save_by_samples(
     rank: int,
     ddp_on: bool,
     batch_size: int,
+    q_vocab: Optional["Vocab"] = None,
+    best_val: float = float("inf"),
+    optimizer: Optional[torch.optim.Optimizer] = None,
+    scheduler: Optional[StepLR] = None,
+    scaler: Optional[GradScaler] = None,
 ) -> Tuple[int, int]:
     """Update sample counter; save ``last.pt`` when item threshold is crossed.
 
@@ -265,7 +287,16 @@ def maybe_save_by_samples(
     samples_seen += global_batch_samples(batch_size, ddp_on)
     while samples_seen >= next_save_at:
         state = build_captioner_checkpoint_state(
-            model, vocab, cfg, epoch, samples_seen
+            model,
+            vocab,
+            cfg,
+            epoch,
+            samples_seen,
+            q_vocab=q_vocab,
+            best_val=best_val,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=scaler,
         )
         write_captioner_checkpoint(save_dir / "last.pt", state, rank)
         if rank == 0:
@@ -348,6 +379,50 @@ def build_vocab(captions_json: str, min_freq: int, max_images: Optional[int]) ->
 
 
 # ---------------------------------------------------------------------------
+# Question-dependent (QD) captions — az VQA Q+A rule-based JSON
+# ---------------------------------------------------------------------------
+
+
+def load_qd_json(path: str) -> List[Dict[str, Any]]:
+    """QD JSON ro load kon → list sample: image_id, question, caption.
+
+    Format (QuestionDependentCaptions/generate.py):
+        {"annotations": [{"image_id", "question", "caption", ...}, ...]}
+    """
+    with Path(path).open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    return list(data["annotations"])
+
+
+def build_qd_vocabs(
+    qd_json: str,
+    min_freq: int,
+    max_images: Optional[int] = None,
+) -> Tuple[Vocab, Vocab]:
+    """Az train QD JSON do vocab besaz: caption + question (train-only, no leak).
+
+    Args:
+        qd_json: path be v2_question_dependent_captions_*.json
+        min_freq: min token frequency baraye har do vocab
+        max_images: age set, faghat sample haye N image_id aval
+
+    Returns:
+        (cap_vocab, q_vocab)
+    """
+    rows = load_qd_json(qd_json)
+    if max_images is not None and max_images > 0:
+        keep_ids = set(sorted({int(r["image_id"]) for r in rows})[:max_images])
+        rows = [r for r in rows if int(r["image_id"]) in keep_ids]
+
+    cap_words: List[str] = []
+    q_words: List[str] = []
+    for r in rows:
+        cap_words.extend(tok(str(r["caption"])))
+        q_words.extend(tok(str(r["question"])))
+    return Vocab(cap_words, min_freq=min_freq), Vocab(q_words, min_freq=min_freq)
+
+
+# ---------------------------------------------------------------------------
 # Dataset
 # ---------------------------------------------------------------------------
 class CocoCaptionDataset(Dataset):
@@ -417,11 +492,89 @@ class CocoCaptionDataset(Dataset):
             "image_id": int(image_id),
         }
 
-# TODO:: inam bede AI bebinam chikar mikone.
+
+class VqaQdCaptionDataset(Dataset):
+    """Yek sample = (image, question, QD caption) baraye question-dependent train.
+
+    JSON az ``QuestionDependentCaptions/generate.py``:
+        annotations[] → image_id, question, caption
+    """
+
+    def __init__(
+        self,
+        images_dir: str,
+        qd_json: str,
+        cap_vocab: Vocab,
+        q_vocab: Vocab,
+        max_caption_len: int,
+        max_question_len: int,
+        filename_template: str,
+        image_ids: Optional[List[int]] = None,
+        image_size: int = 448,
+        max_samples: Optional[int] = None,
+    ) -> None:
+        """QD rows ro load kon; optional filter ba image_ids / max_samples."""
+        self.images_dir = Path(images_dir)
+        self.cap_vocab = cap_vocab
+        self.q_vocab = q_vocab
+        self.max_caption_len = max_caption_len
+        self.max_question_len = max_question_len
+        self.filename_template = filename_template
+
+        rows = load_qd_json(qd_json)
+        if image_ids is not None:
+            keep = set(int(i) for i in image_ids)
+            rows = [r for r in rows if int(r["image_id"]) in keep]
+        if max_samples is not None and max_samples > 0:
+            rows = rows[:max_samples]
+
+        self.samples: List[Dict[str, Any]] = [
+            {
+                "image_id": int(r["image_id"]),
+                "question": str(r["question"]),
+                "caption": str(r["caption"]),
+            }
+            for r in rows
+        ]
+
+        self.transform = transforms.Compose(
+            [
+                transforms.Resize((int(image_size), int(image_size))),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            ]
+        )
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """Image + caption_ids (BOS/EOS) + question_ids (BOS/EOS) bargardoon."""
+        s = self.samples[idx]
+        image_id = s["image_id"]
+        path = self.images_dir / self.filename_template.format(image_id=image_id)
+        image = self.transform(Image.open(path).convert("RGB"))
+
+        cap_tok = self.cap_vocab.encode(
+            tok(s["caption"])[: self.max_caption_len - 2]
+        )
+        caption_ids = [1] + cap_tok + [2]
+
+        q_tok = self.q_vocab.encode(
+            tok(s["question"])[: self.max_question_len - 2]
+        )
+        question_ids = [1] + q_tok + [2]
+
+        return {
+            "image": image,
+            "caption_ids": torch.tensor(caption_ids, dtype=torch.long),
+            "question_ids": torch.tensor(question_ids, dtype=torch.long),
+            "image_id": int(image_id),
+        }
 
 
 def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-    """Stack images; right-pad caption token ids with PAD (0)."""
+    """Stack images; right-pad caption (va optional question) token ids ba PAD=0."""
 
     # chon hame image haro be abaad (448*448*3) dar avordim alan kafiye hamasho ba estefade az
     # stack be abaad (batch_size * 448*448*3) dar miyare.
@@ -441,7 +594,22 @@ def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     for i, b in enumerate(batch):
         captions[i, : len(b["caption_ids"])] = b["caption_ids"]
     image_ids = torch.tensor([int(b["image_id"]) for b in batch], dtype=torch.long)
-    return {"images": images, "captions": captions, "image_ids": image_ids}
+
+    out: Dict[str, torch.Tensor] = {
+        "images": images,
+        "captions": captions,
+        "image_ids": image_ids,
+    }
+
+    # QD batches: question_ids ham pad mishe
+    if "question_ids" in batch[0]:
+        max_q = max(len(b["question_ids"]) for b in batch)
+        questions = torch.zeros((len(batch), max_q), dtype=torch.long)
+        for i, b in enumerate(batch):
+            questions[i, : len(b["question_ids"])] = b["question_ids"]
+        out["questions"] = questions
+
+    return out
 
 
 # Model dar `models/captioner_v1.py` hast (VQA ham hamoon file ro load mikone).
@@ -597,11 +765,15 @@ def train_epoch(
     ddp_on: bool = False,
     samples_seen: int = 0,
     next_save_at: int = 0,
+    q_vocab: Optional["Vocab"] = None,
+    best_val: float = float("inf"),
+    scheduler: Optional[StepLR] = None,
 ) -> Tuple[float, float, int, int]:
     """One training pass; returns mean loss, acc, and sample-checkpoint counters.
 
     When ``save_model_type=item``, saves ``last.pt`` every ``save_every_samples``
     global training samples (see ``maybe_save_by_samples``).
+    QD mode: batch["questions"] → ``forward_train(..., question_ids=...)``.
     """
     model.train()
     total_loss = 0.0
@@ -618,6 +790,11 @@ def train_epoch(
         images = batch["images"].to(device, non_blocking=device.type == "cuda")
         caps = batch["captions"].to(device, non_blocking=device.type == "cuda")
         image_ids = batch["image_ids"].to(device, non_blocking=device.type == "cuda")
+        question_ids = None
+        if "questions" in batch:
+            question_ids = batch["questions"].to(
+                device, non_blocking=device.type == "cuda"
+            )
 
         # dar pytorch gradient ha accumulative hastan(yani besorat default baham jaam mishan)
         # vali ma niyaz nadarim jameshon konim pas toye ebtedaye har batch gradient gabli ro none mikonim.
@@ -628,6 +805,7 @@ def train_epoch(
             logits = unwrap_model(model).forward_train(
                 images,
                 caps,
+                question_ids=question_ids,
                 image_ids=image_ids,
                 region_cache_dir=region_cache_dir,
                 save_region_cache=True,
@@ -671,6 +849,11 @@ def train_epoch(
                 rank,
                 ddp_on,
                 images.size(0),
+                q_vocab=q_vocab,
+                best_val=best_val,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                scaler=scaler,
             )
 
     n = max(1, len(loader))
@@ -705,7 +888,10 @@ def eval_epoch(
     cfg: Dict[str, Any],
     split: str = "val",
 ) -> Tuple[float, float]:
-    """Validation loss and token accuracy (pure teacher forcing)."""
+    """Validation loss and token accuracy (pure teacher forcing).
+
+    QD: age batch soal dashte bashe, question_ids be forward_train miravad.
+    """
     model.eval()
     total_loss = 0.0
     total_acc = 0.0
@@ -715,11 +901,17 @@ def eval_epoch(
         images = batch["images"].to(device, non_blocking=device.type == "cuda")
         caps = batch["captions"].to(device, non_blocking=device.type == "cuda")
         image_ids = batch["image_ids"].to(device, non_blocking=device.type == "cuda")
+        question_ids = None
+        if "questions" in batch:
+            question_ids = batch["questions"].to(
+                device, non_blocking=device.type == "cuda"
+            )
 
         # inja serfan feed forward anjam midim(backward nadarim)
         logits = unwrap_model(model).forward_train(
             images,
             caps,
+            question_ids=question_ids,
             image_ids=image_ids,
             region_cache_dir=region_cache_dir,
             save_region_cache=True,
@@ -773,7 +965,61 @@ def parse_args() -> argparse.Namespace:
         default="configs/default.yaml",
         help="YAML config (relative to SimpleImageCaptioner/ unless absolute)",
     )
+    p.add_argument("--resume", default=None, help="Path to checkpoint (.pt)")
+    p.add_argument(
+        "--continue",
+        dest="do_continue",
+        action="store_true",
+        help="Resume from save_dir/last.pt",
+    )
+    p.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Train from scratch (ignore resume)",
+    )
     return p.parse_args()
+
+
+def load_checkpoint(
+    path: Path,
+    model: nn.Module,
+    optimizer: Optional[torch.optim.Optimizer],
+    scheduler: Optional[StepLR],
+    scaler: Optional[GradScaler],
+    device: torch.device,
+) -> Tuple[int, float, int]:
+    """Load checkpoint; return (start_epoch, best_val_loss, samples_seen)."""
+    if not path.exists():
+        print(f"Checkpoint not found: {path} — starting from scratch.")
+        return 1, float("inf"), 0
+
+    try:
+        ckpt = torch.load(path, map_location=device, weights_only=False)
+    except TypeError:
+        ckpt = torch.load(path, map_location=device)
+    if not isinstance(ckpt, dict) or "model" not in ckpt:
+        print(f"Invalid checkpoint format: {path}")
+        return 1, float("inf"), 0
+
+    unwrap_model(model).load_state_dict(ckpt["model"])
+    if optimizer is not None and "optimizer" in ckpt:
+        optimizer.load_state_dict(ckpt["optimizer"])
+    if scheduler is not None and "scheduler" in ckpt:
+        scheduler.load_state_dict(ckpt["scheduler"])
+    if scaler is not None and ckpt.get("scaler"):
+        try:
+            scaler.load_state_dict(ckpt["scaler"])
+        except Exception:
+            pass
+
+    start_epoch = int(ckpt.get("epoch", 0)) + 1
+    best_val = float(ckpt.get("best", float("inf")))
+    samples_seen = int(ckpt.get("samples_seen", 0))
+    print(
+        f"Resume from {path} (next_epoch={start_epoch}, "
+        f"best_val_loss={best_val:.4f}, samples_seen={samples_seen})"
+    )
+    return start_epoch, best_val, samples_seen
 
 #
     """
@@ -808,7 +1054,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Load config from CLI, then build data, model, and run train/val loops."""
+    """Load config from CLI, then build data, model, and run train/val loops.
+
+    ``dataset_mode``:
+        - ``coco`` (default): MSCOCO (image, caption) — question_ids=None
+        - ``qd``: question-dependent JSON (image, question, caption) + q_emb/q_gru
+    """
     cli = parse_args()
     config_path = Path(cli.config)
     if not config_path.is_absolute():
@@ -826,6 +1077,8 @@ def main() -> None:
             "val_region_cache_dir",
         ),
     )
+    if isinstance(cfg.get("resume_from"), str) and cfg["resume_from"]:
+        resolve_path_fields(cfg, ("resume_from",))
     ddp_on, world, rank, local_rank = ddp_setup(cfg)
 
     # Finglish: baraye DDP, seed ro ham per-rank shift midim ta shuffle yeksan nabashe.
@@ -838,41 +1091,91 @@ def main() -> None:
         device = torch.device("cuda", local_rank)
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = True
+
+    dataset_mode = str(cfg.get("dataset_mode", "qd")).lower()
     max_train = image_cap(cfg.get("max_train_images"))
     max_val = image_cap(cfg.get("max_val_images"))
-    train_ids = None
-    val_ids = None
-    if max_train is not None:
-        train_ids = sorted(load_caps_json(
-            cfg["train_captions_json"]).keys())[:max_train]
-    if max_val is not None:
-        val_ids = sorted(load_caps_json(
-            cfg["val_captions_json"]).keys())[:max_val]
+    max_train_samples = image_cap(cfg.get("max_train_samples"))
+    max_val_samples = image_cap(cfg.get("max_val_samples"))
 
-    vocab = build_vocab(
-        cfg["train_captions_json"],
-        int(cfg["vocab_min_freq"]),
-        max_train,
-    )
+    q_vocab: Optional[Vocab] = None
 
-    train_ds = CocoCaptionDataset(
-        cfg["train_images_dir"],
-        cfg["train_captions_json"],
-        vocab,
-        int(cfg["max_caption_len"]),
-        cfg["train_image_filename_template"],
-        image_ids=train_ids,
-        image_size=int(cfg.get("image_size", 448)),
-    )
-    val_ds = CocoCaptionDataset(
-        cfg["val_images_dir"],
-        cfg["val_captions_json"],
-        vocab,
-        int(cfg["max_caption_len"]),
-        cfg["val_image_filename_template"],
-        image_ids=val_ids,
-        image_size=int(cfg.get("image_size", 448)),
-    )
+    if dataset_mode == "qd":
+        # Finglish — QD from-scratch: do vocab (caption + question) az train JSON
+        vocab, q_vocab = build_qd_vocabs(
+            cfg["train_captions_json"],
+            int(cfg["vocab_min_freq"]),
+            max_train,
+        )
+        train_ids = None
+        val_ids = None
+        if max_train is not None:
+            train_ids = sorted(
+                {int(r["image_id"]) for r in load_qd_json(cfg["train_captions_json"])}
+            )[:max_train]
+        if max_val is not None:
+            val_ids = sorted(
+                {int(r["image_id"]) for r in load_qd_json(cfg["val_captions_json"])}
+            )[:max_val]
+
+        train_ds = VqaQdCaptionDataset(
+            cfg["train_images_dir"],
+            cfg["train_captions_json"],
+            vocab,
+            q_vocab,
+            int(cfg["max_caption_len"]),
+            int(cfg.get("max_question_len", 14)),
+            cfg["train_image_filename_template"],
+            image_ids=train_ids,
+            image_size=int(cfg.get("image_size", 448)),
+            max_samples=max_train_samples,
+        )
+        val_ds = VqaQdCaptionDataset(
+            cfg["val_images_dir"],
+            cfg["val_captions_json"],
+            vocab,
+            q_vocab,
+            int(cfg["max_caption_len"]),
+            int(cfg.get("max_question_len", 14)),
+            cfg["val_image_filename_template"],
+            image_ids=val_ids,
+            image_size=int(cfg.get("image_size", 448)),
+            max_samples=max_val_samples,
+        )
+    else:
+        train_ids = None
+        val_ids = None
+        if max_train is not None:
+            train_ids = sorted(load_caps_json(
+                cfg["train_captions_json"]).keys())[:max_train]
+        if max_val is not None:
+            val_ids = sorted(load_caps_json(
+                cfg["val_captions_json"]).keys())[:max_val]
+
+        vocab = build_vocab(
+            cfg["train_captions_json"],
+            int(cfg["vocab_min_freq"]),
+            max_train,
+        )
+
+        train_ds = CocoCaptionDataset(
+            cfg["train_images_dir"],
+            cfg["train_captions_json"],
+            vocab,
+            int(cfg["max_caption_len"]),
+            cfg["train_image_filename_template"],
+            image_ids=train_ids,
+            image_size=int(cfg.get("image_size", 448)),
+        )
+        val_ds = CocoCaptionDataset(
+            cfg["val_images_dir"],
+            cfg["val_captions_json"],
+            vocab,
+            int(cfg["max_caption_len"]),
+            cfg["val_image_filename_template"],
+            image_ids=val_ids,
+            image_size=int(cfg.get("image_size", 448)),
+        )
 
     device_is_cuda = device.type == "cuda"
     loader_kw = {
@@ -900,19 +1203,24 @@ def main() -> None:
     )
 
     hidden_dim = int(cfg.get("hidden_dim", cfg.get("lstm_hidden", 512)))
-    model = SimpleImageCaptioner(
-        vocab_size=len(vocab.itos),
-        pad_id=vocab.pad_id,
-        word_dim=int(cfg["word_dim"]),
-        hidden_dim=hidden_dim,
-        max_regions=int(cfg["max_regions"]),
-        question_dim=int(cfg.get("question_dim", cfg["word_dim"])),
-        embed_dim=int(cfg.get("embed_dim", hidden_dim)),
-        region_dim=int(cfg["region_dim"]),
-        dropout=float(cfg.get("dropout", 0.5)),
-        use_gnn=bool(cfg.get("use_gnn", True)),
-        gnn_dim=int(cfg["gnn_dim"]) if cfg.get("gnn_dim") is not None else None,
-    ).to(device)
+    model_kw: Dict[str, Any] = {
+        "vocab_size": len(vocab.itos),
+        "pad_id": vocab.pad_id,
+        "word_dim": int(cfg["word_dim"]),
+        "hidden_dim": hidden_dim,
+        "max_regions": int(cfg["max_regions"]),
+        "question_dim": int(cfg.get("question_dim", cfg["word_dim"])),
+        "embed_dim": int(cfg.get("embed_dim", hidden_dim)),
+        "region_dim": int(cfg["region_dim"]),
+        "dropout": float(cfg.get("dropout", 0.5)),
+        "use_gnn": bool(cfg.get("use_gnn", True)),
+        "gnn_dim": int(cfg["gnn_dim"]) if cfg.get("gnn_dim") is not None else None,
+    }
+    if q_vocab is not None:
+        model_kw["question_vocab_size"] = len(q_vocab.itos)
+        model_kw["question_pad_id"] = q_vocab.pad_id
+
+    model = SimpleImageCaptioner(**model_kw).to(device)
     if ddp_on:
         # Finglish: DDP baraye 2xT4 Kaggle. torchrun required.
         from torch.nn.parallel import DistributedDataParallel as DDP
@@ -932,26 +1240,50 @@ def main() -> None:
     save_dir = Path(cfg["save_dir"])
     save_dir.mkdir(parents=True, exist_ok=True)
     best_val = float("inf")
+    start_epoch = 1
     epochs = int(cfg["epochs"])
     save_type = parse_save_model_type(cfg)
     samples_seen = 0
+
+    if cli.fresh and cli.do_continue:
+        raise SystemExit("Choose one: --fresh or --continue")
+
+    resume_path: Optional[str] = None
+    if not cli.fresh:
+        resume_path = cli.resume
+        if resume_path is None and cli.do_continue:
+            resume_path = str(save_dir / "last.pt")
+        if resume_path is None and cfg.get("resume_from"):
+            resume_path = str(cfg["resume_from"])
+
+    if resume_path:
+        start_epoch, best_val, samples_seen = load_checkpoint(
+            Path(resume_path).expanduser().resolve(),
+            model,
+            optimizer,
+            scheduler,
+            scaler,
+            device,
+        )
+
     next_save_at = (
-        init_next_save_at(0, save_every_samples(cfg))
+        init_next_save_at(samples_seen, save_every_samples(cfg))
         if save_type == "item"
         else 0
     )
 
     if rank == 0:
         print(f"config={config_path}")
+        q_msg = f" q_vocab={len(q_vocab.itos)}" if q_vocab is not None else ""
         print(
-            f"device={device} ddp={ddp_on} world={world} "
+            f"device={device} ddp={ddp_on} world={world} dataset_mode={dataset_mode} "
             f"train_rows={len(train_ds)} val_rows={len(val_ds)} "
-            f"vocab={len(vocab.itos)} save_model_type={save_type}"
+            f"vocab={len(vocab.itos)}{q_msg} save_model_type={save_type}"
         )
         if save_type == "item":
             print(f"save_every_samples={save_every_samples(cfg)}")
 
-    for epoch in range(1, epochs + 1):
+    for epoch in range(start_epoch, epochs + 1):
         if ddp_on and train_sampler is not None:
             train_sampler.set_epoch(epoch)
         ss_p = scheduled_sampling_prob(epoch, cfg)
@@ -970,6 +1302,9 @@ def main() -> None:
             ddp_on=ddp_on,
             samples_seen=samples_seen,
             next_save_at=next_save_at,
+            q_vocab=q_vocab,
+            best_val=best_val,
+            scheduler=scheduler,
         )
         # Finglish: eval har n epoch — na har dafe (eval_every az config).
         run_eval = should_run_eval(epoch, epochs, cfg)
@@ -990,17 +1325,36 @@ def main() -> None:
 
         if rank == 0:
             state = build_captioner_checkpoint_state(
-                model, vocab, cfg, epoch, samples_seen
+                model,
+                vocab,
+                cfg,
+                epoch,
+                samples_seen,
+                q_vocab=q_vocab,
+                best_val=best_val,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                scaler=scaler,
             )
             if save_type == "epoch":
                 write_captioner_checkpoint(save_dir / "last.pt", state, rank)
             if run_eval and va_loss < best_val:
                 best_val = va_loss
+                state["best"] = best_val
                 write_captioner_checkpoint(save_dir / "best.pt", state, rank)
 
     if rank == 0 and save_type == "item":
         state = build_captioner_checkpoint_state(
-            model, vocab, cfg, epochs, samples_seen
+            model,
+            vocab,
+            cfg,
+            epochs,
+            samples_seen,
+            q_vocab=q_vocab,
+            best_val=best_val,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=scaler,
         )
         write_captioner_checkpoint(save_dir / "last.pt", state, rank)
 

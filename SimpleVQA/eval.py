@@ -92,10 +92,13 @@ from train import (
     PROJECT_ROOT,
     VQADataset,
     Vocab,
+    _captioner_ckpt_q_vocab_itos,
     all_qids,
+    batch_q_cap,
     build_vqa_model,
     cap_list,
     collate_batch,
+    decode_answer_ids,
     eval_epoch,
     global_cache_dir_for_split,
     load_config,
@@ -198,6 +201,19 @@ def encode_question_tensor(
     return torch.tensor([ids], dtype=torch.long, device=device)
 
 
+def encode_cap_question_tensor(
+    question: str,
+    cap_q_vocab: Optional[Vocab],
+    max_len: int,
+    device: torch.device,
+) -> Optional[torch.Tensor]:
+    """Soal ro ba captioner ``q_vocab`` encode kon (``q_cap`` baraye v_cap)."""
+    if cap_q_vocab is None:
+        return None
+    ids = [1] + cap_q_vocab.encode(tok(question)[: max_len - 2]) + [2]
+    return torch.tensor([ids], dtype=torch.long, device=device)
+
+
 def load_question_record(
     cfg: Dict[str, Any], question_id: int
 ) -> Tuple[int, str, List[str], str, str]:
@@ -278,7 +294,7 @@ def image_filename(image_id: int, template: str) -> str:
 
 
 def load_caption_vocab(cfg: Dict[str, Any]) -> Optional[Vocab]:
-    """Caption vocabulary ro az checkpoint captioner (stage 1) load kon."""
+    """Caption word vocabulary ro az checkpoint captioner (stage 1) load kon."""
     if not bool(cfg.get("use_captioner", True)):
         return None
     ckpt_path = Path(cfg["captioner_ckpt"])
@@ -289,6 +305,16 @@ def load_caption_vocab(cfg: Dict[str, Any]) -> Optional[Vocab]:
     if vocab_itos is None:
         return None
     return vocab_from_itos(vocab_itos)
+
+
+def load_cap_q_vocab(cfg: Dict[str, Any]) -> Optional[Vocab]:
+    """Captioner question vocab (``q_vocab`` in QD ckpt) — joda az VQA ``q_vocab``."""
+    if not bool(cfg.get("use_captioner", True)):
+        return None
+    cap_q_itos = _captioner_ckpt_q_vocab_itos(cfg)
+    if cap_q_itos is None:
+        return None
+    return vocab_from_itos(cap_q_itos)
 
 
 def max_caption_len_from_cfg(cfg: Dict[str, Any]) -> int:
@@ -334,6 +360,7 @@ def predict_vqa_sample(
     cfg: Dict[str, Any],
     split: str = "val",
     image_id: Optional[int] = None,
+    q_cap: Optional[torch.Tensor] = None,
 ) -> Tuple[str, str]:
     """Greedy answer + question-conditioned caption baraye yek (image, question)."""
     # Finglish: eval/infer ham cache split ro respct mikone (train/val dir joda).
@@ -342,6 +369,7 @@ def predict_vqa_sample(
     image_ids = None
     if image_id is not None:
         image_ids = torch.tensor([image_id], dtype=torch.long, device=image.device)
+    cap_q = q_cap if q_cap is not None else q
     logits = model(
         image,
         q,
@@ -351,8 +379,9 @@ def predict_vqa_sample(
         region_cache_dir=region_cache_dir,
         global_cache_dir=global_cache_dir,
         save_cache=True,
+        q_cap_ids=cap_q,
     )
-    pred_answer = decode_ids(logits.argmax(dim=-1)[0].tolist(), a_vocab)
+    pred_answer = decode_answer_ids(logits.argmax(dim=-1)[0].tolist(), a_vocab)
 
     if (
         not bool(cfg.get("use_captioner", True))
@@ -363,7 +392,7 @@ def predict_vqa_sample(
     else:
         cap_ids = model.captioner.generate_caption(
             image,
-            q,
+            cap_q,
             max_caption_len_from_cfg(cfg),
             image_ids=image_ids,
             region_cache_dir=region_cache_dir,
@@ -379,6 +408,7 @@ def run_single(
     q_vocab: Vocab,
     a_vocab: Vocab,
     cap_vocab: Optional[Vocab],
+    cap_q_vocab: Optional[Vocab],
     cfg: Dict[str, Any],
     device: torch.device,
     image_id: int,
@@ -407,8 +437,19 @@ def run_single(
     q = encode_question_tensor(
         question, q_vocab, int(cfg["max_question_len"]), device
     )
+    q_cap = encode_cap_question_tensor(
+        question, cap_q_vocab, int(cfg["max_question_len"]), device
+    )
     pred_answer, pred_caption = predict_vqa_sample(
-        model, image, q, a_vocab, cap_vocab, cfg, split=split, image_id=image_id
+        model,
+        image,
+        q,
+        a_vocab,
+        cap_vocab,
+        cfg,
+        split=split,
+        image_id=image_id,
+        q_cap=q_cap,
     )
     print_sample_report(
         image_id=image_id,
@@ -454,7 +495,11 @@ def split_sources(
 
 
 def build_split_dataset(
-    cfg: Dict[str, Any], q_vocab: Vocab, a_vocab: Vocab, split: str
+    cfg: Dict[str, Any],
+    q_vocab: Vocab,
+    a_vocab: Vocab,
+    split: str,
+    cap_q_vocab: Optional[Vocab] = None,
 ) -> VQADataset:
     """``VQADataset`` baraye split entekhab shode (train/val) besaz.
 
@@ -473,19 +518,24 @@ def build_split_dataset(
         int(cfg["max_question_len"]),
         int(cfg["max_answer_len"]),
         qids=qids,
+        cap_q_vocab=cap_q_vocab,
         image_size=image_size_from_cfg(cfg),
     )
 
 
 def build_split_loader(
-    cfg: Dict[str, Any], q_vocab: Vocab, a_vocab: Vocab, split: str
+    cfg: Dict[str, Any],
+    q_vocab: Vocab,
+    a_vocab: Vocab,
+    split: str,
+    cap_q_vocab: Optional[Vocab] = None,
 ) -> DataLoader:
     """DataLoader baraye split entekhab shode (train ya val) besaz.
 
     Finglish — bug fix: ghablan hamishe val ro estefade mikard va ``--split`` ro
     ignore mikard. Hala az ``split`` (train/val) manba dorost ro migire.
     """
-    ds = build_split_dataset(cfg, q_vocab, a_vocab, split)
+    ds = build_split_dataset(cfg, q_vocab, a_vocab, split, cap_q_vocab=cap_q_vocab)
     device_is_cuda = cfg.get("device") == "cuda" and torch.cuda.is_available()
     loader_kw: Dict[str, Any] = {
         "batch_size": int(cfg["batch_size"]),
@@ -506,13 +556,14 @@ def run_split_metrics(
     cfg: Dict[str, Any],
     device: torch.device,
     split: str,
+    cap_q_vocab: Optional[Vocab] = None,
 ) -> None:
     """Greedy decode roye split entekhab shode → VQA v2 soft accuracy chap kon.
 
     Hamoon metric ``train.py`` eval: ``vqa_acc`` ba 10 javab annotator.
     ``split`` ('train' ya 'val') taeen mikone roye kodum dade eval beshe.
     """
-    loader = build_split_loader(cfg, q_vocab, a_vocab, split)
+    loader = build_split_loader(cfg, q_vocab, a_vocab, split, cap_q_vocab=cap_q_vocab)
     acc = eval_epoch(
         model,
         loader,
@@ -531,6 +582,7 @@ def run_split_samples(
     q_vocab: Vocab,
     a_vocab: Vocab,
     cap_vocab: Optional[Vocab],
+    cap_q_vocab: Optional[Vocab],
     cfg: Dict[str, Any],
     device: torch.device,
     split: str,
@@ -545,7 +597,7 @@ def run_split_samples(
     Baraye didan model chikar mikone bedoon run kamel.
     """
     _, _, _, template, _ = split_sources(cfg, split)
-    ds = build_split_dataset(cfg, q_vocab, a_vocab, split)
+    ds = build_split_dataset(cfg, q_vocab, a_vocab, split, cap_q_vocab=cap_q_vocab)
     rng = random.Random(int(cfg.get("seed", 42)))
     indices = rng.sample(range(len(ds)), min(n, len(ds)))
 
@@ -556,17 +608,25 @@ def run_split_samples(
         batch = collate_batch([ds[idx]])
         images = batch["images"].to(device)
         q = batch["q"].to(device)
+        q_cap = batch_q_cap(batch, device)
         pred_answer, pred_caption = predict_vqa_sample(
-            model, images, q, a_vocab, cap_vocab, cfg, split=split, image_id=image_id
+            model,
+            images,
+            q,
+            a_vocab,
+            cap_vocab,
+            cfg,
+            split=split,
+            image_id=image_id,
+            q_cap=q_cap,
         )
-        gt = decode_ids(batch["a"][0].tolist(), a_vocab)
         print_sample_report(
             image_id=image_id,
             image_file=image_filename(image_id, template),
             question=sample["question"],
             pred_caption=pred_caption,
-            pred_answer=pred_answer,
-            answer=gt,
+            pred_answer=pred_answer or "(empty)",
+            answer=sample["answer"],
         )
 
 
@@ -618,10 +678,16 @@ def main() -> None:
     ckpt_path = Path(args.ckpt).expanduser().resolve()
     model, q_vocab, a_vocab = load_vqa_checkpoint(cfg, ckpt_path, device)
     cap_vocab = load_caption_vocab(cfg)
+    cap_q_vocab = load_cap_q_vocab(cfg)
     if bool(cfg.get("use_captioner", True)) and cap_vocab is None:
         print(
             "Warning: use_captioner=true but caption vocab not found in "
             f"{cfg.get('captioner_ckpt')} — pred_caption will be unavailable."
+        )
+    if bool(cfg.get("use_captioner", True)) and cap_q_vocab is None:
+        print(
+            "Warning: use_captioner=true but captioner q_vocab not found — "
+            "v_cap will use VQA question encoding."
         )
     print(f"config={config_path}  ckpt={ckpt_path}  device={device}")
 
@@ -634,6 +700,7 @@ def main() -> None:
             q_vocab,
             a_vocab,
             cap_vocab,
+            cap_q_vocab,
             cfg,
             device,
             image_id,
@@ -648,6 +715,7 @@ def main() -> None:
             q_vocab,
             a_vocab,
             cap_vocab,
+            cap_q_vocab,
             cfg,
             device,
             args.image_id,
@@ -657,10 +725,20 @@ def main() -> None:
     elif args.image_id is not None or args.question:
         raise SystemExit("Provide both --image-id and --question, or use --question-id.")
     else:
-        run_split_metrics(model, q_vocab, a_vocab, cfg, device, args.split)
+        run_split_metrics(
+            model, q_vocab, a_vocab, cfg, device, args.split, cap_q_vocab=cap_q_vocab
+        )
         n = args.samples if args.samples > 0 else 10
         run_split_samples(
-            model, q_vocab, a_vocab, cap_vocab, cfg, device, args.split, n
+            model,
+            q_vocab,
+            a_vocab,
+            cap_vocab,
+            cap_q_vocab,
+            cfg,
+            device,
+            args.split,
+            n,
         )
 
 

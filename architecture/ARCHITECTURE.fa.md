@@ -9,34 +9,34 @@
 ## Kholase (Overview)
 
 <!--
-  Do marhale darim: aval caption ro yad migirim, bad VQA ba captioner.
-  Stage 1 roye MSCOCO caption train mishe (bedoon soal).
-  Stage 2 roye VQA v2 train mishe va captioner ro load mikone.
+  Do marhale: Stage 1 QD caption (image+soal→caption), Stage 2 VQA.
 -->
 
 | Marhale | Project | Data | Khoroji |
 |---------|---------|------|---------|
-| **1** | `SimpleImageCaptioner/` | MSCOCO captions | Caption baraye tasvir |
+| **1** | `SimpleImageCaptioner/` | QD captions `(image, question, caption)` — ya MSCOCO legacy | Caption question-dependent |
 | **2** | `SimpleVQA/` | VQA v2 (soal + javab) | Javab baraye (tasvir, soal) |
 
 ```mermaid
 flowchart LR
-    subgraph S1["Stage 1 — SimpleImageCaptioner"]
+    subgraph S1["Stage 1 — SimpleImageCaptioner QD"]
         I1[Image] --> RCNN1[Faster R-CNN]
         RCNN1 --> GNN1[RelationGNN]
+        Q1[Question] --> QGRU1[q_emb + q_gru]
         GNN1 --> DEC[LSTM Decoder]
-        DEC --> CAP[Caption tokens]
+        QGRU1 --> DEC
+        DEC --> CAP[QD Caption tokens]
     end
 
     subgraph S2["Stage 2 — SimpleVQA"]
         I2[Image] --> RES[ResNet-101 global]
         I2 --> RCNN2[Faster R-CNN regions]
-        Q[Question] --> QGRU[Question GRU]
+        Q[Question VQA vocab] --> QGRU[VQA q_emb + PAD-aware GRU]
         RCNN2 --> GNN2[RelationGNN]
         GNN2 --> VATT[v_att]
         QGRU --> VATT
-        I2 --> CAPM[Captioner + q_emb]
-        Q --> CAPM
+        I2 --> CAPM[Captioner frozen]
+        QCAP[Question captioner q_vocab] --> CAPM
         CAPM --> VCAP[v_cap]
         VATT --> FUSE[Fusion]
         VCAP --> FUSE
@@ -55,15 +55,15 @@ flowchart LR
 
 <!--
   Model asli: SimpleImageCaptioner dar captioner_v1.py
-  Train: SimpleImageCaptioner/train.py
-  Har step decode ba attention roye 32 region anjam mishe.
+  QD mode: dataset_mode=qd → (image, question, caption).
 -->
 
 ### Hadaf
 
-Toye marhale 1 faghat **image → caption** yad migirim. Soal vared nemishe (`question_ids=None`).
+Marhale 1 (QD): **(image, question) → question-dependent caption**.
+Path legacy MSCOCO (`dataset_mode: coco`) ba `qctx=0` hanuz kar mikone.
 
-### Pipeline
+### Pipeline (QD)
 
 ```mermaid
 flowchart TB
@@ -72,17 +72,20 @@ flowchart TB
     ROI["roi_to_region (trainable)\n→ 32 × 2048"]
     GNN["RelationGNN (optional)\nregions + gnn_delta"]
     INIT["LSTM init\nh,c = tanh(W · mean(regions))"]
+    Q["question_ids"]
+    QEMB["q_emb"]
+    QGRU["q_gru (PAD-aware)"]
+    QCTX["qctx: hidden_dim"]
     LOOP["Decode loop t=1..T"]
 
     IMG --> FRCNN --> ROI --> GNN --> INIT --> LOOP
+    Q --> QEMB --> QGRU --> QCTX --> LOOP
 
     subgraph LOOP_DETAIL["Har step t"]
-        QCTX["qctx = 0 (stage 1)"]
         ATT["attention(regions, h + qctx)\n→ context 512-D"]
         WE["word_emb(token_{t-1})"]
-        LSTM["LSTMCell([word; context])"]
+        LSTM["LSTMCell([word; attended; qctx])"]
         OUT["classifier(h + ctx + word)\n→ logits"]
-        QCTX --> ATT
         ATT --> LSTM
         WE --> LSTM
         LSTM --> OUT
@@ -97,15 +100,11 @@ flowchart TB
 |-------|------|------------|---------------------|
 | `RegionEncoder` | `captioner_v1.py` | `roi_to_region` only | Image → `(N, 32, 2048)` |
 | `RelationGNN` | `relation_gnn.py` | Yes | `(N,32,2048)` → `(N,32,2048)` residual |
-| `RegionAttention` | `captioner_v1.py` | Yes | regions + `h_{t-1}` → context 512 |
-| `word_emb` | `captioner_v1.py` | Yes | token id → 512 |
-| `LSTMCell` | `captioner_v1.py` | Yes | `[word; context]` → `h_t` 512 |
+| `RegionAttention` | `captioner_v1.py` | Yes | regions + `h+qctx` → context 512 |
+| `word_emb` | `captioner_v1.py` | Yes | caption token → 512 |
+| `q_emb` + `q_gru` | `captioner_v1.py` | Yes (QD) | question ids → `qctx` 512 |
+| `LSTMCell` | `captioner_v1.py` | Yes | `[word; attended; qctx]` → `h_t` 512 |
 | `classifier` | `captioner_v1.py` | Yes | hidden → vocab logits |
-
-<!--
-  RegionAttention: h va har region ro be 512 project mikone,
-  softmax roye 32 region, weighted sum → 2048, bad ctx_proj → 512.
--->
 
 ### Decode (inference)
 
@@ -124,14 +123,16 @@ flowchart TB
 | word_dim | 512 | embedding kalamat caption |
 | embed_dim | 512 | working space attention |
 | max_caption_len | 20 | + BOS/EOS |
+| max_question_len | 14 | + BOS/EOS |
 
-### Train (Stage 1)
+### Train (Stage 1 — QD)
 
 ```
-Input:  (image, caption_ids GT)
+Input:  (image, question_ids, caption_ids GT)
 Loss:   CrossEntropy roye caption_ids[:, 1:]
 Mode:   Teacher forcing (+ optional scheduled sampling)
-Output: outputs/<run>/best.pt  (model + vocab)
+Config: configs/default.yaml
+Output: outputs/qd_*/best.pt  (model + vocab + q_vocab)
 ```
 
 **Special tokens:** PAD=0, BOS=1, EOS=2
@@ -142,7 +143,9 @@ Output: outputs/<run>/best.pt  (model + vocab)
 
 <!--
   VQAModel dar SimpleVQA/train.py hast.
-  Captioner az Stage 1 load mishe; faghat q_emb/q_proj trainable.
+  Captioner az QD Stage 1 load mishe; default ``captioner_finetune_q: false`` = freeze hame
+  (q_emb/q_gru ghablan dar Stage 1 train shodan).
+  VQA do encoding soal dare: q (VQA vocab) va q_cap (captioner q_vocab).
   Do LSTM baraye javab: lstm_att + lstm_ans.
 -->
 
@@ -159,7 +162,7 @@ flowchart TB
         RES["ResNet-101 (frozen)\n→ g: 512"]
         LOC["Faster R-CNN (frozen)\n→ local: 512 × 32"]
         GNN2[RelationGNN]
-        Q1["Question → q_emb → GRU → q_vec: 512"]
+        Q1["Soal q (VQA vocab)\n→ q_emb → PAD-aware GRU → q_vec"]
         ATT2["_attend(regions, q_vec)\n→ v_att: 512"]
         I1 --> LOC --> GNN2 --> ATT2
         Q1 --> ATT2
@@ -168,8 +171,8 @@ flowchart TB
 
     subgraph LINE2["Khat 2 — v_cap (caption representation)"]
         I2[Image]
-        Q2[Question]
-        CAP["Captioner (frozen + q_emb trainable)\nquestion-guided decode"]
+        Q2["Soal q_cap\n(captioner q_vocab)"]
+        CAP["Captioner (frozen)\nquestion-guided decode"]
         VCAP["v_cap: 512"]
         I2 --> CAP
         Q2 --> CAP
@@ -201,33 +204,35 @@ flowchart TB
 |--------|------------|---------------------|
 | `resnet` + `g_proj` | g_proj only | Image → `g` (512) |
 | `detector` + `local_proj` | local_proj only | Image → `(N,32,512)` |
-| `q_emb`, `q_gru`, `q_proj` | Yes | question ids → `q_vec` (512) |
+| `q_emb`, `q_gru`, `q_proj` | Yes | VQA `q` → GRU PAD-aware → `q_vec` (512) |
 | `gnn` (RelationGNN) | Yes | regions → updated regions |
 | `_attend` | Yes | regions + q_vec → `v_att` (512) |
-| `captioner` | q_emb (+ q_proj) | image + q → caption → `v_cap` |
-| `lstm_att`, `lstm_ans`, `out` | Yes | → answer logits |
+| `captioner` | Frozen (default) | image + `q_cap` → `v_cap` |
+| `lstm_att`, `lstm_ans`, `out` | Yes | CE ba EOS-mask → answer logits |
 
 <!--
-  Mohem: VQA do ta q_emb joda dare!
-  1) VQAModel.q_emb → baraye v_att va answer LSTM
-  2) captioner.q_emb → baraye caption question-guided
-  Ina vocabulary joda va train joda hastan.
+  Mohem: VQA do encoding soal + se ta embedding matni dare!
+  1) VQAModel.q_emb + q_gru  → voroudi q (VQA q_vocab az train QIDs)
+  2) captioner.q_emb + q_gru → voroudi q_cap (captioner q_vocab az Stage-1 ckpt)
+  3) captioner.word_emb      → faghat token haye caption
+  a_vocab ham faghat az train QIDs sakhte mishe (baraye smoke/cap zaruri).
 -->
 
 ### Caption integration
 
-Captioner az `SimpleImageCaptioner/outputs/.../best.pt` load mishe:
+Captioner az `SimpleImageCaptioner/outputs/qd_*/best.pt` load mishe:
 
-| Captioner part | Stage 2 status |
-|----------------|----------------|
-| `word_emb`, LSTM, attention, classifier, GNN | **Frozen** |
-| `q_emb`, `q_proj` | **Trainable** (random init, az answer loss) |
+| Captioner part | Stage 2 (default) |
+|----------------|-------------------|
+| Hame weight ha incl. `q_emb`, `q_gru` | **Frozen** (`captioner_finetune_q: false`) |
+| Fine-tune ixtiyari | `captioner_finetune_q: true` → unfreeze `q_emb`, `q_gru` |
 
-**Question conditioning dar captioner:**
+**Question conditioning dar captioner (QD Stage 1):**
 
 ```
-qctx = mean_pool(q_emb(question_ids)) → q_proj   # (512)
-attention_query = h_{t-1} + qctx                  # har decode step
+qctx = q_gru(q_emb(q_cap))   # PAD-aware last state
+attention_query = h_{t-1} + qctx
+LSTM input = [word; attended; qctx]
 ```
 
 ### v_cap — do halat (`caption_repr`)
@@ -263,10 +268,11 @@ h2_t = LSTM_ans( h1_t, h2_{t-1}, v, q_vec )
 logit_t = Linear(h2_t)
 ```
 
-<!--
-  q_vec mostaghim vared lstm_ans mishe (na faghat az tarigh v_att).
-  In baraye overfit roye sample haye kam kheili mohem bood.
--->
+**Joziyat train / inference:**
+- Decoder steps = token ha ta EOS (shamel); loss roye PAD tail nist (`answer_step_lengths`)
+- Teacher forcing: baad EOS, voroudi badi EOS (na PAD)
+- Greedy eval: `decode_answer_ids()` dar EOS stop mikone
+- `q_vec` mostaghim vared `lstm_ans` mishe (na faghat az tarigh `v_att`)
 
 ### Abaad — VQA
 
@@ -282,27 +288,35 @@ logit_t = Linear(h2_t)
 ### Train (Stage 2)
 
 ```
-Input:  (image, question_ids, answer_ids GT)
-Loss:   CrossEntropy roye answer_ids[:, 1:]
-Metric: VQA v2 soft accuracy
-Output: outputs/<run>/best.pt  (VQAModel + q_vocab + a_vocab + captioner.q_emb)
+Input:  (image, q, q_cap, answer_ids GT)
+        q      = encoding soal VQA (q_vocab az train QIDs)
+        q_cap  = encoding soal captioner (q_vocab az Stage-1 ckpt)
+Loss:   CrossEntropy ta EOS (PAD mask shode)
+Metric: VQA v2 soft accuracy (greedy dar validation)
+Output: outputs/<run>/best.pt  (VQAModel + q_vocab + a_vocab)
 ```
+
+`eval.py` hamun vocab ha va `q_cap_ids` ro mesl train estefade mikone.
 
 ---
 
 ## Do Vocabulary joda (mohem!)
 
 <!--
-  Ehtemal shtebah: caption vocab va question vocab ro qati kardim.
-  word_emb captioner ≠ q_emb VQA ≠ q_emb captioner.
+  Ehtemal shtebah:
+  - a_vocab az kol train VQA ba max_train_qids (smoke)
+  - VQA q be captioner dadan be jaye q_cap
+  - decode javab bedoon stop dar EOS
 -->
 
-| Embedding | Vocab | Size (smoke) | Koja estefade mishe |
-|-----------|-------|--------------|---------------------|
-| `captioner.word_emb` | MSCOCO caption | ~9906 | Caption decode |
-| `captioner.q_emb` | VQA question | ~7650 | Caption question bias |
-| `VQAModel.q_emb` | VQA question | ~7650 | v_att + answer LSTM |
-| `VQAModel.a_emb` | VQA answer | ~12964 | Answer decode |
+| Embedding / ids | Manba vocab | Size (smoke 100 QID) | Koja |
+|-----------------|-------------|----------------------|------|
+| `captioner.word_emb` | `vocab` dar ckpt caption | ~163 | decode caption |
+| `captioner.q_emb` | `q_vocab` dar ckpt captioner | ~140 | `q_cap` → `v_cap` |
+| `VQAModel.q_emb` | `q_vocab` dar ckpt VQA (train QIDs) | ~28 | `v_att`, answer LSTM |
+| `VQAModel.a_emb` | `a_vocab` dar ckpt VQA (train QIDs) | ~60 | decode javab |
+
+Run `default.yaml`: vocab ha roye hame train QIDs (hezar ha soal, ~13k javab ghabl az freq filter).
 
 ---
 
@@ -320,13 +334,12 @@ src/
 │   │   ├── captioner_v1.py      SimpleImageCaptioner (asli)
 │   │   ├── relation_gnn.py      GNN baraye captioner
 │   │   └── base_captioner.py    Interface
-│   └── configs/smoke.yaml
+│   └── configs/smoke.yaml, default.yaml
 │
 └── SimpleVQA/
     ├── train.py                 Stage 2 training + VQAModel
-    ├── eval.py                  VQA inference / accuracy
-    ├── diagnose_caption_q.py    Test: aya soal caption ro taghir mide?
-    └── configs/smoke.yaml
+    ├── eval.py                  VQA inference (q_cap, greedy acc, samples)
+    └── configs/smoke.yaml       → captioner outputs/smoke/best.pt
 ```
 
 ---
@@ -334,21 +347,20 @@ src/
 ## Workflow — az train ta eval
 
 ```bash
-# 1) Stage 1
+# 1) Stage 1 — QD captioner
 cd SimpleImageCaptioner
 python train.py --config configs/smoke.yaml
 
-# 2) Stage 2 (captioner_ckpt ro to yaml set kon)
+# 2) Stage 2 (captioner_ckpt → outputs/smoke/best.pt dar smoke.yaml)
 cd ../SimpleVQA
 python train.py --config configs/smoke.yaml
 
-# 3) Eval VQA
-python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --split val --samples 20
+# 3) Eval VQA (greedy acc + samples; ba q_cap)
+python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --split train --samples 20
 
-# 4) Eval caption ba soal (question-guided)
+# 4) Eval caption QD
 cd ../SimpleImageCaptioner
 python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt \
-  --vqa-ckpt ../SimpleVQA/outputs/smoke/best.pt \
   --image-id 25 --split train --question "How many animals are in this photo?"
 ```
 

@@ -1,75 +1,22 @@
-"""SimpleImageCaptioner — eval va inference (marhale 1 paper).
+"""SimpleImageCaptioner — eval va inference (marhale 1 paper + QD).
 
-In file joda az ``train.py`` hast. Ba ``best.pt`` mitooni:
-- yek ``image_id`` bedi → **caption** begiri
-- (optional) soal bedi → caption **question-guided** (faghat ba ``q_emb`` az VQA ckpt)
-- roye val split **loss** + chand sample caption (pred vs ground truth) bebini
+Ba ``best.pt`` mitooni:
+- yek ``image_id`` (+ optional soal) → caption
+- roye split: **token accuracy** (teacher forcing) + BLEU/CIDEr + sample ha
+- QD checkpoint: ``q_vocab`` + ``q_emb``/``q_gru`` az hamoon ``best.pt`` (bedoon VQA ckpt)
 
-Chera in file?
---------------
-``train.py`` faghat train/eval kol rooye dataset anjam mide.
-``eval.py`` baraye **test dasti** hast: yek aks, yek soal, ya chand sample.
+Run az ``SimpleImageCaptioner/``::
 
-Input / Output
---------------
-- **Input:** ``image_id`` (COCO), optional ``--question``, optional ``--split`` (train/val)
-- **Output:** caption (greedy decode) + ground truth agar toye JSON bashe
-
-Pish-niaz
----------
-- Checkpoint captioner: ``outputs/<run>/best.pt`` (bayad key ``vocab`` dashte bashe)
-- Config hamooni ke train kardi (path dataset, ``max_caption_len``, ...)
-- Run az folder ``SimpleImageCaptioner/``
-- Python env ba ``torch`` + ``torchvision`` (mesl ``src/.venv``)
-
-CLI arguments
--------------
-``--config``       path be YAML (default: ``configs/default.yaml``)
-``--ckpt``         **required** — captioner ``best.pt``
-``--image-id``     yek COCO image_id (age bedi → mode single sample)
-``--split``        ``train`` ya ``val`` (default: ``val``)
-``--question``     optional — matn soal baraye question-guided caption
-``--vqa-ckpt``     optional — VQA ``best.pt`` baraye load ``q_emb``/``q_proj``
-``--samples``      ba val mode (bedoon ``--image-id``): tedad sample caption (default 10)
-
-Che mode ee ejra mishe?
------------------------
-1. **Single sample** — ``--image-id`` set shode
-2. **Val metrics** — ``--image-id`` nist → loss roye val + ``--samples`` ta mesal
-
-Nokte: baraye ``--question`` hatman ``--vqa-ckpt`` bede (``q_emb`` to marhale 2 train shode).
-
-Chand mesal (local smoke)
--------------------------
-::
-
-    cd SimpleImageCaptioner
-
-    # 1) yek aks → caption
-    python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt \\
-        --image-id 203564 --split val
-
-    # 2) soal + caption (question-guided)
-    python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt \\
-        --image-id 262148 --split val --question "Where is he looking?" \\
-        --vqa-ckpt ../SimpleVQA/outputs/smoke/best.pt
-
-    # 3) val loss + 10 sample caption
+    # QD smoke — accuracy + metrics + samples
     python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt \\
         --split val --samples 10
 
-Chand mesal (Kaggle mini)
--------------------------
-::
+    # QD — yek sample ba soal
+    python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt \\
+        --image-id 9 --split train --question "How many cookies can be seen?"
 
-    python eval.py --config configs/kaggle_mini.yaml --ckpt outputs/kaggle_mini/best.pt \\
-        --image-id 391895 --split val
-
-    python eval.py --config configs/kaggle_mini.yaml --ckpt outputs/kaggle_mini/best.pt \\
-        --image-id 391895 --question "what color is the bus?" \\
-        --vqa-ckpt ../SimpleVQA/outputs/kaggle_mini/best.pt
-
-    python eval.py --config configs/kaggle_mini.yaml --ckpt outputs/kaggle_mini/best.pt \\
+    # Legacy MSCOCO
+    python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt \\
         --split val --samples 10
 """
 
@@ -91,11 +38,13 @@ from train import (
     CocoCaptionDataset,
     PROJECT_ROOT,
     Vocab,
+    VqaQdCaptionDataset,
     collate_batch,
     eval_epoch,
     image_cap,
     load_caps_json,
     load_config,
+    load_qd_json,
     region_cache_dir_for_split,
     resolve_path_fields,
     set_seed,
@@ -113,9 +62,17 @@ PATH_KEYS = (
     "val_region_cache_dir",
 )
 
+
 def image_size_from_cfg(cfg: Dict[str, Any]) -> int:
     """Finglish: image_size ro az YAML migirim (default 448) ta ba train yeksan bashe."""
     return int(cfg.get("image_size", 448))
+
+
+def is_qd_mode(cfg: Dict[str, Any]) -> bool:
+    """True when training data is question-dependent caption JSON."""
+    if "question_dependent" in str(cfg.get("train_captions_json", "")):
+        return True
+    return str(cfg.get("dataset_mode", "qd")).lower() == "qd"
 
 
 def image_transform(image_size: int) -> transforms.Compose:
@@ -136,12 +93,6 @@ def vocab_from_itos(itos: List[str]) -> Vocab:
     Chera lazeme?
         - train vocab ro toye ``best.pt`` save mikone
         - eval bayad **hamoon** index-ha ro estefade kone (na rebuild az JSON)
-
-    Input:
-        itos: list kalamat/vocab ke toye checkpoint save shode
-
-    Output:
-        Vocab object ba ``itos`` va ``stoi``
     """
     v = Vocab.__new__(Vocab)
     v.itos = list(itos)
@@ -150,11 +101,7 @@ def vocab_from_itos(itos: List[str]) -> Vocab:
 
 
 def decode_ids(ids: List[int], vocab: Vocab) -> str:
-    """Token id ha ro be matn tabdil kon.
-
-    PAD (0), BOS (1), EOS (2) va token haye khar ro skip mikonim.
-    Baraye chap caption ya debug estefade mishe.
-    """
+    """Token id ha ro be matn tabdil kon (PAD/BOS/EOS skip)."""
     words = [
         vocab.itos[i]
         for i in ids
@@ -170,18 +117,7 @@ def load_image(
     device: torch.device,
     image_size: int,
 ) -> torch.Tensor:
-    """Yek COCO image ro load kon va preprocess kon.
-
-    Input:
-        image_id: mesl 203564
-        images_dir: folder val2014/train2014
-        filename_template: mesl ``COCO_val2014_{image_id:012d}.jpg``
-        device: cuda ya cpu
-        image_size: az config (``image_size``) — hamoon abaad train
-
-    Output:
-        tensor ba shape (1, 3, image_size, image_size)
-    """
+    """Yek COCO image ro load kon → (1, 3, H, W)."""
     path = image_path(image_id, images_dir, filename_template)
     if not path.exists():
         raise FileNotFoundError(f"Image not found: {path}")
@@ -197,14 +133,7 @@ def image_path(image_id: int, images_dir: str, filename_template: str) -> Path:
 def encode_question(
     question: str, q_vocab: Vocab, max_len: int, device: torch.device
 ) -> torch.Tensor:
-    """Matn soal ro encode kon baraye ``q_emb``.
-
-    Format: BOS (id=1) + token haye soal + EOS (id=2)
-    Hamoon convention VQA/train.
-
-    Output:
-        tensor (1, seq_len) roye device
-    """
+    """Matn soal → BOS + tokens + EOS → tensor (1, seq_len)."""
     ids = [1] + q_vocab.encode(tok(question)[: max_len - 2]) + [2]
     return torch.tensor([ids], dtype=torch.long, device=device)
 
@@ -215,32 +144,32 @@ def build_model_from_ckpt(
     device: torch.device,
     vqa_ckpt: Optional[Path] = None,
 ) -> Tuple[SimpleImageCaptioner, Vocab, Optional[Vocab]]:
-    """Captioner + vocab ro az checkpoint load kon.
+    """Captioner + vocab (+ optional q_vocab) ro az checkpoint load kon.
 
-    Marhale 1 (faghat captioner ckpt):
-        - ``word_emb``, LSTM, attention, ... az ``best.pt`` captioner
-
-    Marhale 2 (ba ``vqa_ckpt``):
-        - ``q_vocab`` az VQA checkpoint
-        - ``q_emb`` va ``q_proj`` az ``captioner.q_emb.*`` toye VQA ckpt
-        - in layer ha to VQA train shodan → baraye question-guided caption
-
-    Input:
-        ckpt_path: captioner ``best.pt``
-        cfg: hyperparams az YAML
-        vqa_ckpt: optional VQA ``best.pt``
+    Priority baraye q_vocab / q_emb:
+        1) QD captioner ``best.pt`` (key ``q_vocab`` + ``q_emb``/``q_gru`` dar state)
+        2) optional ``--vqa-ckpt`` (legacy: load q layers az VQA)
 
     Output:
         (model, caption_vocab, q_vocab ya None)
     """
     state = torch.load(ckpt_path, map_location="cpu")
     cap_state = state.get("model", state)
-    vocab = vocab_from_itos(state["vocab"]) if "vocab" in state else None
-    if vocab is None:
+    if "vocab" not in state:
         raise ValueError(f"No vocab in checkpoint: {ckpt_path}")
+    vocab = vocab_from_itos(state["vocab"])
 
     q_vocab: Optional[Vocab] = None
     question_vocab_size: Optional[int] = None
+
+    # QD Stage-1: q_vocab toye hamoon captioner ckpt save shode
+    if "q_vocab" in state and isinstance(state["q_vocab"], list):
+        q_vocab = vocab_from_itos(state["q_vocab"])
+        question_vocab_size = len(q_vocab.itos)
+    elif any(k.startswith("q_emb.") for k in cap_state.keys()):
+        # weight hast vali itos nist → size az weight
+        question_vocab_size = int(cap_state["q_emb.weight"].shape[0])
+
     if vqa_ckpt is not None:
         vqa = torch.load(vqa_ckpt, map_location="cpu")
         if "q_vocab" in vqa:
@@ -263,30 +192,33 @@ def build_model_from_ckpt(
         use_gnn=bool(cfg.get("use_gnn", True)),
         gnn_dim=int(cfg["gnn_dim"]) if cfg.get("gnn_dim") is not None else None,
     )
-    model.load_state_dict(cap_state, strict=False)
+    # strict=False: old coco ckpt / partial keys
+    missing, unexpected = model.load_state_dict(cap_state, strict=False)
+    if missing:
+        print(f"Note: missing keys when loading captioner ({len(missing)}): "
+              f"{missing[:5]}{'...' if len(missing) > 5 else ''}")
+    if unexpected:
+        print(f"Note: unexpected keys ({len(unexpected)}): "
+              f"{unexpected[:5]}{'...' if len(unexpected) > 5 else ''}")
 
     if vqa_ckpt is not None and question_vocab_size is not None:
         vqa_model = torch.load(vqa_ckpt, map_location="cpu").get("model", {})
         q_only = {
             k.replace("captioner.", "", 1): v
             for k, v in vqa_model.items()
-            if k.startswith("captioner.q_emb.") or k.startswith("captioner.q_proj.")
+            if k.startswith("captioner.q_emb.")
+            or k.startswith("captioner.q_proj.")
+            or k.startswith("captioner.q_gru.")
         }
-        model.load_state_dict(q_only, strict=False)
+        if q_only:
+            model.load_state_dict(q_only, strict=False)
 
     model.eval().to(device)
     return model, vocab, q_vocab
 
 
 def split_paths(cfg: Dict[str, Any], split: str) -> Tuple[str, str, str]:
-    """Az config, path image dir + template + captions JSON ro baraye train/val bargardoon.
-
-    Input:
-        split: ``"train"`` ya ``"val"``
-
-    Output:
-        (images_dir, filename_template, captions_json_path)
-    """
+    """(images_dir, filename_template, captions_json_path) baraye train/val."""
     if split == "train":
         return (
             cfg["train_images_dir"],
@@ -302,6 +234,11 @@ def split_paths(cfg: Dict[str, Any], split: str) -> Tuple[str, str, str]:
     raise ValueError(f"split must be train or val, got {split!r}")
 
 
+def qd_rows_for_image(qd_json: str, image_id: int) -> List[Dict[str, Any]]:
+    """Hame QD sample haye yek image_id (question + caption)."""
+    return [r for r in load_qd_json(qd_json) if int(r["image_id"]) == int(image_id)]
+
+
 def run_single(
     model: SimpleImageCaptioner,
     vocab: Vocab,
@@ -312,37 +249,33 @@ def run_single(
     question: Optional[str],
     q_vocab: Optional[Vocab],
 ) -> None:
-    """Yek sample: ``image_id`` (+ optional soal) → caption ro chap kon.
-
-    Flow:
-        1. image load
-        2. agar soal dasht → encode soal (age q_emb load shode)
-        3. ``generate_caption`` (greedy)
-        4. chap pred + ground truth (age toye JSON bashe)
-
-    Agar ``--question`` bedi vali ``q_emb`` load nashode → warning chap mishe
-    va caption bedoon soal tolid mishe.
-    """
+    """Yek sample: ``image_id`` (+ optional soal) → caption + GT chap kon."""
     images_dir, template, captions_json = split_paths(cfg, split)
     img_path = image_path(image_id, images_dir, template)
     image = load_image(
         image_id, images_dir, template, device, image_size_from_cfg(cfg)
     )
 
+    # QD: age soal nadashtim, avalin soal hamoon image ro az JSON bardar
+    qd = is_qd_mode(cfg)
+    if qd and not question:
+        rows = qd_rows_for_image(captions_json, image_id)
+        if rows:
+            question = str(rows[0]["question"])
+            print(f"(auto) using first QD question for image_id={image_id}")
+
     q_ids: Optional[torch.Tensor] = None
+    max_q = int(cfg.get("max_question_len", cfg.get("max_caption_len", 14)))
     if question:
         if q_vocab is None or model.q_emb is None:
             print(
-                "Warning: --question given but no q_emb loaded. "
-                "Pass --vqa-ckpt (VQA best.pt) for question-guided captions."
+                "Warning: --question given but no q_emb/q_vocab loaded. "
+                "Use a QD captioner ckpt (with q_vocab) or pass --vqa-ckpt."
             )
         else:
-            q_ids = encode_question(
-                question, q_vocab, int(cfg["max_caption_len"]), device
-            )
+            q_ids = encode_question(question, q_vocab, max_q, device)
 
     with torch.no_grad():
-        # Finglish: inference ham cache split ro respct mikone (train/val dir joda).
         cache_dir = region_cache_dir_for_split(cfg, split)
         img_ids = torch.tensor([image_id], dtype=torch.long, device=device)
         cap_ids = model.generate_caption(
@@ -355,42 +288,39 @@ def run_single(
         )
     pred = decode_ids(cap_ids[0].tolist(), vocab)
 
-    gt_caps = load_caps_json(captions_json).get(image_id, [])
-    gt0 = gt_caps[0] if len(gt_caps) > 0 else None
-    gt4 = gt_caps[4] if len(gt_caps) > 4 else None
-
-    print(f"split={split}")
+    print(f"split={split}  dataset_mode={'qd' if qd else 'coco'}")
     print(f"image_id: {image_id}")
     print(f"image_file: {img_path.name}")
     if question:
         print(f"question: {question}")
     print(f"pred: {pred}")
-    print(f"gt caption[0]: {gt0}")
-    print(f"gt caption[4]: {gt4}")
+
+    if qd:
+        rows = qd_rows_for_image(captions_json, image_id)
+        if question:
+            match = [r for r in rows if str(r["question"]).strip().lower()
+                     == question.strip().lower()]
+            gt = str(match[0]["caption"]) if match else None
+            print(f"gt caption: {gt}")
+        else:
+            for i, r in enumerate(rows[:5]):
+                print(f"gt[{i}] Q: {r['question']}  C: {r['caption']}")
+    else:
+        gt_caps = load_caps_json(captions_json).get(image_id, [])
+        print(f"gt caption[0]: {gt_caps[0] if gt_caps else None}")
+        print(f"gt caption[4]: {gt_caps[4] if len(gt_caps) > 4 else None}")
 
 
-def run_val(
+def run_val_coco(
     model: SimpleImageCaptioner,
     vocab: Vocab,
     cfg: Dict[str, Any],
     device: torch.device,
     n_samples: int,
-    split: str = "val",
-    metric_images: int = 500,
+    split: str,
+    metric_images: int,
 ) -> None:
-    """Roye train ya val split: teacher-forcing loss + BLEU/CIDEr + N ta sample.
-
-    Ghabl az sample ha:
-        - loss ba teacher forcing (mesl ``train.py`` eval_epoch)
-        - BLEU-1..4 + CIDEr roye caption haye **generate shode** (greedy) baraye
-          ta ``metric_images`` ta image unique. In metric vagheie captioning hast
-          (token accuracy grounding ro nemibine).
-
-    Bad:
-        - N ta image unique → greedy caption vs ground truth chap mishe
-
-    ``max_train_images`` / ``max_val_images`` az config cap mikone (mesl kaggle_mini/smoke).
-    """
+    """Eval MSCOCO: teacher-forcing loss/acc + BLEU/CIDEr (bedoon soal)."""
     images_dir, filename_template, captions_json = split_paths(cfg, split)
     cap_key = "max_train_images" if split == "train" else "max_val_images"
     max_images = image_cap(cfg.get(cap_key))
@@ -421,9 +351,6 @@ def run_val(
         f"{split}_loss (teacher forcing): {loss:.4f}  {split}_token_acc: {acc:.4f}"
     )
 
-    # --- generated-caption metrics (BLEU + CIDEr) over unique images ---
-    # Finglish: har image yek bar greedy decode mishe; reference ha = HAME caption
-    # haye an image (na faghat yeki) → mesl COCO eval. metric_images sare-jam cap mikone.
     caps_by_img = load_caps_json(captions_json)
     unique_ids: List[int] = []
     seen_m: set[int] = set()
@@ -438,7 +365,6 @@ def run_val(
     hyps: List[List[str]] = []
     refs: List[List[List[str]]] = []
     pred_by_id: Dict[int, str] = {}
-    # Finglish: BLEU/CIDEr ham az val/train cache estefade mikone (generate_caption).
     cache_dir = region_cache_dir_for_split(cfg, split)
     for image_id in unique_ids:
         image = load_image(
@@ -467,7 +393,6 @@ def run_val(
     if n_samples <= 0:
         return
 
-    # reuse already-decoded predictions for qualitative samples (no re-decode)
     examples: List[Tuple[int, str]] = []
     seen: set[int] = set()
     for image_id, caption in ds.samples:
@@ -479,72 +404,196 @@ def run_val(
             break
 
     print(f"\nSample greedy captions (split={split}, n={len(examples)}):")
-    for image_id, gt in examples:
+    for image_id, _gt in examples:
         img_path = image_path(image_id, images_dir, filename_template)
-        if image_id in pred_by_id:
-            pred = pred_by_id[image_id]
-        else:
-            image = load_image(
-                image_id, images_dir, filename_template, device, image_size_from_cfg(cfg)
-            )
-            with torch.no_grad():
-                img_ids = torch.tensor([image_id], dtype=torch.long, device=device)
-                cap_ids = model.generate_caption(
-                    image,
-                    None,
-                    int(cfg["max_caption_len"]),
-                    image_ids=img_ids,
-                    region_cache_dir=cache_dir,
-                    save_region_cache=True,
-                )
-            pred = decode_ids(cap_ids[0].tolist(), vocab)
+        pred = pred_by_id.get(image_id, "")
         all_gt = caps_by_img.get(image_id, [])
-        gt0 = all_gt[0] if len(all_gt) > 0 else None
-        gt4 = all_gt[4] if len(all_gt) > 4 else None
         print(f"\nimage_id: {image_id}")
         print(f"image_file: {img_path.name}")
         print(f"pred: {pred}")
-        print(f"gt caption[0]: {gt0}")
-        print(f"gt caption[4]: {gt4}")
+        print(f"gt caption[0]: {all_gt[0] if all_gt else None}")
+        print(f"gt caption[4]: {all_gt[4] if len(all_gt) > 4 else None}")
+
+
+def run_val_qd(
+    model: SimpleImageCaptioner,
+    vocab: Vocab,
+    q_vocab: Vocab,
+    cfg: Dict[str, Any],
+    device: torch.device,
+    n_samples: int,
+    split: str,
+    metric_images: int,
+) -> None:
+    """Eval QD: teacher-forcing loss/token_acc ba soal + BLEU/CIDEr question-guided.
+
+    Har sample = (image, question, caption). Generate ba ``question_ids`` anjam mishe.
+    """
+    if model.q_emb is None or model.q_gru is None:
+        raise RuntimeError(
+            "QD eval needs q_emb/q_gru. Load a QD captioner checkpoint "
+            "(trained with dataset_mode: qd)."
+        )
+
+    images_dir, filename_template, qd_json = split_paths(cfg, split)
+    cap_key = "max_train_images" if split == "train" else "max_val_images"
+    samp_key = "max_train_samples" if split == "train" else "max_val_samples"
+    max_images = image_cap(cfg.get(cap_key))
+    max_samples = image_cap(cfg.get(samp_key))
+
+    image_ids = None
+    if max_images is not None:
+        image_ids = sorted(
+            {int(r["image_id"]) for r in load_qd_json(qd_json)}
+        )[:max_images]
+
+    ds = VqaQdCaptionDataset(
+        images_dir,
+        qd_json,
+        vocab,
+        q_vocab,
+        int(cfg["max_caption_len"]),
+        int(cfg.get("max_question_len", 14)),
+        filename_template,
+        image_ids=image_ids,
+        image_size=image_size_from_cfg(cfg),
+        max_samples=max_samples,
+    )
+    loader = DataLoader(
+        ds,
+        batch_size=int(cfg.get("batch_size", 8)),
+        shuffle=False,
+        num_workers=int(cfg.get("num_workers", 0)),
+        collate_fn=collate_batch,
+    )
+
+    # teacher forcing loss + token accuracy (ba question_ids)
+    loss, acc = eval_epoch(
+        model, loader, nn.CrossEntropyLoss(ignore_index=0), device, cfg, split=split
+    )
+    print(
+        f"{split}_loss (teacher forcing, QD): {loss:.4f}  "
+        f"{split}_token_acc: {acc:.4f}  (n_samples={len(ds)})"
+    )
+
+    # generated metrics: ta metric_images ta (image, question) pair
+    rows = ds.samples
+    if metric_images > 0:
+        rows = rows[:metric_images]
+
+    hyps: List[List[str]] = []
+    refs: List[List[List[str]]] = []
+    sample_out: List[Dict[str, Any]] = []
+    cache_dir = region_cache_dir_for_split(cfg, split)
+    max_q = int(cfg.get("max_question_len", 14))
+
+    for s in rows:
+        image_id = int(s["image_id"])
+        question = str(s["question"])
+        gt_cap = str(s["caption"])
+        image = load_image(
+            image_id, images_dir, filename_template, device, image_size_from_cfg(cfg)
+        )
+        q_ids = encode_question(question, q_vocab, max_q, device)
+        with torch.no_grad():
+            img_ids = torch.tensor([image_id], dtype=torch.long, device=device)
+            cap_ids = model.generate_caption(
+                image,
+                q_ids,
+                int(cfg["max_caption_len"]),
+                image_ids=img_ids,
+                region_cache_dir=cache_dir,
+                save_region_cache=True,
+            )
+        pred = decode_ids(cap_ids[0].tolist(), vocab)
+        hyps.append(tok(pred))
+        refs.append([tok(gt_cap)])
+        sample_out.append(
+            {
+                "image_id": image_id,
+                "question": question,
+                "pred": pred,
+                "gt": gt_cap,
+            }
+        )
+
+    if hyps:
+        scores = compute_caption_metrics(hyps, refs)
+        score_str = "  ".join(f"{k}={v:.4f}" for k, v in scores.items())
+        print(
+            f"\nGenerated QD-caption metrics "
+            f"(n_pairs={len(hyps)}, question-guided):\n  {score_str}"
+        )
+
+    if n_samples <= 0:
+        return
+
+    print(f"\nSample QD captions (split={split}, n={min(n_samples, len(sample_out))}):")
+    for row in sample_out[:n_samples]:
+        img_path = image_path(row["image_id"], images_dir, filename_template)
+        print(f"\nimage_id: {row['image_id']}")
+        print(f"image_file: {img_path.name}")
+        print(f"question: {row['question']}")
+        print(f"pred: {row['pred']}")
+        print(f"gt:   {row['gt']}")
+
+
+def run_val(
+    model: SimpleImageCaptioner,
+    vocab: Vocab,
+    cfg: Dict[str, Any],
+    device: torch.device,
+    n_samples: int,
+    split: str = "val",
+    metric_images: int = 500,
+    q_vocab: Optional[Vocab] = None,
+) -> None:
+    """Dispatch: QD ya MSCOCO eval baraye accuracy + BLEU/CIDEr."""
+    if is_qd_mode(cfg):
+        if q_vocab is None:
+            raise RuntimeError(
+                "QD config needs q_vocab in captioner checkpoint. "
+                "Train with configs/qd_*.yaml first."
+            )
+        run_val_qd(
+            model, vocab, q_vocab, cfg, device, n_samples, split, metric_images
+        )
+    else:
+        run_val_coco(
+            model, vocab, cfg, device, n_samples, split, metric_images
+        )
 
 
 def parse_args() -> argparse.Namespace:
-    """Argument haye CLI ro parse kon.
-
-    Bebin module docstring bala baraye jadval kamel argument-ha va mesal-ha.
-    """
+    """Argument haye CLI ro parse kon."""
     p = argparse.ArgumentParser(description="SimpleImageCaptioner — eval / infer")
     p.add_argument("--config", default="configs/default.yaml")
     p.add_argument("--ckpt", required=True, help="Captioner checkpoint (.pt)")
     p.add_argument(
         "--vqa-ckpt",
         default=None,
-        help="VQA best.pt — load captioner.q_emb for --question",
+        help="Optional VQA best.pt — override/load captioner.q_* for --question",
     )
     p.add_argument("--image-id", type=int, default=None, help="Single COCO image_id")
     p.add_argument("--split", choices=("train", "val"), default="val")
-    p.add_argument("--question", default=None, help="Optional question text")
+    p.add_argument("--question", default=None, help="Optional question text (QD/guided)")
     p.add_argument(
         "--samples",
         type=int,
         default=0,
-        help="If set without --image-id, show N greedy caption examples on --split",
+        help="Without --image-id: show N caption examples (default 10 if 0)",
     )
     p.add_argument(
         "--metric-images",
         type=int,
         default=500,
-        help="Max unique images to score for BLEU/CIDEr (0 = all available)",
+        help="Max images/pairs for BLEU/CIDEr (0 = all available in loader cap)",
     )
     return p.parse_args()
 
 
 def main() -> None:
-    """Entry point: config load → model load → single sample ya val metrics.
-
-    Age ``--image-id`` bashe → ``run_single``
-    Age nabashe → ``run_val`` (loss + samples)
-    """
+    """Entry: config → model → single sample ya split metrics (accuracy)."""
     args = parse_args()
     config_path = Path(args.config)
     if not config_path.is_absolute():
@@ -560,7 +609,12 @@ def main() -> None:
     vqa_ckpt = Path(args.vqa_ckpt).expanduser().resolve() if args.vqa_ckpt else None
 
     model, vocab, q_vocab = build_model_from_ckpt(ckpt_path, cfg, device, vqa_ckpt)
-    print(f"config={config_path}  ckpt={ckpt_path}  device={device}")
+    mode = "qd" if is_qd_mode(cfg) else "coco"
+    q_info = f" q_vocab={len(q_vocab.itos)}" if q_vocab is not None else ""
+    print(
+        f"config={config_path}  ckpt={ckpt_path}  device={device}  "
+        f"dataset_mode={mode}  vocab={len(vocab.itos)}{q_info}"
+    )
 
     if args.image_id is not None:
         run_single(
@@ -583,6 +637,7 @@ def main() -> None:
             n,
             split=args.split,
             metric_images=args.metric_images,
+            q_vocab=q_vocab,
         )
 
 

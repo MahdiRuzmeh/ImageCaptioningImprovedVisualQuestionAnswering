@@ -1,105 +1,134 @@
 # SimpleImageCaptioner
 
-A minimal, single-file image captioning trainer (`train.py`). Docstrings reference *Image captioning improved visual question answering* (Sharma & Jalal, 2021).
+Question-dependent image captioning — Stage 1 of the thesis pipeline (*Image captioning improved visual question answering*, Sharma & Jalal, 2021).
 
-Caption decoder (§3.3): at each step, attention weights depend on the **previous LSTM hidden state** `m_{t-1}` (our `h_{t-1}`), not a single fixed image context.
-
-## Dimensions from the paper
-
-The paper does **not** use a 256-D attention vector. Relevant sizes:
-
-| What | Size | Where in paper |
-|------|------|----------------|
-| Global ResNet-101 feature `v_G` | **2048** | §3.1 |
-| Local region feature `v_i` (each ROI) | **L = 2048** (`v_i ∈ ℝ^L`, eq. 4) | §3.3 |
-| Number of regions `K` | **32** (VQA attention setup) | §5 |
-| LSTM hidden layer | **512** | Table 2, §3.4 (`v_cap`) |
-| Encoding / working dimension | **512** | Table 2 |
-| Word embedding, attended features (working dim) | **all converted to 512** | §5 (experimental setup) |
-| Question GRU hidden | **1280** | §3.1 (VQA path, not used in this caption-only script) |
-
-§5 quote: *"Dimensions of hidden layer of LSTM, visual features, vector representing word embedding and attended features, are all converted to 512."*
-
-Attention (§3.3): `α_{ti} ∝ exp(f_att(v_i, m_{t-1}))`, then `z_t = Σ_i α_{ti} v_i`. Scores are computed after mapping `v_i` and `m_{t-1}` into a common space; the paper sets that working size to **512**, while the weighted sum of regions stays in **2048-D** before projection to 512 for the LSTM.
-
-## What this code implements
-
-1. **Regions** — Frozen Faster R-CNN → up to **32** ROIs; ROI vectors are **1024-D** from torchvision, then `roi_to_region` maps to **2048** to match paper `L`.
-2. **Attention** — `h_{t-1}` (512) and each `v_i` (2048) → **512-D** for similarity; softmax over 32 regions; sum → 2048-D `z_t`; `ctx_proj` → **512-D** context (paper §5).
-3. **Decoder** — `LSTMCell` input = `[word embedding (512) ; context (512)]`, hidden **512**, predict next token.
-
-Defaults live in `configs/default.yaml` (paper-aligned: 2048 regions, 512 LSTM/embed/word, batch 10, 25 epochs).
-
-## Requirements
-
-- Python 3.8+
-- Install from this folder: `pip install -r requirements.txt`
-- Packages: `torch`, `torchvision`, `pillow`, `tqdm`, `pyyaml`
-
-## Data
-
-MSCOCO 2014 under `src/dataset/`. Set paths in your YAML config (see `configs/default.yaml`).
+Each training sample is `(image, question, caption)` from `v2_question_dependent_captions_*.json`. The decoder uses attention from `h_{t-1} + qctx`, where `qctx` comes from a PAD-aware `q_gru` over the question.
 
 ## Train
 
-All settings (learning rate, batch size, epochs, paths, model dims) are read from the YAML file named on the CLI:
-
 ```bash
 cd SimpleImageCaptioner
-python train.py --config configs/default.yaml
+python train.py --config configs/default.yaml   # full run
+python train.py --config configs/smoke.yaml   # quick test
 ```
 
-Smoke run:
+## Eval
 
 ```bash
-python train.py --config configs/smoke.yaml
+python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --split val --samples 10
+python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt \
+  --image-id 25 --split train --question "How many animals are in this photo?"
 ```
 
-Kaggle:
+Checkpoint keys: `vocab` (caption words), `q_vocab` (question words for VQA `q_cap`), `model`.
 
-```bash
-python train.py --config configs/kaggle.yaml
-```
+## Config reference (`configs/default.yaml` / `smoke.yaml`)
 
-## Config keys (`configs/default.yaml`)
+All paths are relative to `SimpleImageCaptioner/` unless absolute.
 
-| Key | Default | Paper |
-|------|---------|-------|
-| `region_dim` | 2048 | §3.1 / eq. (4) |
-| `embed_dim` | 512 | §5, Table 2 |
-| `word_dim` | 512 | §5 |
-| `lstm_hidden` | 512 | Table 2 |
-| `max_regions` | 32 | §5 |
-| `learning_rate` | 0.0005 | Table 2 |
-| `batch_size` | 10 | Table 2 |
-| `epochs` | 25 | Table 2 |
+### Data
+
+| Key | Meaning |
+|-----|---------|
+| `train_captions_json` | Question-dependent caption JSON (train split) |
+| `val_captions_json` | Question-dependent caption JSON (val split) |
+| `train_images_dir` | COCO train image folder |
+| `val_images_dir` | COCO val image folder |
+| `train_image_filename_template` | Train image filename pattern (`{image_id}`) |
+| `val_image_filename_template` | Val image filename pattern |
+| `max_train_samples` | Max training rows `(image, question, caption)`; omit for all |
+| `max_val_samples` | Max validation rows; omit for all |
+| `max_train_images` | Optional cap on unique train image IDs (vocab + filter) |
+| `max_val_images` | Optional cap on unique val image IDs |
+
+### Training loop
+
+| Key | Meaning |
+|-----|---------|
+| `seed` | Random seed (shifted per DDP rank) |
+| `save_dir` | Checkpoint output directory |
+| `save_model_type` | `epoch` = save each epoch; `item` = every `save_every_samples` |
+| `save_every_samples` | Global samples between `last.pt` writes when `save_model_type: item` |
+| `batch_size` | Batch size |
+| `grad_accum_steps` | Gradient accumulation steps |
+| `epochs` | Number of training epochs |
+| `eval_every` | Run validation every N epochs |
+| `learning_rate` | Adamax learning rate |
+| `lr_decay_factor` | StepLR multiplicative decay |
+| `lr_decay_interval` | StepLR period in epochs |
+| `dropout` | Dropout after projections and LSTM |
+| `use_amp` | Mixed precision on CUDA |
+| `vocab_min_freq` | Min token frequency for caption and question vocabs |
+
+### Sequences
+
+| Key | Meaning |
+|-----|---------|
+| `max_caption_len` | Max caption length incl. BOS/EOS |
+| `max_question_len` | Max question length incl. BOS/EOS |
+
+### Model dimensions
+
+| Key | Meaning |
+|-----|---------|
+| `word_dim` | Caption word embedding size |
+| `hidden_dim` | LSTM hidden size (`lstm_hidden` alias) |
+| `embed_dim` | Attention working dimension |
+| `region_dim` | Region feature dim after `roi_to_region` |
+| `question_dim` | `q_gru` hidden size |
+| `max_regions` | Faster R-CNN regions kept per image |
+| `use_gnn` | Enable RelationGNN on regions |
+| `gnn_dim` | GNN hidden dimension |
+
+### Image / cache / loader
+
+| Key | Meaning |
+|-----|---------|
+| `image_size` | Input image size (square resize) |
+| `cache_regions` | Cache raw Faster R-CNN region features to disk |
+| `train_region_cache_dir` | Train region feature cache path |
+| `val_region_cache_dir` | Val region feature cache path |
+| `num_workers` | DataLoader worker processes |
+| `pin_memory` | Pin CPU memory for faster GPU transfer |
+| `persistent_workers` | Keep DataLoader workers alive between epochs |
+| `prefetch_factor` | Batches prefetched per worker |
+
+### Scheduled sampling (paper §5)
+
+| Key | Meaning |
+|-----|---------|
+| `scheduled_sampling_max_prob` | Max prob. of model prediction vs GT token during train |
+| `scheduled_sampling_interval` | Epochs between scheduled-sampling increases |
+| `scheduled_sampling_increment` | Amount added to sampling prob each interval |
+
+### Device / DDP
+
+| Key | Meaning |
+|-----|---------|
+| `device` | `cuda` or `cpu` |
+| `ddp` | Enable DistributedDataParallel (`torchrun`) |
+| `ddp_backend` | DDP backend (e.g. `nccl`) |
 
 ## CLI
 
-| Flag | Default | Meaning |
-|------|---------|---------|
-| `--config` | `configs/default.yaml` | YAML with all training settings |
+| Script | Flag | Meaning |
+|--------|------|---------|
+| `train.py` | `--config` | YAML path (default `configs/default.yaml`) |
+| `eval.py` | `--config` | Same YAML as training |
+| `eval.py` | `--ckpt` | `best.pt` or `last.pt` |
+| `eval.py` | `--split` | `train` or `val` |
+| `eval.py` | `--samples N` | Print N random pred vs GT |
+| `eval.py` | `--image-id` | Single-image demo |
+| `eval.py` | `--question` | Question text (required for QD single-image) |
+
+## VQA integration (Stage 2)
+
+```yaml
+captioner_ckpt: ../SimpleImageCaptioner/outputs/smoke/best.pt
+```
+
+VQA uses `q_vocab` from this checkpoint as `q_cap` (separate from VQA’s own question vocab).
 
 ## Outputs
 
-`save_dir` from config (e.g. `outputs/default/`): `last.pt`, `best.pt` (model, vocab, `config`).
-
-## vs `ImageCaptioner/`
-
-| | SimpleImageCaptioner | ImageCaptioner (legacy) |
-|--|----------------------|-------------------------|
-| Files | `train.py` + `models/captioner_v1.py` | Many modules |
-| Attention | Per step from `h_{t-1}` (paper §3.3) | Static question-guided context |
-| VQA | Yes — `generate_caption`, `encode_caption`, `get_caption_embedding` | Yes |
-
-## VQA integration
-
-After caption training, point `SimpleVQA/configs/default.yaml` at this folder (already set):
-
-```yaml
-captioner_project_root: ../SimpleImageCaptioner
-captioner_ckpt: ../SimpleImageCaptioner/outputs/default/best.pt
-captioner_class: SimpleImageCaptioner
-```
-
-`SimpleVQA/train.py` loads `models/captioner_v1.py`, fine-tunes `q_emb` / `q_proj`, and calls `get_caption_embedding(images, q_ids)`.
+`save_dir`: `last.pt` (latest epoch), `best.pt` (best val token accuracy).

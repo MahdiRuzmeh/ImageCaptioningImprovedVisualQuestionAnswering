@@ -1,235 +1,176 @@
 # SimpleVQA
 
-A minimal, single-file VQA trainer (`train.py`) for the two-stage pipeline in *Image captioning improved visual question answering* (Sharma & Jalal, 2021).
+VQA trainer (`train.py`) and evaluator (`eval.py`) — Stage 2 of the thesis pipeline (*Image captioning improved visual question answering*, Sharma & Jalal, 2021).
 
-**Stage 1** — train the captioner in [`SimpleImageCaptioner/`](../SimpleImageCaptioner/).  
-**Stage 2** — load the frozen captioner into `VQAModel`, fine-tune question layers in the captioner, and train the VQA head on VQA v2.
+Loads the frozen QD captioner from Stage 1 and trains `VQAModel` on VQA v2 `(image, question) → answer`.
 
-## Model flow (paper §3.4)
+## Model flow
 
 ```
-image  → ResNet-101 global (v_G) + Faster R-CNN regions → RelationGNN → v_att
-question → GRU (q_emb) → q_vec → attend regions → v_att
-image + question → frozen captioner → v_cap
-v = v_cap ⊙ v_att   (or v_cap + v_att if fuse_mode: add)
-dual LSTM → answer logits
+image  → ResNet-101 + Faster R-CNN regions → RelationGNN → v_att
+question (VQA q_vocab) → PAD-aware GRU → q_vec
+image + question (captioner q_vocab as q_cap) → frozen captioner → v_cap
+v = fuse(v_cap, v_att)   # mul | add | concat
+dual LSTM → answer (greedy at eval)
 ```
-
-| Component | Role |
-|-----------|------|
-| **ResNet-101** | Global image feature `g` for attention LSTM |
-| **Faster R-CNN** | Up to 32 local regions (frozen) |
-| **RelationGNN** | Message passing between regions |
-| **Question GRU** | `q_emb` + GRU → `q_vec` for region attention |
-| **Captioner** | Question-conditioned caption → `v_cap` (see below) |
-| **Fusion** | `v = v_cap * v_att` (default) or `v_cap + v_att` |
-| **Dual LSTM** | Attention LSTM + answer LSTM → answer tokens |
-
-## Captioner integration (important)
-
-The captioner is loaded from `SimpleImageCaptioner` via `load_captioner()` in `train.py`.
-
-### Two separate vocabularies
-
-| Layer | Vocabulary | Trained when |
-|-------|------------|--------------|
-| `word_emb`, `classifier` | MSCOCO **caption** vocab (from checkpoint) | Stage 1 (caption training) |
-| `q_emb` | VQA **question** vocab | Stage 2 (VQA — fine-tuned) |
-
-Caption and question token IDs must not share one embedding table; sizes differ (e.g. smoke: 249 vs 7650).
-
-### What is frozen vs trainable in stage 2
-
-| Captioner part | Stage 2 |
-|----------------|---------|
-| Region encoder, LSTM, attention, `word_emb`, `classifier` | **Frozen** (from caption checkpoint) |
-| `q_emb`, `q_proj` | **Trainable** (random init; no question data in stage 1) |
-
-There is no ground-truth caption for `(image, question)` pairs in VQA, so the caption decoder is not re-trained. Only `q_emb` / `q_proj` learn from the **answer loss** (indirect signal).
-
-### `v_cap` during train vs eval
-
-| Mode | How `v_cap` is computed |
-|------|-------------------------|
-| **Train** | Mean of LSTM hidden states during greedy decode (`differentiable=True`) so gradients reach `q_emb` (argmax blocks grad through token embeddings) |
-| **Eval** | Mean-pool `word_emb` on generated caption tokens (paper §3.4) |
-
-## Requirements
-
-- Python 3.8+
-- Install from this folder: `pip install -r requirements.txt`
-- Packages: `torch`, `torchvision`, `pillow`, `tqdm`, `pyyaml`
-- A trained captioner checkpoint from `SimpleImageCaptioner` (see [prerequisites](#prerequisites))
-
-## Data
-
-Under `src/dataset/`:
-
-| File | Purpose |
-|------|---------|
-| `v2_OpenEnded_mscoco_*_questions.json` | VQA v2 questions |
-| `v2_mscoco_*_annotations.json` | Answers (10 annotators per question) |
-| `train2014/`, `val2014/` | COCO 2014 images |
-
-Paths are set in `configs/default.yaml` (relative to `SimpleVQA/`).
 
 ## Prerequisites
 
-Train the captioner first:
-
 ```bash
 cd ../SimpleImageCaptioner
-python train.py --config configs/smoke.yaml    # quick test
-python train.py --config configs/default.yaml  # full run
+python train.py --config configs/smoke.yaml    # or default.yaml
 ```
 
-Point `captioner_ckpt` in your VQA config at the saved checkpoint, e.g.:
-
-```yaml
-captioner_project_root: ../SimpleImageCaptioner
-captioner_ckpt: ../SimpleImageCaptioner/outputs/default/best.pt
-captioner_class: SimpleImageCaptioner
-```
-
-## Train
-
-From `SimpleVQA/`:
+## Train / eval
 
 ```bash
+cd SimpleVQA
 python train.py --config configs/default.yaml
-```
-
-Smoke run (100 train + 100 val questions, captioner smoke checkpoint):
-
-```bash
 python train.py --config configs/smoke.yaml
-```
 
-Resume from last checkpoint in `save_dir`:
-
-```bash
-python train.py --config configs/default.yaml --continue
-```
-
-Resume from a specific file:
-
-```bash
-python train.py --config configs/default.yaml --resume outputs/default/last.pt
-```
-
-Start fresh (ignore resume):
-
-```bash
-python train.py --config configs/default.yaml --fresh
-```
-
-## Eval
-
-Greedy answer decoding + VQA v2 soft accuracy:
-
-```bash
+python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --split val --samples 20
 python train.py --config configs/default.yaml --eval --ckpt outputs/default/best.pt
 ```
 
-## Config keys
+Resume: `--continue` or `--resume outputs/default/last.pt`. Fresh start: `--fresh`.
 
-### Data & captioner
+## Config reference (`configs/default.yaml` / `smoke.yaml`)
 
-| Key | Default | Meaning |
-|-----|---------|---------|
-| `train_questions_json` | (see yaml) | VQA v2 train questions |
-| `train_annotations_json` | (see yaml) | VQA v2 train answers |
-| `val_questions_json` | (see yaml) | Val questions |
-| `val_annotations_json` | (see yaml) | Val answers |
-| `train_images_dir` | `../dataset/train2014` | COCO train images |
-| `val_images_dir` | `../dataset/val2014` | COCO val images |
-| `use_captioner` | `true` | `true`: fuse `v_cap` + `v_att`; `false`: `v = v_att` only (no captioner load) |
-| `captioner_project_root` | `../SimpleImageCaptioner` | Captioner code path (ignored when `use_captioner: false`) |
-| `captioner_ckpt` | `../SimpleImageCaptioner/outputs/default/best.pt` | Stage-1 weights |
-| `captioner_class` | `SimpleImageCaptioner` | Class name in `captioner_v1.py` |
+Paths relative to `SimpleVQA/`.
 
-### Training
+### VQA data
 
-| Key | Default | Paper / notes |
-|-----|---------|----------------|
-| `batch_size` | 4 | Effective batch = `batch_size * grad_accum_steps` |
-| `grad_accum_steps` | 4 | Gradient accumulation |
-| `epochs` | 25 | |
-| `learning_rate` | 0.0005 | Adamax |
-| `lr_decay_every` | 4 | StepLR period |
-| `lr_decay_factor` | 0.6 | StepLR gamma |
-| `max_question_len` | 14 | Max question tokens (incl. BOS/EOS) |
-| `max_answer_len` | 6 | Max answer tokens |
-| `vocab_min_freq` | 4 | Min token freq for q/a vocabs |
-| `use_amp` | true | Mixed precision (CUDA) |
-| `fuse_mode` | `mul` | `mul`, `add`, or `concat` for `v_cap` and `v_att` (only when `use_captioner: true`) |
-| `max_train_qids` | null | Cap train size (smoke: 100) |
-| `max_val_qids` | null | Cap val size (smoke: 100) |
+| Key | Meaning |
+|-----|---------|
+| `train_questions_json` | VQA v2 train questions JSON |
+| `train_annotations_json` | VQA v2 train annotations JSON |
+| `val_questions_json` | VQA v2 val questions JSON |
+| `val_annotations_json` | VQA v2 val annotations JSON |
+| `train_images_dir` | COCO train image folder |
+| `val_images_dir` | COCO val image folder |
+| `train_image_filename_template` | Train image filename pattern |
+| `val_image_filename_template` | Val image filename pattern |
+| `max_train_qids` | Cap training question IDs; vocabs built from these only |
+| `max_val_qids` | Cap val question IDs for evaluation |
+
+### Captioner (Stage 1)
+
+| Key | Meaning |
+|-----|---------|
+| `use_captioner` | Fuse captioner `v_cap` with `v_att`; `false` = `v_att` only |
+| `captioner_project_root` | Path to `SimpleImageCaptioner` code |
+| `captioner_ckpt` | Stage-1 captioner checkpoint (`best.pt`) |
+| `captioner_class` | Captioner class name in `captioner_v1.py` |
+| `captioner_finetune_q` | Unfreeze captioner `q_emb` / `q_gru` during VQA train |
+| `caption_repr` | How `v_cap` is built: `hidden` or `text` |
+
+### Training loop
+
+| Key | Meaning |
+|-----|---------|
+| `seed` | Random seed |
+| `save_dir` | Checkpoint output directory |
+| `save_model_type` | `epoch` or `item` checkpoint schedule |
+| `save_every_samples` | Samples between saves when `save_model_type: item` |
+| `batch_size` | Batch size |
+| `grad_accum_steps` | Gradient accumulation steps |
+| `epochs` | Number of training epochs |
+| `eval_every` | Greedy validation every N epochs |
+| `learning_rate` | Adamax learning rate |
+| `lr_decay_every` | StepLR period in epochs |
+| `lr_decay_factor` | StepLR multiplicative decay |
+| `weight_decay` | L2 regularization on trainable weights |
+| `label_smoothing` | Cross-entropy label smoothing |
+| `use_amp` | Mixed precision on CUDA |
+| `vocab_min_freq` | Min frequency for question tokens in `q_vocab` |
+| `dropout` | Dropout on projections and LSTM outputs |
+
+### Sequences
+
+| Key | Meaning |
+|-----|---------|
+| `max_question_len` | Max question length incl. BOS/EOS |
+| `max_answer_len` | Max answer length incl. BOS/EOS |
 
 ### Model dimensions
 
-| Key | Default | Paper |
-|-----|---------|-------|
-| `hidden_dim` | 512 | Table 2 |
-| `word_dim` | 512 | §5 |
-| `question_dim` | 1280 | §3.1 (GRU hidden) |
-| `max_regions` | 32 | §5 |
+| Key | Meaning |
+|-----|---------|
+| `hidden_dim` | LSTM and fusion hidden size |
+| `word_dim` | Question and answer embedding size |
+| `question_dim` | Question GRU hidden size |
+| `max_regions` | Faster R-CNN regions per image |
+| `fuse_mode` | Fuse `v_cap` and `v_att`: `mul`, `add`, or `concat` |
+
+### Image / cache / loader
+
+| Key | Meaning |
+|-----|---------|
+| `image_size` | Input image size (square resize) |
+| `cache_regions` | Cache Faster R-CNN region features |
+| `train_region_cache_dir` | Train region cache path |
+| `val_region_cache_dir` | Val region cache path |
+| `cache_global` | Cache ResNet-101 global features (pre-`g_proj`) |
+| `train_global_cache_dir` | Train global feature cache path |
+| `val_global_cache_dir` | Val global feature cache path |
+| `num_workers` | DataLoader worker processes |
+| `pin_memory` | Pin CPU memory for faster GPU transfer |
+| `persistent_workers` | Keep DataLoader workers alive between epochs |
+| `prefetch_factor` | Batches prefetched per worker |
+
+### Device / DDP
+
+| Key | Meaning |
+|-----|---------|
+| `device` | `cuda` or `cpu` |
+| `ddp` | Enable DistributedDataParallel (`torchrun`) |
+| `ddp_backend` | DDP backend (e.g. `nccl`) |
+| `ddp_find_unused_parameters` | DDP flag for unused parameters in backward |
+| `resume_from` | Optional explicit checkpoint path to resume |
 
 ## CLI
 
-| Flag | Default | Meaning |
-|------|---------|---------|
-| `--config` | `configs/default.yaml` | YAML with all settings |
-| `--continue` | off | Resume from `save_dir/last.pt` |
-| `--resume PATH` | — | Resume from explicit checkpoint |
-| `--fresh` | off | Ignore resume; train from scratch |
-| `--eval` | off | Evaluation only (greedy decode) |
-| `--ckpt PATH` | — | Checkpoint for `--eval` |
+### `train.py`
 
-## Outputs
+| Flag | Meaning |
+|------|---------|
+| `--config` | YAML path |
+| `--continue` | Resume `save_dir/last.pt` |
+| `--resume PATH` | Resume from file |
+| `--fresh` | Ignore resume |
+| `--eval` | Greedy val accuracy only |
+| `--ckpt PATH` | Checkpoint for `--eval` |
 
-`save_dir` from config (e.g. `outputs/default/`):
+### `eval.py`
 
-| File | Contents |
-|------|----------|
-| `last.pt` | Latest epoch: model, optimizer, scheduler, vocabs, config |
-| `best.pt` | Best validation accuracy checkpoint |
+| Flag | Meaning |
+|------|---------|
+| `--ckpt` | VQA checkpoint (required) |
+| `--split` | `train` or `val` |
+| `--samples N` | Random predictions with captions |
+| `--image-id` + `--question` | Single inference |
+| `--question-id` | Load from VQA JSON |
 
-Checkpoint includes `q_vocab`, `a_vocab`, and full `VQAModel` state (including fine-tuned `captioner.q_emb`).
+## Vocabs (important)
+
+| Token stream | Source | Used for |
+|--------------|--------|----------|
+| `q` | `q_vocab` in VQA ckpt (train QIDs) | `VQAModel.q_emb` |
+| `q_cap` | `q_vocab` in captioner ckpt | Captioner → `v_cap` |
+| `a` | `a_vocab` in VQA checkpoint (train QIDs) | Answer decoder |
 
 ## Metric
 
-**VQA v2 soft accuracy** — for each question, score = min(agreement_with_annotators / 3, 1), averaged over the split. Validation during training uses teacher forcing; `--eval` uses greedy decoding.
+VQA v2 **soft accuracy** (greedy decode at validation). `train_acc` in logs = teacher-forcing token accuracy.
 
-## vs `VQA/`
+## Outputs
 
-| | SimpleVQA | VQA (legacy) |
-|--|-----------|--------------|
-| Files | Single `train.py` | Multiple modules |
-| Captioner load | Inline `load_captioner()` | `models/captioner_adapter.py` |
-| Separate `q_emb` | Yes | Yes (via updated adapter) |
-| Fine-tune `q_emb` | Yes | Yes (via updated adapter) |
-
-## Typical workflow
-
-```bash
-# 1. Captioner (stage 1)
-cd SimpleImageCaptioner
-python train.py --config configs/default.yaml
-
-# 2. VQA (stage 2)
-cd ../SimpleVQA
-python train.py --config configs/default.yaml
-
-# 3. Eval
-python train.py --config configs/default.yaml --eval --ckpt outputs/default/best.pt
-```
+`last.pt`, `best.pt` (best greedy `val_acc`). Contains `model`, `q_vocab`, `a_vocab`.
 
 ## Troubleshooting
 
-| Issue | Cause / fix |
-|-------|-------------|
-| `size mismatch for word_emb.weight` | Old code resized captioner to question vocab. Use current code: caption vocab from checkpoint, separate `q_emb`. |
-| `question_ids provided but captioner has no q_emb` | Load captioner with `question_vocab_size` (current `load_captioner` does this). |
-| `targets should not be None` (Faster R-CNN) | Detector must stay in `eval()` during VQA train — handled in `VQAModel.train()`. |
-| Val loss differs from train loss | Train uses LSTM-hidden `v_cap`; eval uses word-embedding `v_cap` — expected with current design. |
+| Issue | Fix |
+|-------|-----|
+| `val_acc` stuck at 0 | Use current code (vocabs from capped train QIDs; PAD-aware GRU; EOS-aware loss) |
+| Caption ignores question | `eval.py` must pass `q_cap`, not VQA `q` |
+| `val_loss=0` in log | Greedy eval — use `val_acc` |

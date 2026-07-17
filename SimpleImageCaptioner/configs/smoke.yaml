@@ -1,20 +1,19 @@
+# Smoke: small QD caption train.
+# python train.py --config configs/smoke.yaml
 seed: 42
-train_captions_json: ../dataset/captions_train2014.json
-val_captions_json: ../dataset/captions_val2014.json
+train_captions_json: ../dataset/v2_question_dependent_captions_train2014.json
+val_captions_json: ../dataset/v2_question_dependent_captions_val2014.json
 train_images_dir: ../dataset/train2014
 val_images_dir: ../dataset/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 save_dir: outputs/smoke
-# save_model_type: "epoch" = save last.pt after each train epoch; "item" = every n samples.
 save_model_type: epoch
-# in hyperparameter vagti estefade mishe ke "save_model_type" = "item" bashe.
-# save_every_samples: global train samples between last.pt writes (when save_model_type=item).
 save_every_samples: 50
 num_workers: 0
-batch_size: 16
-epochs: 50
-eval_every: 10
+batch_size: 12
+epochs: 40
+eval_every: 2
 learning_rate: 0.0005
 dropout: 0.5
 lr_decay_factor: 0.6
@@ -22,6 +21,7 @@ lr_decay_interval: 20
 use_amp: true
 grad_accum_steps: 1
 max_caption_len: 20
+max_question_len: 14
 vocab_min_freq: 2
 max_regions: 32
 cache_regions: true
@@ -32,18 +32,17 @@ pin_memory: true
 persistent_workers: false
 prefetch_factor: 2
 word_dim: 512
-lstm_hidden: 512
+hidden_dim: 512
 embed_dim: 512
 region_dim: 2048
 use_gnn: true
 gnn_dim: 512
+question_dim: 1280
 device: cuda
 ddp: false
 ddp_backend: nccl
-max_train_images: 100
-max_val_images: 50
-# Paper §5 scheduled sampling (GT token mixed with model prediction during train)
-# scheduled_sampling_p dar aval kar 0 khahad bood (kamalan teacher forcing hast)
+max_train_samples: 200
+max_val_samples: 50
 scheduled_sampling_max_prob: 0.24
 scheduled_sampling_interval: 4
 scheduled_sampling_increment: 0.06

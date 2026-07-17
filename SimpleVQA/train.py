@@ -339,9 +339,17 @@ class Vocab:
         )
         self.stoi = {w: i for i, w in enumerate(self.itos)}
 
+    @classmethod
+    def from_itos(cls, itos: List[str]) -> "Vocab":
+        """Vocab ro az list itos (mesl checkpoint) bazsazi kon — bedoon recount."""
+        obj = cls.__new__(cls)
+        obj.itos = list(itos)
+        obj.stoi = {w: i for i, w in enumerate(obj.itos)}
+        return obj
+
     def encode(self, words: List[str]) -> List[int]:
         """Token list → index list (unknown → UNK)."""
-        unk = self.stoi[self.UNK]
+        unk = self.stoi.get(self.UNK, 3)
         return [self.stoi.get(w, unk) for w in words]
 
     @property
@@ -361,24 +369,80 @@ def all_qids(questions_json: str) -> List[int]:
     return [int(x["question_id"]) for x in qs]
 
 
-def build_vocabs(
-    questions_json: str, annotations_json: str, min_freq: int
-) -> Tuple[Vocab, Vocab]:
-    """Vocab soal/javab ro faghat az train split besaz (leakage nabashe)."""
+def intersect_qids(questions_json: str, annotations_json: str) -> List[int]:
+    """Question IDs present in both questions and annotations files."""
     with Path(questions_json).open("r", encoding="utf-8") as f:
         qs = json.load(f)["questions"]
     with Path(annotations_json).open("r", encoding="utf-8") as f:
         anns = json.load(f)["annotations"]
     qmap = {int(x["question_id"]): x for x in qs}
     amap = {int(x["question_id"]): x for x in anns}
-    qids = sorted(set(qmap.keys()) & set(amap.keys()))
+    return sorted(set(qmap.keys()) & set(amap.keys()))
+
+
+def build_vocabs(
+    questions_json: str,
+    annotations_json: str,
+    min_freq: int,
+    qids: Optional[List[int]] = None,
+) -> Tuple[Vocab, Vocab]:
+    """Vocab soal/javab az train split (faghat ``qids``‑e dade-shode)."""
+    with Path(questions_json).open("r", encoding="utf-8") as f:
+        qs = json.load(f)["questions"]
+    with Path(annotations_json).open("r", encoding="utf-8") as f:
+        anns = json.load(f)["annotations"]
+    qmap = {int(x["question_id"]): x for x in qs}
+    amap = {int(x["question_id"]): x for x in anns}
+    use_qids = qids if qids is not None else sorted(set(qmap.keys()) & set(amap.keys()))
     q_words: List[str] = []
     a_words: List[str] = []
-    for qid in qids:
+    for qid in use_qids:
+        if qid not in qmap or qid not in amap:
+            continue
         q_words.extend(tok(qmap[qid]["question"]))
         ans = [z["answer"] for z in amap[qid]["answers"]]
         a_words.extend(tok(mode_answer(ans)))
     return Vocab(q_words, min_freq=min_freq), Vocab(a_words, min_freq=1)
+
+
+def build_answer_vocab(
+    questions_json: str,
+    annotations_json: str,
+    min_freq: int = 1,
+    qids: Optional[List[int]] = None,
+) -> Vocab:
+    """Answer vocab az train annotations (faghat ``qids``‑e dade-shode)."""
+    with Path(questions_json).open("r", encoding="utf-8") as f:
+        qs = json.load(f)["questions"]
+    with Path(annotations_json).open("r", encoding="utf-8") as f:
+        anns = json.load(f)["annotations"]
+    qmap = {int(x["question_id"]): x for x in qs}
+    amap = {int(x["question_id"]): x for x in anns}
+    use_qids = qids if qids is not None else sorted(set(qmap.keys()) & set(amap.keys()))
+    a_words: List[str] = []
+    for qid in use_qids:
+        if qid not in amap:
+            continue
+        ans = [z["answer"] for z in amap[qid]["answers"]]
+        a_words.extend(tok(mode_answer(ans)))
+    return Vocab(a_words, min_freq=min_freq)
+
+
+def _captioner_ckpt_q_vocab_itos(cfg: Dict[str, Any]) -> Optional[List[str]]:
+    """Age captioner checkpoint ``q_vocab`` dashte bashe (QD Stage-1), itos ro bargardoon."""
+    if not bool(cfg.get("use_captioner", True)):
+        return None
+    ckpt_path = Path(cfg.get("captioner_ckpt", ""))
+    if not ckpt_path.is_file():
+        return None
+    try:
+        state = torch.load(ckpt_path, map_location="cpu")
+    except Exception:
+        return None
+    q_itos = state.get("q_vocab")
+    if isinstance(q_itos, list) and len(q_itos) > 0:
+        return q_itos
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -398,12 +462,14 @@ class VQADataset(Dataset):
         max_q: int,
         max_a: int,
         qids: Optional[List[int]] = None,
+        cap_q_vocab: Optional[Vocab] = None,
         image_size: int = 448,
     ) -> None:
         self.images_dir = Path(images_dir)
         self.image_filename_template = image_filename_template
         self.q_vocab = q_vocab
         self.a_vocab = a_vocab
+        self.cap_q_vocab = cap_q_vocab
         self.max_q = max_q
         self.max_a = max_a
 
@@ -449,13 +515,21 @@ class VQADataset(Dataset):
         image = self.transform(Image.open(path).convert("RGB"))
         q_ids = [1] + self.q_vocab.encode(tok(s["question"])[: self.max_q - 2]) + [2]
         a_ids = [1] + self.a_vocab.encode(tok(s["answer"])[: self.max_a - 2]) + [2]
-        return {
+        out: Dict[str, Any] = {
             "image": image,
             "image_id": int(s["image_id"]),
             "q": torch.tensor(q_ids, dtype=torch.long),
             "a": torch.tensor(a_ids, dtype=torch.long),
             "answers": s["answers"],
         }
+        if self.cap_q_vocab is not None:
+            cap_q_ids = (
+                [1]
+                + self.cap_q_vocab.encode(tok(s["question"])[: self.max_q - 2])
+                + [2]
+            )
+            out["q_cap"] = torch.tensor(cap_q_ids, dtype=torch.long)
+        return out
 
 
 def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -469,13 +543,20 @@ def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     for i, x in enumerate(batch):
         q[i, : len(x["q"])] = x["q"]
         a[i, : len(x["a"])] = x["a"]
-    return {
+    out: Dict[str, Any] = {
         "images": images,
         "image_ids": image_ids,
         "q": q,
         "a": a,
         "answers": [x["answers"] for x in batch],
     }
+    if "q_cap" in batch[0]:
+        max_qc = max(len(x["q_cap"]) for x in batch)
+        q_cap = torch.zeros((len(batch), max_qc), dtype=torch.long)
+        for i, x in enumerate(batch):
+            q_cap[i, : len(x["q_cap"])] = x["q_cap"]
+        out["q_cap"] = q_cap
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -509,13 +590,10 @@ def _load_matching_state_dict(model: nn.Module, state: Dict[str, torch.Tensor]) 
 
 
 def _unfreeze_captioner_question_layers(captioner: nn.Module) -> int:
-    """Hame captioner ro freeze kon, faghat ``q_emb`` va ``q_proj`` trainable bezan.
+    """Hame captioner freeze; faghat ``q_emb`` + ``q_gru`` (+ ``q_proj``) trainable.
 
-    Chera?
-        - marhale 1 (caption train): soal feed nemishod → ``q_emb`` train nashode / random
-        - marhale 2 (VQA): soal bayad caption ro **question-guided** kone
-        - caption GT nadarim → faghat in 2 layer ro az **answer loss** (indirect) update mikonim
-        - LSTM, attention, ``word_emb``, ``classifier`` freeze mimonan (knowledge caption train)
+    QD Stage-1: in layer-ha ghablan train shodan. Default Stage-2 = freeze hame
+    (``captioner_finetune_q: false``). Age true bashe, in helper seda mishe.
 
     Returns:
         Tedad parameter haye trainable (baraye log).
@@ -523,17 +601,20 @@ def _unfreeze_captioner_question_layers(captioner: nn.Module) -> int:
     for param in captioner.parameters():
         param.requires_grad = False
     trainable = 0
-    q_emb = getattr(captioner, "q_emb", None)
-    if q_emb is not None:
-        for param in q_emb.parameters():
-            param.requires_grad = True
-            trainable += param.numel()
-    q_proj = getattr(captioner, "q_proj", None)
-    if q_proj is not None and not isinstance(q_proj, nn.Identity):
-        for param in q_proj.parameters():
+    for name in ("q_emb", "q_gru", "q_proj"):
+        module = getattr(captioner, name, None)
+        if module is None or isinstance(module, nn.Identity):
+            continue
+        for param in module.parameters():
             param.requires_grad = True
             trainable += param.numel()
     return trainable
+
+
+def _freeze_all_captioner(captioner: nn.Module) -> None:
+    """Kol captioner ro freeze kon (QD transfer ablation — v_cap bedoon finetune q)."""
+    for param in captioner.parameters():
+        param.requires_grad = False
 
 
 def _caption_vocab_size_from_checkpoint(ckpt_path: Path) -> int:
@@ -551,21 +632,32 @@ def _caption_vocab_size_from_checkpoint(ckpt_path: Path) -> int:
     raise ValueError(f"Cannot infer caption vocabulary size from {ckpt_path}")
 
 
+def _question_vocab_size_from_checkpoint(ckpt_path: Path) -> Optional[int]:
+    """Age QD ckpt ``q_vocab`` dashte bashe, size-esh; vagarna None."""
+    state = torch.load(ckpt_path, map_location="cpu")
+    q_vocab = state.get("q_vocab")
+    if q_vocab is not None:
+        return len(q_vocab)
+    weight = state.get("model", state).get("q_emb.weight")
+    if weight is not None:
+        return int(weight.shape[0])
+    return None
+
+
 def load_captioner(
     cfg: Dict[str, Any], q_vocab_size: int, pad_id: int, device: torch.device
 ) -> nn.Module:
-    """Captioner pretrained ro load kon va freeze kon (marhale 2 VQA).
+    """Captioner pretrained ro load kon (marhale 2 VQA).
 
     Design:
-        - ``word_emb`` / ``classifier`` → caption vocab az checkpoint (mesl smoke: 249)
-        - ``q_emb`` → question vocab VQA (mesl smoke: 7650) — random init
-        - ``q_emb`` + ``q_proj`` trainable; baghiye captioner freeze
-        - train: grad answer loss → v_cap (LSTM hidden pool) → ``q_emb``
-        - eval: v_cap az ``word_emb`` caption tolid shode (paper §3.4)
+        - ``word_emb`` / ``classifier`` → caption vocab az checkpoint
+        - ``q_emb`` + ``q_gru`` → age QD ckpt, az Stage-1; vagarna random ba size VQA q_vocab
+        - ``captioner_finetune_q`` (default false): freeze hame captioner (test QD transfer)
+          age true: ``q_emb`` + ``q_gru`` trainable az answer loss
 
     Args:
         cfg: path haye ``captioner_project_root``, ``captioner_ckpt``, hyperparams.
-        q_vocab_size: ``len(q_vocab.itos)`` — size vocabulary soal.
+        q_vocab_size: ``len(q_vocab.itos)`` — size vocabulary soal (bayad ba ckpt match).
         pad_id: PAD index (0).
         device: cuda/cpu.
     """
@@ -588,6 +680,9 @@ def load_captioner(
     ckpt_path = Path(cfg["captioner_ckpt"])
     if ckpt_path.exists():
         caption_vocab_size = _caption_vocab_size_from_checkpoint(ckpt_path)
+        ckpt_q_size = _question_vocab_size_from_checkpoint(ckpt_path)
+        if ckpt_q_size is not None:
+            q_vocab_size = ckpt_q_size
     else:
         caption_vocab_size = q_vocab_size
         print(
@@ -604,6 +699,10 @@ def load_captioner(
         question_dim=int(cfg["question_dim"]),
         question_vocab_size=q_vocab_size,
         question_pad_id=pad_id,
+        embed_dim=int(cfg.get("embed_dim", cfg["hidden_dim"])),
+        region_dim=int(cfg.get("region_dim", 2048)),
+        use_gnn=bool(cfg.get("use_gnn", True)),
+        gnn_dim=int(cfg["gnn_dim"]) if cfg.get("gnn_dim") is not None else None,
     )
 
     if ckpt_path.exists():
@@ -616,9 +715,17 @@ def load_captioner(
 
     model.eval().to(device)
 
-    trainable = _unfreeze_captioner_question_layers(model)
-    if trainable:
-        print(f"Captioner: {trainable} trainable params in q_emb + q_proj (rest frozen)")
+    # Default: freeze all (QD Stage-1 already trained q_emb/q_gru).
+    # captioner_finetune_q=true → unfreeze q layers for answer-loss fine-tune.
+    if bool(cfg.get("captioner_finetune_q", False)):
+        trainable = _unfreeze_captioner_question_layers(model)
+        print(
+            f"Captioner: finetune_q=true — {trainable} trainable params "
+            f"in q_emb/q_gru/q_proj (rest frozen)"
+        )
+    else:
+        _freeze_all_captioner(model)
+        print("Captioner: finetune_q=false — all captioner params frozen")
 
     return model
 
@@ -814,6 +921,8 @@ class VQAModel(nn.Module):
         caption_repr: str = "hidden",
     ) -> None:
         super().__init__()
+        self.pad_id = pad_id
+        self.eos_id = 2
         self.use_captioner = use_captioner
         if use_captioner and captioner is None:
             raise ValueError("use_captioner=True vali captioner=None — load_captioner() ro seda bezan.")
@@ -1192,6 +1301,16 @@ class VQAModel(nn.Module):
         weights = torch.softmax(self.attn_score(hidden).squeeze(-1), dim=-1)
         return torch.einsum("bk,bkd->bd", weights, regions)
 
+    def _encode_question(self, q_ids: torch.Tensor) -> torch.Tensor:
+        """PAD-aware question encoding (last real token, not trailing PAD)."""
+        qe = self.q_emb(q_ids)
+        lengths = (q_ids != self.pad_id).sum(dim=1).clamp(min=1)
+        packed = nn.utils.rnn.pack_padded_sequence(
+            qe, lengths.cpu(), batch_first=True, enforce_sorted=False
+        )
+        _, h = self.q_gru(packed)
+        return self.drop(self.q_proj(h[-1]))
+
     def forward(
         self,
         images: torch.Tensor,
@@ -1202,6 +1321,7 @@ class VQAModel(nn.Module):
         region_cache_dir: Optional[str] = None,
         global_cache_dir: Optional[str] = None,
         save_cache: bool = True,
+        q_cap_ids: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Train: ``a_ids`` bede (teacher forcing). Eval: ``a_ids=None`` (greedy).
@@ -1244,10 +1364,8 @@ class VQAModel(nn.Module):
         # [dropout 2/6] baade local_proj — region feature ha qabl az GNN
         local = self.drop(local)
 
-        # question feature ba estefade az GRU extract karde.
-        _, h = self.q_gru(self.q_emb(q_ids))
-        # [dropout 3/6] baade q_proj — question vector qabl az attention
-        q_vec = self.drop(self.q_proj(h[-1]))
+        q_vec = self._encode_question(q_ids)
+        cap_q_ids = q_cap_ids if q_cap_ids is not None else q_ids
 
         # local feature haro mide be GNN ta relation region haro toye feature hash emal kone.
         # GNN dakhel khod ham Dropout dare (baade ReLU dar edge va node MLP).
@@ -1277,7 +1395,7 @@ class VQAModel(nn.Module):
                 with torch.no_grad():
                     cap_ids, _ = self.captioner._decode_caption(
                         images,
-                        q_ids,
+                        cap_q_ids,
                         max_len=20,
                         collect_hidden=False,
                         image_ids=image_ids,
@@ -1290,7 +1408,7 @@ class VQAModel(nn.Module):
                 # CONFLICT/BUG FIX (paper §3.4): v_cap = miangin hidden-state LSTM captioner.
                 v_cap, _ = self.captioner.get_caption_embedding(
                     images,
-                    q_ids,
+                    cap_q_ids,
                     differentiable=True,
                     image_ids=image_ids,
                     region_cache_dir=region_cache_dir,
@@ -1314,7 +1432,7 @@ class VQAModel(nn.Module):
             steps = max_answer_len - 1
             prev = torch.full((batch,), 1, dtype=torch.long, device=images.device)
         else:
-            steps = a_ids.size(1) - 1
+            steps = int(answer_step_lengths(a_ids, self.eos_id, self.pad_id).max().item())
             prev = a_ids[:, 0]
 
         logits: List[torch.Tensor] = []
@@ -1335,21 +1453,74 @@ class VQAModel(nn.Module):
             # [dropout 6/6] baade lstm_ans — h2 qabl az classifier
             logit = self.out(self.drop(h2))
             logits.append(logit)
-            prev = logit.argmax(dim=-1) if a_ids is None else a_ids[:, t + 1]
+            if a_ids is None:
+                prev = logit.argmax(dim=-1)
+            else:
+                nxt = a_ids[:, t + 1]
+                prev = torch.where(nxt == self.pad_id, torch.full_like(nxt, self.eos_id), nxt)
 
         return torch.stack(logits, dim=1)
 
 
 # ---------------------------------------------------------------------------
-# Metric
+# Metric + answer decode helpers
 # ---------------------------------------------------------------------------
+def answer_step_lengths(
+    a_ids: torch.Tensor, eos_id: int = 2, pad_id: int = 0
+) -> torch.Tensor:
+    """Decoder steps per sample: targets in ``a_ids[:, 1:]`` through EOS (inclusive)."""
+    targets = a_ids[:, 1:]
+    t_range = torch.arange(targets.size(1), device=a_ids.device)
+    big = targets.size(1)
+    first_pad = torch.where(targets == pad_id, t_range, big).min(dim=1).values
+    first_eos = torch.where(targets == eos_id, t_range, big).min(dim=1).values
+    return torch.minimum(first_pad, first_eos).add(1).clamp(min=1)
+
+
+def decode_answer_ids(pred_row: List[int], vocab: Vocab) -> str:
+    """Greedy/teacher-forcing token ids → answer string; stop at EOS."""
+    eos_id = vocab.stoi[vocab.EOS]
+    words: List[str] = []
+    for i in pred_row:
+        if i == eos_id:
+            break
+        if i > 2 and i < len(vocab.itos):
+            words.append(vocab.itos[i])
+    return " ".join(words).strip().lower()
+
+
+def vqa_answer_loss(
+    logits: torch.Tensor,
+    a_ids: torch.Tensor,
+    criterion: nn.Module,
+    eos_id: int = 2,
+    pad_id: int = 0,
+) -> torch.Tensor:
+    """Cross-entropy only on valid answer positions (no PAD tail)."""
+    answer_lens = answer_step_lengths(a_ids, eos_id, pad_id)
+    steps = logits.size(1)
+    targets = a_ids[:, 1 : 1 + steps]
+    if targets.size(1) < steps:
+        targets = nn.functional.pad(
+            targets, (0, steps - targets.size(1)), value=pad_id
+        )
+    mask = torch.arange(steps, device=a_ids.device).unsqueeze(0) < answer_lens.unsqueeze(1)
+    per_token = nn.functional.cross_entropy(
+        logits.reshape(-1, logits.size(-1)),
+        targets.reshape(-1),
+        ignore_index=pad_id,
+        reduction="none",
+        label_smoothing=float(getattr(criterion, "label_smoothing", 0.0)),
+    )
+    per_token = per_token.view(logits.size(0), steps)
+    return (per_token * mask.float()).sum() / mask.float().sum().clamp(min=1.0)
+
+
 def vqa_acc(pred: torch.Tensor, gts: List[List[str]], vocab: Vocab) -> float:
     """Soft VQA v2 accuracy: min(agreement/3, 1) roye 10 javab annotator."""
     score = 0.0
     for pred_row, answers in zip(pred.tolist(), gts):
-        text = " ".join(
-            vocab.itos[i] for i in pred_row if i < len(vocab.itos) and i > 2
-        ).strip().lower()
+        text = decode_answer_ids(pred_row, vocab)
         agree = sum(1 for a in answers if a.strip().lower() == text)
         score += min(agree / 3.0, 1.0)
     return score / max(1, len(gts))
@@ -1378,14 +1549,35 @@ PATH_KEYS = (
 def build_loaders(
     cfg: Dict[str, Any],
 ) -> Tuple[Vocab, Vocab, DataLoader, DataLoader]:
-    """Dataset train/val va DataLoader besaz."""
+    """Dataset train/val va DataLoader besaz.
+
+    Vocab ha faghat az train ``qids`` (ba ``max_train_qids`` cap) sakhte mishan.
+  Age captioner QD ckpt ``q_vocab`` dashte bashe, ``q_cap`` joda encode mishe.
+    """
+    tr_qids = cap_list(
+        intersect_qids(cfg["train_questions_json"], cfg["train_annotations_json"]),
+        cfg.get("max_train_qids"),
+    )
+    va_qids = cap_list(
+        intersect_qids(cfg["val_questions_json"], cfg["val_annotations_json"]),
+        cfg.get("max_val_qids"),
+    )
+
     q_vocab, a_vocab = build_vocabs(
         cfg["train_questions_json"],
         cfg["train_annotations_json"],
         int(cfg["vocab_min_freq"]),
+        qids=tr_qids,
     )
-    tr_qids = cap_list(all_qids(cfg["train_questions_json"]), cfg.get("max_train_qids"))
-    va_qids = cap_list(all_qids(cfg["val_questions_json"]), cfg.get("max_val_qids"))
+
+    cap_q_vocab: Optional[Vocab] = None
+    cap_q_itos = _captioner_ckpt_q_vocab_itos(cfg)
+    if cap_q_itos is not None:
+        cap_q_vocab = Vocab.from_itos(cap_q_itos)
+        print(
+            f"Captioner q_vocab ({len(cap_q_vocab.itos)} tokens) for v_cap; "
+            f"VQA q_vocab={len(q_vocab.itos)} a_vocab={len(a_vocab.itos)}"
+        )
 
     train_ds = VQADataset(
         cfg["train_questions_json"],
@@ -1397,6 +1589,7 @@ def build_loaders(
         int(cfg["max_question_len"]),
         int(cfg["max_answer_len"]),
         qids=tr_qids,
+        cap_q_vocab=cap_q_vocab,
         image_size=int(cfg.get("image_size", 448)),
     )
     val_ds = VQADataset(
@@ -1409,6 +1602,7 @@ def build_loaders(
         int(cfg["max_question_len"]),
         int(cfg["max_answer_len"]),
         qids=va_qids,
+        cap_q_vocab=cap_q_vocab,
         image_size=int(cfg.get("image_size", 448)),
     )
 
@@ -1449,7 +1643,18 @@ def build_vqa_model(
     use_captioner = bool(cfg.get("use_captioner", True))
     captioner: Optional[nn.Module] = None
     if use_captioner:
-        captioner = load_captioner(cfg, len(q_vocab.itos), q_vocab.pad_id, device)
+        ckpt_path = Path(cfg.get("captioner_ckpt", ""))
+        cap_q_size = (
+            _question_vocab_size_from_checkpoint(ckpt_path)
+            if ckpt_path.exists()
+            else None
+        )
+        captioner = load_captioner(
+            cfg,
+            cap_q_size if cap_q_size is not None else len(q_vocab.itos),
+            q_vocab.pad_id,
+            device,
+        )
     else:
         print("use_captioner=false — v_att faghat (bedoon v_cap fusion) estefade mishe.")
     model = VQAModel(
@@ -1474,6 +1679,14 @@ def build_vqa_model(
 # ---------------------------------------------------------------------------
 # Train / eval loops
 # ---------------------------------------------------------------------------
+def batch_q_cap(batch: Dict[str, Any], device: torch.device) -> Optional[torch.Tensor]:
+    """Captioner question ids (``q_cap``) age dar batch bashan."""
+    q_cap = batch.get("q_cap")
+    if q_cap is None:
+        return None
+    return q_cap.to(device, non_blocking=device.type == "cuda")
+
+
 def train_epoch(
     model: VQAModel,
     loader: DataLoader,
@@ -1512,6 +1725,7 @@ def train_epoch(
             image_ids = image_ids.to(device, non_blocking=device.type == "cuda")
         q = batch["q"].to(device, non_blocking=device.type == "cuda")
         a = batch["a"].to(device, non_blocking=device.type == "cuda")
+        q_cap = batch_q_cap(batch, device)
 
         region_cache_dir = region_cache_dir_for_split(cfg, "train")
         global_cache_dir = global_cache_dir_for_split(cfg, "train")
@@ -1524,8 +1738,15 @@ def train_epoch(
                 region_cache_dir=region_cache_dir,
                 global_cache_dir=global_cache_dir,
                 save_cache=True,
+                q_cap_ids=q_cap,
             )
-            loss = criterion(logits.reshape(-1, logits.size(-1)), a[:, 1:].reshape(-1))
+            loss = vqa_answer_loss(
+                logits,
+                a,
+                criterion,
+                eos_id=unwrap_model(model).eos_id,
+                pad_id=unwrap_model(model).pad_id,
+            )
 
         scaler.scale(loss / accum).backward()
         if (i + 1) % accum == 0:
@@ -1590,6 +1811,7 @@ def eval_epoch(
             image_ids = image_ids.to(device, non_blocking=device.type == "cuda")
         q = batch["q"].to(device, non_blocking=device.type == "cuda")
         a = batch["a"].to(device, non_blocking=device.type == "cuda")
+        q_cap = batch_q_cap(batch, device)
 
         if greedy:
             logits = model(
@@ -1601,6 +1823,7 @@ def eval_epoch(
                 region_cache_dir=region_cache_dir,
                 global_cache_dir=global_cache_dir,
                 save_cache=True,
+                q_cap_ids=q_cap,
             )
         else:
             logits = model(
@@ -1611,8 +1834,15 @@ def eval_epoch(
                 region_cache_dir=region_cache_dir,
                 global_cache_dir=global_cache_dir,
                 save_cache=True,
+                q_cap_ids=q_cap,
             )
-            loss = criterion(logits.reshape(-1, logits.size(-1)), a[:, 1:].reshape(-1))
+            loss = vqa_answer_loss(
+                logits,
+                a,
+                criterion,
+                eos_id=unwrap_model(model).eos_id,
+                pad_id=unwrap_model(model).pad_id,
+            )
             total_loss += float(loss.item())
 
         total_acc += vqa_acc(logits.argmax(dim=-1), batch["answers"], a_vocab)
@@ -1829,7 +2059,7 @@ def run_train(cfg: Dict[str, Any], args: argparse.Namespace, device: torch.devic
         run_eval = should_run_eval(epoch, epochs, cfg)
         if run_eval:
             va_loss, va_acc = eval_epoch(
-                model, val_loader, criterion, a_vocab, cfg, device, greedy=False
+                model, val_loader, criterion, a_vocab, cfg, device, greedy=True
             )
         scheduler.step()
         if rank == 0:

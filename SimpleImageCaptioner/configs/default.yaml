@@ -1,24 +1,19 @@
+# Full QD caption training.
+# Run from SimpleImageCaptioner/:
+#   python train.py --config configs/default.yaml
 seed: 42
-# Run from SimpleImageCaptioner/ so ../dataset resolves under src/
-train_captions_json: ../dataset/captions_train2014.json
-val_captions_json: ../dataset/captions_val2014.json
+train_captions_json: ../dataset/v2_question_dependent_captions_train2014.json
+val_captions_json: ../dataset/v2_question_dependent_captions_val2014.json
 train_images_dir: ../dataset/train2014
 val_images_dir: ../dataset/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 save_dir: outputs/default
-# save_model_type: "epoch" = save last.pt after each train epoch; "item" = every n samples.
-# degat kon in fagat nahve update shodan last.pt ro moshakhas mikone.
-#  best.pt hamishe ba best validation accurcy updaye mishe.
 save_model_type: epoch
-# in hyperparameter vagti estefade mishe ke "save_model_type" = "item" bashe.
-# save_every_samples: global train samples between last.pt writes (when save_model_type=item).
-# One sample = one (image, caption) pair.
 save_every_samples: 5000
 num_workers: 0
 batch_size: 10
 epochs: 25
-# Finglish: eval_every — validation har chand epoch? 1=har epoch ; 5=har 5 epoch + akhar.
 eval_every: 1
 learning_rate: 0.0005
 dropout: 0.5
@@ -27,11 +22,10 @@ lr_decay_interval: 4
 use_amp: true
 grad_accum_steps: 1
 max_caption_len: 20
+max_question_len: 14
 vocab_min_freq: 4
 max_regions: 32
 cache_regions: false
-# Finglish: train/val cache joda — raw FasterRCNN ROI (1024d) ghabl az roi_to_region.
-# degat kon age max_regions farg kone cache dige valid nist.
 train_region_cache_dir: outputs/region_cache/captioner/train
 val_region_cache_dir: outputs/region_cache/captioner/val
 image_size: 448
@@ -48,10 +42,6 @@ question_dim: 1280
 device: cuda
 ddp: false
 ddp_backend: nccl
-max_train_images: null
-max_val_images: null
-# Paper §5 scheduled sampling (GT token mixed with model prediction during train)
-# scheduled_sampling_p dar aval kar 0 khahad bood (kamalan teacher forcing hast)
 scheduled_sampling_max_prob: 0.24
 scheduled_sampling_interval: 4
 scheduled_sampling_increment: 0.06
