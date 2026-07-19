@@ -208,6 +208,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         - ``q_emb`` + ``q_gru`` → token haye **soal** (vaghti ``question_vocab_size`` set shode)
 
     Conditioning:
+        - ``qctx`` → LSTM init: ``h0,c0 = tanh(W · concat(mean_r, qctx))``
         - ``qctx`` → attention query: ``attn_query_proj([h; qctx])``
         - ``qctx`` → LSTM input: ``[word; attended; qctx]``
         - age ``question_ids=None`` → ``qctx=0`` (backward compat MSCOCO-only)
@@ -284,12 +285,12 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         self.ctx_to_logit = nn.Linear(self.embed_dim, hidden_dim)
         self.word_to_logit = nn.Linear(word_dim, hidden_dim)
 
-        # Finglish — Bug 3 fix: LSTM state az mean region initialize mishe (na zeros).
-        # Ghabl h=0 bood → attention dar step 0 koor bood → "a man" mode collapse.(yani hame caption ha avaleshon yeksan shoro mishod ke eshtebah bood)
-        # Hala: h = tanh(W * mean(regions)), c = tanh(W * mean(regions)) — image-specific.
-        # Referens: Xu et al. 2015 "Show, Attend and Tell" — hamoon technique.
-        self.region_init_h = nn.Linear(region_dim, hidden_dim)
-        self.region_init_c = nn.Linear(region_dim, hidden_dim)
+        # Finglish — LSTM init az image + soal (QD):
+        #   Ghabl faghat mean(regions) bood (Show-Attend-Tell).
+        #   Hala concat(mean_r, qctx) → Linear → tanh: h0/c0 soal-aware.
+        #   qctx=0 (COCO) → mesl ghabl, faghat image.
+        self.region_init_h = nn.Linear(region_dim + hidden_dim, hidden_dim)
+        self.region_init_c = nn.Linear(region_dim + hidden_dim, hidden_dim)
 
         # embedding + GRU joda baraye soal — ba word_emb caption share nemikone
         self.q_emb: Optional[nn.Embedding] = None
@@ -315,18 +316,20 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         return self
 
     def _init_lstm_state(
-        self, regions: torch.Tensor
+        self,
+        regions: torch.Tensor,
+        qctx: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """LSTM hidden va cell state ro az mean region features initialize mikone.
+        """LSTM h0/c0 az concat(mean regions, qctx) — image + soal.
 
-        Finglish — Bug 3 fix: be jaye zeros, h va c az mean-pool region compute mishan.
-        mean(regions) → (N, region_dim) → Linear → tanh → (N, hidden_dim).
-        In yani step 0 attention ya query mokhtas har tasvir hast, na zero (koor).
-        Referens: Xu et al. 2015 "Show, Attend and Tell", section 3.1.
+        Finglish — QD init: mean_r ba qctx concat → Linear → tanh.
+        Step 0 digar faghat image nist; soal ham toye state hast.
+        qctx=0 → behave mesl image-only (COCO compat).
         """
         mean_r = regions.mean(dim=1)
-        h = torch.tanh(self.region_init_h(mean_r))
-        c = torch.tanh(self.region_init_c(mean_r))
+        init_in = torch.cat([mean_r, qctx], dim=-1)
+        h = torch.tanh(self.region_init_h(init_in))
+        c = torch.tanh(self.region_init_c(init_in))
         return h, c
 
     def _qctx(
@@ -340,7 +343,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         Agar question_ids=None, zero vector (caption omumi / backward compat).
         Agar soal dare: ``q_emb`` → ``q_gru`` (PAD-aware last state) → qctx.
 
-        qctx ham be attention (concat ba h → proj) mire, ham be LSTM input concat.
+        qctx ham be LSTM init, attention (concat ba h → proj), va LSTM input mire.
         """
         if question_ids is None:
             return torch.zeros(batch, self.lstm_hidden, device=device)
@@ -433,8 +436,8 @@ class SimpleImageCaptioner(BaseImageCaptioner):
 
         # toye train question haro nemidim behesh.
         qctx = self._qctx(question_ids, n, images.device)
-        # Bug 3 fix: h,c az mean region initialize mishan (na zeros) — image-specific start.
-        h, c = self._init_lstm_state(regions)
+        # QD init: h,c az concat(mean_r, qctx) — image + soal (qctx=0 → image-only).
+        h, c = self._init_lstm_state(regions, qctx)
         logits: List[torch.Tensor] = []
         tok = caption_ids[:, 0]
         use_sampling = scheduled_sampling_p > 0.0
@@ -482,8 +485,8 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         )
         n = image.size(0)
         qctx = self._qctx(question_ids, n, image.device)
-        # Bug 3 fix: h,c az mean region initialize mishan (na zeros) — image-specific start.
-        h, c = self._init_lstm_state(regions)
+        # QD init: h,c az concat(mean_r, qctx) — image + soal.
+        h, c = self._init_lstm_state(regions, qctx)
         tok = torch.full((n,), 1, dtype=torch.long, device=image.device)
         out = [tok]
         hidden_steps: List[torch.Tensor] = []
@@ -577,7 +580,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         beam = max(1, int(beam_size))
 
         qctx = self._qctx(question_ids, n, device)
-        h, c = self._init_lstm_state(regions)
+        h, c = self._init_lstm_state(regions, qctx)
 
         r_count, r_dim = regions.size(1), regions.size(2)
         regions = regions.unsqueeze(1).expand(n, beam, r_count, r_dim).reshape(n * beam, r_count, r_dim)

@@ -71,7 +71,7 @@ flowchart TB
     FRCNN["Faster R-CNN (frozen)\n→ 32 regions × 1024"]
     ROI["roi_to_region (trainable)\n→ 32 × 2048"]
     GNN["RelationGNN (optional)\nregions + gnn_delta"]
-    INIT["LSTM init\nh,c = tanh(W · mean(regions))"]
+    INIT["LSTM init\nh,c = tanh(W · concat(mean_r, qctx))"]
     Q["question_ids"]
     QEMB["q_emb"]
     QGRU["q_gru (PAD-aware)"]
@@ -79,7 +79,8 @@ flowchart TB
     LOOP["Decode loop t=1..T"]
 
     IMG --> FRCNN --> ROI --> GNN --> INIT --> LOOP
-    Q --> QEMB --> QGRU --> QCTX --> LOOP
+    Q --> QEMB --> QGRU --> QCTX --> INIT
+    QCTX --> LOOP
 
     subgraph LOOP_DETAIL["Har step t"]
         ATT["attention(regions, proj(concat(h, qctx)))\n→ context 512-D"]
@@ -102,6 +103,7 @@ flowchart TB
 | `RelationGNN` | `relation_gnn.py` | Yes | `(N,32,2048)` → `(N,32,2048)` residual |
 | `RegionAttention` | `captioner_v1.py` | Yes | regions + `proj([h;qctx])` → context 512 |
 | `attn_query_proj` | `captioner_v1.py` | Yes | `[h; qctx]` 1024 → query 512 |
+| `region_init_h/c` | `captioner_v1.py` | Yes | `concat(mean_r, qctx)` → `h0,c0` 512 |
 | `word_emb` | `captioner_v1.py` | Yes | caption token → 512 |
 | `q_emb` + `q_gru` | `captioner_v1.py` | Yes (QD) | question ids → `qctx` 512 |
 | `LSTMCell` | `captioner_v1.py` | Yes | `[word; attended; qctx]` → `h_t` 512 |
@@ -232,6 +234,7 @@ Captioner az `SimpleImageCaptioner/outputs/qd_*/best.pt` load mishe:
 
 ```
 qctx = q_gru(q_emb(q_cap))   # PAD-aware last state
+h0, c0 = tanh(W · concat(mean(regions), qctx))   # QD LSTM init
 attention_query = attn_query_proj([h_{t-1}; qctx])   # concat then Linear 1024→512
 LSTM input = [word; attended; qctx]
 ```

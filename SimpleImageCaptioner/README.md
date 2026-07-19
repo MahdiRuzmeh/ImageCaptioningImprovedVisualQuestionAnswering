@@ -2,7 +2,7 @@
 
 Question-dependent image captioning — Stage 1 of the thesis pipeline (*Image captioning improved visual question answering*, Sharma & Jalal, 2021).
 
-Each training sample is `(image, question, caption)` from `v2_question_dependent_captions_*.json`. The decoder builds the attention query as `attn_query_proj([h_{t-1}; qctx])` (concat then linear), where `qctx` comes from a PAD-aware `q_gru` over the question.
+Each training sample is `(image, question, caption)` from `v2_question_dependent_captions_*.json`. The decoder conditions on `qctx` (PAD-aware `q_gru`) for LSTM init `concat(mean_r, qctx)`, attention query `attn_query_proj([h; qctx])`, and LSTM input.
 
 ## Train
 
