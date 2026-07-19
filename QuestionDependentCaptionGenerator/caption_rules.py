@@ -142,17 +142,52 @@ def rule_what_color(question: str, answer: str) -> Optional[str]:
     return f"The {obj} {verb} {answer}."
 
 
+# Trailing question fluff for "How many X ...?" — not part of the noun phrase.
+# e.g. "cookies can be seen" → "cookies", "cars are in the image" → "cars"
+_HOW_MANY_STRIP_TAIL = re.compile(
+    r"\s+(?:"
+    r"are there|is there|"
+    r"can be seen|can you see|do you see|"
+    r"are visible|is visible|"
+    r"(?:are|is)\s+(?:in|on|at|near|behind|under|over|inside|outside|next to)\b.*|"
+    r"(?:in|on)\s+.+"
+    r")$",
+    re.I,
+)
+
+# Remaining verb clause after the noun: "people are standing" → predicate form.
+_HOW_MANY_PREDICATE = re.compile(
+    r"^(.+?)\s+((?:are|is|was|were|have|has|do|does|can|could)\s+.+)$",
+    re.I,
+)
+
+
 def rule_how_many(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'How many X ...?' → 'There are {answer} X.'"""
-    m = re.match(
-        r"^how many (.+?)(?: are there| is there| are in| is in| in .+| on .+)?$",
-        question,
-        re.I,
-    )
+    """Pattern: 'How many X ...?' → 'There are {answer} X.' (or '{N} X are ...').
+
+    Strips visibility/location scaffolding so
+    "How many cookies can be seen?" → "There are two cookies."
+    Keeps real predicates when present:
+    "How many people are standing?" → "Two people are standing."
+    """
+    m = re.match(r"^how many (.+)$", question, re.I)
     if not m:
         return None
-    obj = m.group(1).strip()
+    obj = _HOW_MANY_STRIP_TAIL.sub("", m.group(1).strip()).strip()
+    if not obj:
+        return None
     ans = normalize_answer(answer)
+
+    pred_m = _HOW_MANY_PREDICATE.match(obj)
+    if pred_m:
+        noun, predicate = pred_m.group(1).strip(), pred_m.group(2).strip()
+        if is_no(answer) or ans in {"zero", "none"}:
+            return f"There are no {noun}."
+        if ans in {"one", "1"}:
+            # "is" for singular when the predicate starts with are/is
+            predicate = re.sub(r"^(are|were)\b", "is", predicate, count=1, flags=re.I)
+            return f"One {noun} {predicate}."
+        return f"{capitalize_first(ans)} {noun} {predicate}."
 
     if is_no(answer) or ans in {"zero", "none"}:
         return f"There are no {obj}."
