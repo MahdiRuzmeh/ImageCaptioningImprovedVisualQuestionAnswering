@@ -82,9 +82,9 @@ flowchart TB
     Q --> QEMB --> QGRU --> QCTX --> LOOP
 
     subgraph LOOP_DETAIL["Har step t"]
-        ATT["attention(regions, h + qctx)\n→ context 512-D"]
+        ATT["attention(regions, proj(concat(h, qctx)))\n→ context 512-D"]
         WE["word_emb(token_{t-1})"]
-        LSTM["LSTMCell([word; attended; qctx])"]
+        LSTM["LSTMCell(concat(word, attended, qctx))"]
         OUT["classifier(h + ctx + word)\n→ logits"]
         ATT --> LSTM
         WE --> LSTM
@@ -100,7 +100,8 @@ flowchart TB
 |-------|------|------------|---------------------|
 | `RegionEncoder` | `captioner_v1.py` | `roi_to_region` only | Image → `(N, 32, 2048)` |
 | `RelationGNN` | `relation_gnn.py` | Yes | `(N,32,2048)` → `(N,32,2048)` residual |
-| `RegionAttention` | `captioner_v1.py` | Yes | regions + `h+qctx` → context 512 |
+| `RegionAttention` | `captioner_v1.py` | Yes | regions + `proj([h;qctx])` → context 512 |
+| `attn_query_proj` | `captioner_v1.py` | Yes | `[h; qctx]` 1024 → query 512 |
 | `word_emb` | `captioner_v1.py` | Yes | caption token → 512 |
 | `q_emb` + `q_gru` | `captioner_v1.py` | Yes (QD) | question ids → `qctx` 512 |
 | `LSTMCell` | `captioner_v1.py` | Yes | `[word; attended; qctx]` → `h_t` 512 |
@@ -231,7 +232,7 @@ Captioner az `SimpleImageCaptioner/outputs/qd_*/best.pt` load mishe:
 
 ```
 qctx = q_gru(q_emb(q_cap))   # PAD-aware last state
-attention_query = h_{t-1} + qctx
+attention_query = attn_query_proj([h_{t-1}; qctx])   # concat then Linear 1024→512
 LSTM input = [word; attended; qctx]
 ```
 

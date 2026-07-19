@@ -208,7 +208,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         - ``q_emb`` + ``q_gru`` → token haye **soal** (vaghti ``question_vocab_size`` set shode)
 
     Conditioning:
-        - ``qctx`` → attention query: ``h + qctx``
+        - ``qctx`` → attention query: ``attn_query_proj([h; qctx])``
         - ``qctx`` → LSTM input: ``[word; attended; qctx]``
         - age ``question_ids=None`` → ``qctx=0`` (backward compat MSCOCO-only)
     """
@@ -255,6 +255,12 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         self.gnn_out = nn.Linear(gnn_work_dim, region_dim)
 
         self.attention = RegionAttention(region_dim, hidden_dim, self.embed_dim)
+
+        # Finglish — attn query = Linear(concat(h, qctx)):
+        #   sum(h+qctx) yek W moshtarak dare → feature ha cancel mishan.
+        #   concat → W_h@h + W_q@qctx joda → QD attention ghavitar.
+        #   qctx=0 (COCO) → [h; 0] hanuz OK.
+        self.attn_query_proj = nn.Linear(hidden_dim * 2, hidden_dim)
 
         self.word_emb = nn.Embedding(vocab_size, word_dim, padding_idx=pad_id)
 
@@ -334,7 +340,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         Agar question_ids=None, zero vector (caption omumi / backward compat).
         Agar soal dare: ``q_emb`` → ``q_gru`` (PAD-aware last state) → qctx.
 
-        qctx ham be attention (h + qctx) mire, ham be LSTM input concat.
+        qctx ham be attention (concat ba h → proj) mire, ham be LSTM input concat.
         """
         if question_ids is None:
             return torch.zeros(batch, self.lstm_hidden, device=device)
@@ -386,11 +392,12 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         c: torch.Tensor,
         qctx: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Yek step decode: attention (h+qctx) + LSTM([word; attended; qctx]) + logits."""
+        """Yek step decode: attention(concat+proj) + LSTM([word; attended; qctx]) + logits."""
         # Finglish — strong QD conditioning:
-        #   1) attention query = h + qctx → region-haye related be soal
+        #   1) query = attn_query_proj([h; qctx]) → region-haye related be soal
         #   2) LSTM input = [word; attended; qctx] → soal mostaghim toye decode
-        attended = self.attention(regions, h + qctx)
+        attn_query = self.attn_query_proj(torch.cat([h, qctx], dim=-1))
+        attended = self.attention(regions, attn_query)
         word = self.word_emb(caption_tok)
         h, c = self.lstm(torch.cat([word, attended, qctx], dim=-1), (h, c))
         # Finglish — deep-output: logit = f(h, attended, word).
@@ -455,7 +462,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         """Loop greedy decode — moshtarak baraye inference va train VQA.
 
         Har step:
-            qctx = f(q_emb, question_ids)  → attention(regions, h + qctx)
+            qctx = f(q_emb, question_ids)  → attention(regions, proj([h; qctx]))
             → LSTM → logits → argmax token
 
         Args:
@@ -674,7 +681,7 @@ class SimpleImageCaptioner(BaseImageCaptioner):
             - caption GT baraye (image, question) nadarim → captioner ro direct train nemikonim
             - argmax token gradient ro cut mikone → nemitoonim ``word_emb(cap)`` ro baraye backprop estefade konim
             - hal: v_cap = mean(LSTM hidden states) dar hamin decode loop
-            - grad path: answer_loss → v_cap → h → attention(h+qctx) → qctx → q_emb
+            - grad path: answer_loss → v_cap → h → attn_query_proj([h;qctx]) → qctx → q_emb
             - faghat ``q_emb`` (+ ``q_proj``) trainable hastan; LSTM/attention frozen vali grad az input rad mishe
 
         Returns:
