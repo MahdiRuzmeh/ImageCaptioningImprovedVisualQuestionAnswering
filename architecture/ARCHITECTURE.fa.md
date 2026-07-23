@@ -86,7 +86,7 @@ flowchart TB
         ATT["attention(regions, proj(concat(h, qctx)))\n→ context 512-D"]
         WE["word_emb(token_{t-1})"]
         LSTM["LSTMCell(concat(word, attended, qctx))"]
-        OUT["classifier(h + ctx + word)\n→ logits"]
+        OUT["classifier(h + ctx)\n→ logits"]
         ATT --> LSTM
         WE --> LSTM
         LSTM --> OUT

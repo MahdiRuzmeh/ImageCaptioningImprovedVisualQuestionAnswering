@@ -278,12 +278,11 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(hidden_dim, vocab_size)
 
-        # Finglish — deep-output grounding (Show-Attend-Tell eq. 7):
-        #   logit faghat az h LSTM nemiyad; attended (image context) va word emb
-        #   mostaghim be classifier ezafe mishan → model nemitone image ro ignore kone.
-        #   ctx_to_logit: context(512)→hidden, word_to_logit: word(512)→hidden.
+        # Finglish — deep-output visual grounding:
+        #   logit = f(h, attended) — word emb digar mostaghim be classifier nemire
+        #   (language shortcut → model vision ro kamtar midid).
+        #   word hanuz az LSTM input miad; ctx_to_logit image ro ejbar mikone.
         self.ctx_to_logit = nn.Linear(self.embed_dim, hidden_dim)
-        self.word_to_logit = nn.Linear(word_dim, hidden_dim)
 
         # Finglish — LSTM init az image + soal (QD):
         #   Ghabl faghat mean(regions) bood (Show-Attend-Tell).
@@ -403,9 +402,9 @@ class SimpleImageCaptioner(BaseImageCaptioner):
         attended = self.attention(regions, attn_query)
         word = self.word_emb(caption_tok)
         h, c = self.lstm(torch.cat([word, attended, qctx], dim=-1), (h, c))
-        # Finglish — deep-output: logit = f(h, attended, word).
-        # image context (attended) mostaghim vared prediction mishe → grounding ejbari.
-        out = self.dropout(h) + self.ctx_to_logit(attended) + self.word_to_logit(word)
+        # Finglish — deep-output: logit = h + ctx_to_logit(attended).
+        # word shortcut hazf shod → model bishtar be visual context takye mikone.
+        out = self.dropout(h) + self.ctx_to_logit(attended)
         return self.classifier(out), h, c
 
     def forward_train(
