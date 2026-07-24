@@ -1420,6 +1420,7 @@ class VQAModel(nn.Module):
             else:
                 v = v_cap * v_att
         else:
+            # Age use_captioner disabled bashe miyaym fagat az v_att estefade mikonim.
             v = v_att
 
         batch = images.size(0)
