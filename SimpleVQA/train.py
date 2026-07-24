@@ -113,6 +113,59 @@ def load_config(path: str) -> Dict[str, Any]:
         return yaml.safe_load(f)
 
 
+def print_run_config(
+    cfg: Dict[str, Any],
+    *,
+    config_path: Optional[str] = None,
+    cli: Optional[Dict[str, Any]] = None,
+    save_path: Optional[Path] = None,
+    rank: int = 0,
+) -> None:
+    """Print (and optionally persist) the full resolved training config.
+
+    Intended for ablation / version comparison: every hyperparameter and path
+    is dumped once before training so terminal logs (and ``run_config.yaml``)
+    show exactly which settings produced a given run.
+
+    Args:
+        cfg: Resolved config dict (paths already absolute when applicable).
+        config_path: Optional path to the YAML file that was loaded.
+        cli: Optional CLI flags (e.g. ``vars(args)``) recorded under ``_cli``.
+        save_path: If set, write the same dump to this file (parent dirs created).
+        rank: DDP rank; only ``rank == 0`` prints / writes.
+
+    Note:
+        Keys are sorted so two run dumps are easy to diff line-by-line.
+    """
+    if int(rank) != 0:
+        return
+
+    payload: Dict[str, Any] = dict(cfg)
+    if config_path is not None:
+        payload = {"_config_path": str(config_path), **payload}
+    if cli is not None:
+        payload = {**payload, "_cli": dict(cli)}
+
+    body = yaml.safe_dump(
+        payload,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=True,
+    )
+    banner = "=" * 72
+    print(banner)
+    print("RUN CONFIG (all parameters — compare versions / ablations)")
+    print(banner)
+    print(body.rstrip())
+    print(banner)
+
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        save_path.write_text(body, encoding="utf-8")
+        print(f"run_config saved → {save_path.resolve()}")
+
+
 def resolve_path_fields(cfg: Dict[str, Any], keys: Tuple[str, ...]) -> None:
     """Path haye relative ro be absolute tabdil kon (in-place)."""
     for key in keys:
@@ -2128,6 +2181,15 @@ def main() -> None:
         "cuda" if torch.cuda.is_available() and cfg.get("device") == "cuda" else "cpu"
     )
     print(f"config={config_path}")
+    # Dump full YAML before train/eval so ablations are comparable from logs.
+    # RANK comes from torchrun when DDP starts later inside run_train.
+    print_run_config(
+        cfg,
+        config_path=str(config_path),
+        cli=vars(args),
+        save_path=Path(cfg["save_dir"]) / "run_config.yaml",
+        rank=int(os.environ.get("RANK", "0")),
+    )
 
     if args.eval:
         ckpt = args.ckpt or str(Path(cfg["save_dir"]) / "best.pt")
