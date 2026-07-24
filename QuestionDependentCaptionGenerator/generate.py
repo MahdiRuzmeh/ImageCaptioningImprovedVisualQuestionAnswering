@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from caption_rules import generate_caption, mode_answer
-from llm_client import OllamaClient, run_batches_concurrent
+from llm_client import ItemOutcome, OllamaClient, run_batches_concurrent
 from llm_prompts import PROMPT_VERSION
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -224,6 +224,82 @@ def merge_llm_resume(
     return restored
 
 
+def llm_failure_log_path(output_path: Path) -> Path:
+    """Sidecar log path next to captions JSON (``*.json.llm_failures.log``)."""
+    return output_path.with_suffix(output_path.suffix + ".llm_failures.log")
+
+
+class LlmFailureLogger:
+    """Append-only log file that explains why LLM could not replace ``fallback``.
+
+    Written next to the captions JSON so connection / parse / answer-mismatch
+    reasons are visible without silent leftovers.
+    """
+
+    def __init__(self, path: Path) -> None:
+        """Open (overwrite) the failure log and write a header."""
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._fh = self.path.open("w", encoding="utf-8")
+        self.count = 0
+        self.reason_counts: Counter = Counter()
+        self._fh.write(
+            "# LLM fallback failure log\n"
+            "# Each block = one Q+A that stayed rule=fallback after LLM attempts.\n"
+            f"# log_path={self.path.resolve()}\n"
+            f"{'=' * 72}\n"
+        )
+        self._fh.flush()
+
+    def log_failure(
+        self,
+        *,
+        question_id: int,
+        question: str,
+        answer: str,
+        template_caption: str,
+        outcome: ItemOutcome,
+    ) -> None:
+        """Record one failed LLM upgrade with reason + attempt trail."""
+        self.count += 1
+        self.reason_counts[outcome.reason] += 1
+        attempts = " -> ".join(outcome.attempts) if outcome.attempts else "(none)"
+        self._fh.write(
+            f"\n[{self.count}] question_id={question_id}\n"
+            f"  reason:   {outcome.reason}\n"
+            f"  detail:   {outcome.detail}\n"
+            f"  attempts: {attempts}\n"
+            f"  Q: {question}\n"
+            f"  A: {answer}\n"
+            f"  template_caption: {template_caption}\n"
+        )
+        self._fh.flush()
+
+    def write_summary(self, still_fallback: int) -> None:
+        """Append reason histogram + leftover count."""
+        self._fh.write(f"\n{'=' * 72}\n")
+        self._fh.write("SUMMARY\n")
+        self._fh.write(f"  failures_logged: {self.count}\n")
+        self._fh.write(f"  still_rule_fallback: {still_fallback}\n")
+        if self.reason_counts:
+            self._fh.write("  by_reason:\n")
+            for reason, n in self.reason_counts.most_common():
+                self._fh.write(f"    {reason}: {n}\n")
+        self._fh.write(
+            "\nIf still_rule_fallback > 0, the system did NOT fully succeed.\n"
+            "Fix the top reason (Ollama down, parse_length_mismatch, "
+            "answer_mismatch, …) and re-run the same --llm command.\n"
+        )
+        self._fh.flush()
+
+    def close(self) -> None:
+        """Close the underlying file handle."""
+        try:
+            self._fh.close()
+        except Exception:
+            pass
+
+
 def apply_llm_fallbacks(
     rows: List[Dict[str, Any]],
     *,
@@ -236,11 +312,31 @@ def apply_llm_fallbacks(
     annotations_json: Path,
     llm_meta: Dict[str, Any],
     resume_map: Optional[Dict[int, Dict[str, Any]]] = None,
+    failure_log: Optional[LlmFailureLogger] = None,
+    single_retries: int = 2,
+    final_retries: int = 3,
 ) -> Counter:
     """Row haye rule=fallback ro ba packed LLM caption update mikone.
 
     Resume: age question_id toye resume_map bashe, LLM call nemikone.
     Checkpoint: har N batch (default 1), JSON ro atomic save mikone.
+    Failures: written to ``failure_log`` (why LLM could not be used).
+    Final pass: leftover fallbacks get extra single-item retries.
+
+    Args:
+        rows: annotation rows (mutated in place)
+        client: Ollama client
+        batch_size: Q+A per packed prompt
+        workers: concurrent HTTP workers
+        checkpoint_every: save JSON every N batches
+        output_path: captions JSON path
+        questions_json: source questions path (metadata)
+        annotations_json: source annotations path (metadata)
+        llm_meta: stored under info.llm
+        resume_map: prior llm_fallback captions by question_id
+        failure_log: optional logger for rejected / failed items
+        single_retries: per-item retries inside each batch
+        final_retries: extra single calls for leftovers at the end
     """
     resume_map = resume_map or {}
     restored = merge_llm_resume(rows, resume_map)
@@ -254,7 +350,7 @@ def apply_llm_fallbacks(
     print(
         f"LLM fallback: {len(pending_idx)} pending, {already} already done "
         f"(batch-size={batch_size}, workers={workers}, "
-        f"checkpoint-every={checkpoint_every})"
+        f"checkpoint-every={checkpoint_every}, num_ctx={client.num_ctx})"
     )
 
     if not pending_idx:
@@ -268,22 +364,26 @@ def apply_llm_fallbacks(
         [(q, a) for _, (q, a) in batch] for batch in batches_idx
     ]
 
+    last_outcome: Dict[int, ItemOutcome] = {}
     done_batches = 0
     total_batches = len(batches_pairs)
 
-    def _on_batch(batch_i: int, caps: List[Optional[str]]) -> None:
+    def _on_batch(batch_i: int, outcomes: List[ItemOutcome]) -> None:
         nonlocal done_batches
-        for j, cap in enumerate(caps):
+        ok_n = 0
+        for j, outcome in enumerate(outcomes):
             row_i = batches_idx[batch_i][j][0]
-            if cap is None:
+            last_outcome[row_i] = outcome
+            if outcome.caption is None:
                 continue
-            rows[row_i]["caption"] = cap
+            rows[row_i]["caption"] = outcome.caption
             rows[row_i]["rule"] = "llm_fallback"
+            ok_n += 1
         done_batches += 1
         still = sum(1 for r in rows if r["rule"] == "fallback")
         print(
             f"  LLM batch {batch_i + 1}/{total_batches} done "
-            f"({done_batches}/{total_batches} completed, "
+            f"(accepted {ok_n}/{len(outcomes)}, "
             f"{still} fallback left)"
         )
         if checkpoint_every > 0 and done_batches % checkpoint_every == 0:
@@ -303,7 +403,61 @@ def apply_llm_fallbacks(
         batches_pairs,
         workers=workers,
         on_batch_done=_on_batch,
+        single_retries=single_retries,
     )
+
+    leftover = [i for i, r in enumerate(rows) if r["rule"] == "fallback"]
+    if leftover and final_retries > 0:
+        print(
+            f"Final salvage: {len(leftover)} fallback left — "
+            f"single-item retry x{final_retries}"
+        )
+        for row_i in leftover:
+            q = rows[row_i]["question"]
+            a = rows[row_i]["answer"]
+            outcomes = client.captions_with_retry(
+                [(q, a)], single_retries=final_retries
+            )
+            outcome = outcomes[0]
+            last_outcome[row_i] = outcome
+            if outcome.caption is None:
+                continue
+            rows[row_i]["caption"] = outcome.caption
+            rows[row_i]["rule"] = "llm_fallback"
+
+    if failure_log is not None:
+        for row_i, row in enumerate(rows):
+            if row["rule"] != "fallback":
+                continue
+            outcome = last_outcome.get(
+                row_i,
+                ItemOutcome(
+                    reason="unknown",
+                    detail="no LLM outcome recorded for this row",
+                ),
+            )
+            failure_log.log_failure(
+                question_id=int(row["question_id"]),
+                question=str(row["question"]),
+                answer=str(row["answer"]),
+                template_caption=str(row["caption"]),
+                outcome=outcome,
+            )
+        still_logged = sum(1 for r in rows if r["rule"] == "fallback")
+        failure_log.write_summary(still_logged)
+
+    still = sum(1 for r in rows if r["rule"] == "fallback")
+    if still:
+        log_hint = (
+            f" — see {failure_log.path}" if failure_log is not None else ""
+        )
+        print(
+            f"WARNING: {still} rows still rule=fallback after LLM"
+            f"{log_hint}. System did not fully succeed."
+        )
+    else:
+        print("LLM fallback: all pending rows upgraded to llm_fallback.")
+
     return recount_rules(rows)
 
 
@@ -382,6 +536,14 @@ def print_stats(
             print(f"  A: {row['answer']}")
             print(f"  C: {row['caption']}  [{row['rule']}]")
             print()
+
+    still = sum(1 for r in rows if r["rule"] == "fallback")
+    if still:
+        log_p = llm_failure_log_path(output_path)
+        print(
+            f"NOTE: {still} rule=fallback remain. "
+            f"With --llm, see failure reasons in:\n  {log_p}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -523,13 +685,19 @@ def main() -> None:
         )
 
     llm_meta: Optional[Dict[str, Any]] = None
+    failure_log: Optional[LlmFailureLogger] = None
     if args.llm:
+        log_path = llm_failure_log_path(output_path)
+        failure_log = LlmFailureLogger(log_path)
+        print(f"LLM failure log -> {log_path}")
         llm_meta = {
             "model": args.model,
             "batch_size": args.batch_size,
             "workers": args.workers,
             "host": args.ollama_host,
             "prompt_version": PROMPT_VERSION,
+            "num_ctx": 4096,
+            "failure_log": str(log_path.resolve()),
         }
         # Merge llm_fallback az file (age rules-rebuild shode bashe).
         # Age rows mostaghim az checkpoint load shode, merge no-op safe hast.
@@ -539,7 +707,11 @@ def main() -> None:
         else:
             resume_map = load_existing_llm_map(output_path)
 
-        client = OllamaClient(host=args.ollama_host, model=args.model)
+        client = OllamaClient(
+            host=args.ollama_host,
+            model=args.model,
+            num_ctx=4096,
+        )
         try:
             rule_counts = apply_llm_fallbacks(
                 rows,
@@ -552,6 +724,7 @@ def main() -> None:
                 annotations_json=annotations_json,
                 llm_meta=llm_meta,
                 resume_map=resume_map,
+                failure_log=failure_log,
             )
         except KeyboardInterrupt:
             # Ctrl+C: last state ro save kon ta resume beshe
@@ -566,11 +739,18 @@ def main() -> None:
                 llm_meta=llm_meta,
             )
             still = sum(1 for r in rows if r["rule"] == "fallback")
+            if failure_log is not None:
+                # Log whatever we know so far (outcomes may be partial)
+                failure_log.write_summary(still)
+                failure_log.close()
             print(
                 f"Checkpoint saved -> {output_path} "
                 f"({still} fallback left). Dobare hamoon command ro bezan."
             )
             raise SystemExit(130) from None
+        finally:
+            if failure_log is not None:
+                failure_log.close()
 
     write_output_json(
         output_path,
@@ -581,6 +761,14 @@ def main() -> None:
         llm_meta=llm_meta,
     )
     print_stats(rows, rule_counts, output_path)
+    if args.llm:
+        still = sum(1 for r in rows if r["rule"] == "fallback")
+        if still:
+            print(
+                f"ERROR: {still} fallback remain after --llm. "
+                f"Inspect {llm_failure_log_path(output_path)}"
+            )
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

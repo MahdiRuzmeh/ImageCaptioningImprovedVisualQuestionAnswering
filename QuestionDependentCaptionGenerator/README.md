@@ -79,6 +79,24 @@ python generate.py --split val --llm --batch-size 10 --workers 1 \
   --model qwen2.5:3b-instruct-q4_K_M --checkpoint-every 50
 ```
 
+### LLM failure log
+
+With `--llm`, every leftover `rule=fallback` is explained in a sidecar log:
+
+`outputs/v2_question_dependent_captions_{split}2014.json.llm_failures.log`
+
+Typical reasons:
+
+| reason | Meaning |
+|--------|---------|
+| `connection_error` | Ollama not reachable |
+| `http_error` | Ollama HTTP error (model missing, …) |
+| `parse_length_mismatch` | Model did not return N captions as JSON array |
+| `parse_json_error` / `parse_no_json_array` | Response was not valid JSON |
+| `answer_mismatch` | Caption omitted the answer tokens |
+| `empty_response` / `timeout` | Model returned nothing / timed out |
+
+If `--llm` finishes with any `fallback` left, the process exits with code `1` and prints the log path. Fix the top reason and re-run the same command.
 ### 8GB VRAM notes
 
 - Yek model load mishe (na chand copy).
