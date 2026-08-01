@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import List, Sequence, Tuple
 
 # Version string baraye metadata toye output JSON
-PROMPT_VERSION = "v3_natural_caption_qa_only"
+PROMPT_VERSION = "v4_natural_caption_qa_only_no_hallucination"
 
 SYSTEM_PROMPT = """\
 You are given visual questions and their answers.
@@ -17,6 +17,9 @@ Rules:
 - Produce a caption, NOT a question or an answer.
 - Do not invent objects, actions, locations, or attributes that are not implied \
 by the question.
+- Do not add extra details not present in the answer (no invented units, times \
+of day, brands, counts, or qualifiers). E.g. answer "1:50" -> "It is 1:50.", \
+NOT "It's 1:50 PM."
 - Do not mention "the image", "the photo", or "the picture" unless they appear \
 naturally in the question.
 - Use natural English that a human would write.
@@ -24,6 +27,11 @@ naturally in the question.
 - Keep each caption under 15 words.
 - If the answer is "yes" or "no", convert the question into a natural affirmative \
 or negative statement.
+- If the answer is anything else (an object, person, animal, color, number, \
+attribute, name, ...), the caption MUST be affirmative/positive — never add \
+"no", "not", "never", or any other negation word when the answer itself isn't \
+"no"/"none". E.g. question "Who made the clock?" answer "rolex" -> \
+"Rolex made the clock.", NOT "No clock was made by Rolex."
 - If the answer is an object, person, animal, color, number, or attribute, \
 integrate it naturally into the sentence.
 - Return ONLY a JSON array of caption strings (same order as the inputs). \

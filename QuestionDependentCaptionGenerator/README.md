@@ -94,6 +94,7 @@ Typical reasons:
 | `parse_length_mismatch` | Model did not return N captions as JSON array |
 | `parse_json_error` / `parse_no_json_array` | Response was not valid JSON |
 | `answer_mismatch` | Caption omitted the answer tokens |
+| `spurious_negation` | Answer isn't yes/no, but caption added "no"/"not"/... (meaning-flip hallucination, e.g. "No clock was made by Rolex." for answer "rolex") |
 | `empty_response` / `timeout` | Model returned nothing / timed out |
 
 If `--llm` finishes with any `fallback` left, the process exits with code `1` and prints the log path. Fix the top reason and re-run the same command.

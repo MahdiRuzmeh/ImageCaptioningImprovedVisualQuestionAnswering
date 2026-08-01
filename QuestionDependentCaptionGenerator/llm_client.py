@@ -154,6 +154,13 @@ def parse_caption_list(raw: str, expected: int) -> ParseResult:
 _YES = {"yes", "yeah", "yep", "true", "maybe"}
 _NO = {"no", "none", "0", "zero", "n/a", "not", "nothing"}
 
+# Negation markers that flip the meaning of a sentence. If the gold answer is
+# NOT itself a yes/no-style answer, a caption containing one of these is very
+# likely a hallucinated meaning-flip (e.g. Q: 'Who made the cock?' A: 'rolex'
+# -> LLM outputs 'No cock was made by Rolex.' — wrong, but 'rolex' still
+# passes a naive substring check).
+_NEGATION_RE = re.compile(r"\b(no|not|n't|never|none|nobody|nothing|neither|without)\b", re.I)
+
 
 def answer_in_caption(answer: str, caption: str) -> bool:
     """Check mikone javab toye caption hast; yes/no joda handle mishe."""
@@ -171,6 +178,38 @@ def answer_in_caption(answer: str, caption: str) -> bool:
     return all(t in c for t in tokens)
 
 
+def has_spurious_negation(answer: str, caption: str) -> bool:
+    """True if caption negates a statement that a non-yes/no answer never implied.
+
+    A negation word in the caption is fine when:
+      - the gold answer is itself yes/no/none-style, or
+      - the answer text already contains a negation word (e.g. 'not moving'),
+        so the caption is just echoing it, not flipping the meaning.
+    """
+    a = answer.strip().lower()
+    if not a or a in _YES or a in _NO:
+        return False
+    if not _NEGATION_RE.search(caption):
+        return False
+    answer_words = set(re.split(r"\W+", a))
+    if answer_words & {"no", "not", "never", "none", "nobody", "nothing", "neither", "without"}:
+        return False
+    return True
+
+
+def caption_is_valid(answer: str, caption: str) -> Tuple[bool, str]:
+    """Combined acceptance check: answer grounded in caption AND no meaning-flip.
+
+    Returns:
+        (ok, reason) — reason is 'ok', 'answer_mismatch', or 'spurious_negation'.
+    """
+    if has_spurious_negation(answer, caption):
+        return False, "spurious_negation"
+    if answer_in_caption(answer, caption):
+        return True, "ok"
+    return False, "answer_mismatch"
+
+
 def answer_mismatch_detail(answer: str, caption: str) -> str:
     """Human-readable why answer_in_caption failed."""
     a = answer.strip().lower()
@@ -179,6 +218,15 @@ def answer_mismatch_detail(answer: str, caption: str) -> str:
     return (
         f"answer={answer!r} not reflected in caption={caption!r}"
         + (f"; missing_tokens={missing}" if missing else "")
+    )
+
+
+def spurious_negation_detail(answer: str, caption: str) -> str:
+    """Human-readable why caption was rejected for a spurious negation."""
+    hits = _NEGATION_RE.findall(caption)
+    return (
+        f"answer={answer!r} is not yes/no, but caption={caption!r} "
+        f"contains negation word(s) {hits} — likely a meaning-flip hallucination"
     )
 
 
@@ -324,7 +372,8 @@ class OllamaClient:
         if batch.captions is not None:
             for i, cap in enumerate(batch.captions):
                 q, a = pairs_list[i]
-                if answer_in_caption(a, cap):
+                ok, reason = caption_is_valid(a, cap)
+                if ok:
                     out[i] = ItemOutcome(
                         caption=cap,
                         reason="ok",
@@ -332,10 +381,15 @@ class OllamaClient:
                         attempts=[f"batch:ok"],
                     )
                 else:
+                    detail = (
+                        spurious_negation_detail(a, cap)
+                        if reason == "spurious_negation"
+                        else answer_mismatch_detail(a, cap)
+                    )
                     out[i] = ItemOutcome(
-                        reason="answer_mismatch",
-                        detail=answer_mismatch_detail(a, cap),
-                        attempts=[f"batch:answer_mismatch"],
+                        reason=reason,
+                        detail=detail,
+                        attempts=[f"batch:{reason}"],
                     )
         else:
             for i in range(n):
@@ -362,7 +416,8 @@ class OllamaClient:
                     last.detail = single.detail
                     continue
                 cap = single.captions[0]
-                if answer_in_caption(a, cap):
+                ok, reason = caption_is_valid(a, cap)
+                if ok:
                     out[i] = ItemOutcome(
                         caption=cap,
                         reason="ok",
@@ -370,9 +425,13 @@ class OllamaClient:
                         attempts=last.attempts + [f"{tag}:ok"],
                     )
                     break
-                last.attempts.append(f"{tag}:answer_mismatch")
-                last.reason = "answer_mismatch"
-                last.detail = answer_mismatch_detail(a, cap)
+                last.attempts.append(f"{tag}:{reason}")
+                last.reason = reason
+                last.detail = (
+                    spurious_negation_detail(a, cap)
+                    if reason == "spurious_negation"
+                    else answer_mismatch_detail(a, cap)
+                )
             else:
                 out[i] = last
         return out

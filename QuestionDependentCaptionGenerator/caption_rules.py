@@ -35,6 +35,31 @@ DIGIT_TO_WORD: Dict[str, str] = {
 
 ARTICLES = {"a", "an", "the", "this", "that", "these", "those"}
 
+# Bare personal pronouns — never prefix these with "The" (bug: "The he is ...").
+PRONOUNS = {"he", "she", "it", "they", "we", "you", "i", "who"}
+
+# Quantifier-led NPs ('one of the giraffes') are already a complete subject —
+# don't prefix them with "The" either (bug: "The one is of the giraffes...").
+_QUANTIFIER_LEAD = {
+    "one", "some", "any", "each", "all", "both", "most", "many", "few",
+    "several", "none",
+}
+
+# Mass / uncountable nouns commonly seen as VQA answers — never prefix these
+# with "a/an" (bug: "The animal is eating a grass.").
+_MASS_ANSWER_NOUNS = {
+    "water", "grass", "sand", "snow", "rain", "ice", "bread", "cheese",
+    "meat", "rice", "pasta", "soup", "coffee", "tea", "milk", "juice",
+    "wine", "wood", "metal", "plastic", "paper", "glass", "dirt", "mud",
+    "smoke", "fog", "air", "wind", "music", "art", "equipment",
+    "furniture", "luggage", "traffic", "hair", "fur", "wool", "cotton",
+    "silk", "leather", "gravel", "hay", "straw", "concrete", "gold",
+    "silver", "steel", "cement", "salt", "sugar", "flour", "cereal",
+    "salad", "corn", "broccoli", "lettuce", "spinach", "asparagus",
+    "popcorn", "spaghetti", "butter", "honey", "jam", "cream", "yogurt",
+    "clothing", "makeup", "trash", "garbage", "ketchup", "mustard",
+}
+
 RuleFn = Callable[[str, str], Optional[str]]
 
 
@@ -89,12 +114,69 @@ def with_article(noun_phrase: str) -> str:
     return f"{article} {np}"
 
 
+def smart_article(answer: str) -> str:
+    """``with_article`` — but skip the article when it would be wrong.
+
+    Bare (no article) for:
+      - answers that already start with an article/determiner
+      - mass/uncountable nouns ('grass', 'water', ...)
+      - multi-item answers ('knife and spoon', 'cat, dog')
+      - plural-looking answers ('donuts', 'leaves')
+    """
+    a = answer.strip()
+    if not a:
+        return a
+    low = a.lower()
+    tokens = low.split()
+    if not tokens:
+        return a
+    if tokens[0] in ARTICLES:
+        return a
+    if " and " in low or "," in low:
+        return a
+    last = tokens[-1]
+    if last in _MASS_ANSWER_NOUNS:
+        return a
+    if len(last) > 1 and last.endswith("s") and not last.endswith("ss"):
+        return a
+    return with_article(a)
+
+
+def prefix_the(subject: str) -> str:
+    """Add a 'The ' prefix to a bare noun-phrase subject — but leave
+    demonstratives, existing articles, personal pronouns, and
+    quantifier-led NPs ('one of the giraffes') untouched.
+
+    Fixes bugs like:
+        'he' -> 'The he'          (should stay 'He')
+        'one of the giraffes' -> 'The one is of the giraffes' (should stay
+            'One of the giraffes')
+    """
+    subj = subject.strip()
+    if not subj:
+        return subj
+    low = subj.lower()
+    if low.startswith(("this ", "that ", "these ", "those ")) or low in {
+        "this", "that", "these", "those",
+    }:
+        return capitalize_first(subj)
+    if low.startswith("the "):
+        return f"The {subj[4:]}"
+    words = low.split()
+    first_word = words[0]
+    if first_word in PRONOUNS:
+        return capitalize_first(subj)
+    if first_word in _QUANTIFIER_LEAD:
+        return capitalize_first(subj)
+    return f"The {subj}"
+
+
 def insert_not(sentence: str) -> str:
     """Negation sade: 'The boy is wearing glasses.' → 'The boy is not wearing glasses.'"""
     s = sentence.rstrip(".")
     # Copula / auxiliary already present
     m = re.match(
-        r"^(There|This|That|These|Those|The)\s+(.+?)\s+"
+        r"^(There|This|That|These|Those|The|He|She|It|They|We|You|I|One|Some|Any|Each|All|Both|Most|Many|Few|Several|None)\s+(.+?)\s+"
         r"(is|are|was|were|has|have|had|can|could|will|would)\s+(.+)$",
         s,
         re.I,
@@ -131,23 +213,13 @@ def insert_not(sentence: str) -> str:
 
 
 def format_the_subject(subject: str, predicate: str, be: str) -> str:
-    """Jomle besaz ba 'The X is/are Y' — double 'the' ro handle kon."""
-    subj = subject.strip()
-    if subj.startswith("the "):
-        return f"The {subj[4:]} {be} {predicate}."
-    return f"The {subj} {be} {predicate}."
+    """Jomle besaz ba 'SUBJECT is/are PREDICATE' (subject article-aware)."""
+    return f"{prefix_the(subject)} {be} {predicate}."
 
 
 def format_subject_be(subject: str, predicate: str, be: str) -> str:
-    """SUBJECT + be + PREDICATE — keeps this/these/the as written."""
-    subj = subject.strip()
-    low = subj.lower()
-    if low.startswith(("this ", "that ", "these ", "those ")):
-        return f"{capitalize_first(subj)} {be} {predicate}."
-    if low.startswith("the "):
-        return f"The {subj[4:]} {be} {predicate}."
-    # Bare noun phrase → prefix The
-    return f"The {subj} {be} {predicate}."
+    """SUBJECT + be + PREDICATE — article-aware alias of ``format_the_subject``."""
+    return f"{prefix_the(subject)} {be} {predicate}."
 
 
 # Prepositions / location heads for "What is PREP ...?"
@@ -175,6 +247,13 @@ _LOCATION_HEADS = (
     "against",
 )
 
+# Single-word prepositions used to reconstruct "What is X V-ing (PREP)?"
+_TRAILING_PREPOSITIONS = {
+    "in", "on", "at", "near", "behind", "under", "over", "above", "below",
+    "beside", "between", "among", "around", "inside", "outside", "across",
+    "against", "of", "with", "for", "to", "from", "by",
+}
+
 # Trailing present-participle properties on color questions
 _COLOR_PARTICIPLES = {
     "wearing",
@@ -193,6 +272,23 @@ _COLOR_PARTICIPLES = {
     "reading",
     "covering",
     "painting",
+}
+
+# Broader action-verb whitelist for "What is SUBJECT V-ing (...)?" reconstruction
+# in rule_what_is. Kept as an explicit whitelist (not a generic \w+ing regex) to
+# avoid false positives on -ing NOUNS ('building', 'morning', 'something', ...).
+_ACTION_PARTICIPLES = _COLOR_PARTICIPLES | {
+    "looking", "watching", "flying", "walking", "running", "throwing",
+    "smiling", "talking", "pulling", "pushing", "hanging", "leaning",
+    "kneeling", "jumping", "swimming", "surfing", "skiing", "sleeping",
+    "resting", "waiting", "pointing", "touching", "typing", "cutting",
+    "cooking", "baking", "grilling", "serving", "pouring", "chasing",
+    "climbing", "kicking", "hitting", "catching", "feeding", "petting",
+    "washing", "cleaning", "fixing", "making", "growing", "selling",
+    "buying", "showing", "displaying", "skating", "skateboarding",
+    "snowboarding", "grazing", "browsing", "sniffing", "licking",
+    "biting", "kissing", "hugging", "dancing", "singing", "shouting",
+    "yelling", "laughing", "crying",
 }
 
 _MEDIA_NOUNS = {"picture", "photo", "image", "photograph", "scene", "shot"}
@@ -235,6 +331,33 @@ _IRREGULAR_PAST = {
     "swim": "swam",
 }
 
+# Irregular plural -> singular for the head noun of a counted NP.
+_IRREGULAR_SINGULAR: Dict[str, str] = {
+    "people": "person",
+    "men": "man",
+    "women": "woman",
+    "children": "child",
+    "geese": "goose",
+    "mice": "mouse",
+    "feet": "foot",
+    "teeth": "tooth",
+    "knives": "knife",
+    "leaves": "leaf",
+    "wolves": "wolf",
+    "shelves": "shelf",
+    "loaves": "loaf",
+    "lives": "life",
+    "wives": "wife",
+    "buses": "bus",
+    "busses": "bus",
+    "dishes": "dish",
+    "boxes": "box",
+    "watches": "watch",
+    "benches": "bench",
+    "bushes": "bush",
+    "churches": "church",
+}
+
 
 def conjugate_3sg(verb: str) -> str:
     """Base verb → 3rd-person singular (show → shows)."""
@@ -264,6 +387,53 @@ def conjugate_past(verb: str) -> str:
     return v + "ed"
 
 
+def singularize_word(word: str) -> str:
+    """Best-effort plural → singular for the head noun of a counted NP."""
+    w = word.strip()
+    low = w.lower()
+    if low in _IRREGULAR_SINGULAR:
+        return _IRREGULAR_SINGULAR[low]
+    if low.endswith("ies") and len(low) > 3:
+        return low[:-3] + "y"
+    if low.endswith(("ches", "shes", "sses", "xes", "zes")):
+        return low[:-2]
+    if low.endswith("s") and not low.endswith("ss") and len(low) > 1:
+        return low[:-1]
+    return low
+
+
+def singularize_noun_phrase(phrase: str) -> str:
+    """Singularize only the head noun of a counted NP.
+
+    Head-initial 'NOUN of NOUN' phrases singularize the first word:
+        'bodies of water' -> 'body of water'; 'kinds of animals' -> 'kind of animals'
+    Otherwise (plain noun, or ADJ(s) + noun) the head is the last word:
+        'windows' -> 'window'; 'square lights' -> 'square light'
+    """
+    tokens = phrase.strip().split()
+    if not tokens:
+        return phrase
+    if len(tokens) >= 3 and tokens[1].lower() == "of":
+        tokens[0] = singularize_word(tokens[0])
+    else:
+        tokens[-1] = singularize_word(tokens[-1])
+    return " ".join(tokens)
+
+
+# Quantifier-led NP: 'one of the giraffes', 'some of these dogs', ...
+_QUANT_OF_RE = re.compile(
+    r"^((?:one|some|any|each|none|all|part|most|both|few|many|several)\s+of\s+"
+    r"(?:the|these|those|them)\s+\S+)\s+(.+)$",
+    re.I,
+)
+
+# Bare quantifier + noun (no 'of'): 'one toothbrush more used than the other'
+_QUANT_BARE_RE = re.compile(
+    r"^((?:one|some|any|each|both|most|many|few|several)\s+\S+)\s+(.+)$",
+    re.I,
+)
+
+
 def split_subject_predicate(rest: str) -> Tuple[str, str]:
     """Split yes/no rest into SUBJECT + PREDICATE.
 
@@ -271,8 +441,16 @@ def split_subject_predicate(rest: str) -> Tuple[str, str]:
         'these wings strong' → ('these wings', 'strong')
         'the boy wearing glasses' → ('the boy', 'wearing glasses')
         'this photo from a zoo' → ('this photo', 'from a zoo')
+        'one of the giraffes eating' → ('one of the giraffes', 'eating')
         'the person on the elephant tall' → heuristic NP + last AP
     """
+    quant_m = _QUANT_OF_RE.match(rest)
+    if quant_m:
+        return quant_m.group(1).strip(), quant_m.group(2).strip()
+    quant_bare_m = _QUANT_BARE_RE.match(rest)
+    if quant_bare_m:
+        return quant_bare_m.group(1).strip(), quant_bare_m.group(2).strip()
+
     tokens = rest.split()
     if len(tokens) < 2:
         return rest, ""
@@ -302,6 +480,69 @@ def split_subject_predicate(rest: str) -> Tuple[str, str]:
 def subject_verb_from_is(rest: str) -> Tuple[str, str]:
     """Alias — keep old name for callers; delegates to ``split_subject_predicate``."""
     return split_subject_predicate(rest)
+
+
+def _drop_duplicate_leading_aux(pred: str, aux: str) -> str:
+    """Collapse a duplicated auxiliary from a typo'd source question.
+
+    e.g. 'Are the bikers are in a race?' — the outer ``aux`` ('are') was
+    already consumed once; if the predicate starts with the same word
+    again, drop the repeat so we don't emit 'are not are in a race.'.
+    """
+    tokens = pred.split()
+    if tokens and tokens[0].lower() == aux.lower():
+        return " ".join(tokens[1:])
+    return pred
+
+
+# Near-content-free trailing clauses ("is shown", "is in the picture", "is
+# this") — dropping these loses nothing meaningful.
+_FILLER_TAIL_RE = re.compile(
+    r"^(?:shown|visible|here|there|this|that|these|those|it)"
+    r"(?:\s+(?:here|there|now|today))?$"
+    r"|^in (?:this|the) (?:picture|photo|image|scene)$",
+    re.I,
+)
+
+
+def _is_filler_tail(tail: str) -> bool:
+    """True for near-content-free tails ('shown', 'in the picture', 'this', ...)."""
+    return bool(_FILLER_TAIL_RE.match(tail.strip()))
+
+
+def _split_head_tail(phrase: str) -> Tuple[str, str, str]:
+    """Split '<head> is/are <tail>' into (head, aux, tail).
+
+    'silverware is on the plates' -> ('silverware', 'is', 'on the plates')
+    'is shown' -> ('', 'is', 'shown')
+    'plane' (no aux) -> ('plane', '', '')
+    """
+    m = re.match(r"^(.*?)\s*\b(is|are)\b\s+(.+)$", phrase, re.I)
+    if not m:
+        return phrase.strip(), "", ""
+    return m.group(1).strip(), m.group(2).lower(), m.group(3).strip()
+
+
+def _describe_with_tail(head: str, aux: str, tail: str) -> str:
+    """'head' alone, or 'head that is/are tail' when the tail carries real info.
+
+    Avoids the double-copula bug ('The silverware is on the plates is a
+    knife.') while keeping restrictive info instead of silently dropping it
+    ('The animal that is laying next to the dog is a giraffe.').
+    """
+    if not tail or _is_filler_tail(tail):
+        return head
+    connector = f"that {aux}" if aux else "that is"
+    if head:
+        return f"{head} {connector} {tail}"
+    return f"{connector} {tail}"
+
+
+def _plain_head_tail(head: str, tail: str) -> str:
+    """'head' alone, or 'head tail' (no relative clause) — for negative sentences."""
+    if not tail or _is_filler_tail(tail):
+        return head
+    return f"{head} {tail}".strip()
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +604,8 @@ def rule_how_many(question: str, answer: str) -> Optional[str]:
     "How many cookies can be seen?" → "There are two cookies."
     Keeps real predicates when present:
     "How many people are standing?" → "Two people are standing."
+    Singularizes the noun when the count is one:
+    "How many windows are on the caboose?" (1) → "There is one window."
     """
     m = re.match(r"^how many (.+)$", question, re.I)
     if not m:
@@ -380,14 +623,14 @@ def rule_how_many(question: str, answer: str) -> Optional[str]:
         if ans in {"one", "1"}:
             # "is" for singular when the predicate starts with are/is
             predicate = re.sub(r"^(are|were)\b", "is", predicate, count=1, flags=re.I)
-            return f"One {noun} {predicate}."
+            return f"One {singularize_noun_phrase(noun)} {predicate}."
         return f"{capitalize_first(ans)} {noun} {predicate}."
 
     if is_no(answer) or ans in {"zero", "none"}:
         return f"There are no {obj}."
 
     if ans in {"one", "1"}:
-        return f"There is one {obj}."
+        return f"There is one {singularize_noun_phrase(obj)}."
     return f"There are {ans} {obj}."
 
 
@@ -397,27 +640,35 @@ def rule_what_is_doing(question: str, answer: str) -> Optional[str]:
     if not m:
         return None
     subj = m.group(1).strip()
-    act = answer if answer.endswith("ing") else answer
-    return f"The {subj} is {act}."
+    return f"{prefix_the(subj)} is {answer}."
 
 
 def rule_what_kind_type(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'What kind/type of X ...?' → 'This is a {answer}.' ya 'The X is ...'"""
-    m = re.match(
-        r"^what (?:kind|type) of (.+?)(?: is this| are these| is that| are those| is in .+)?$",
-        question,
-        re.I,
-    )
+    """Pattern: 'What kind/type of X (is/are ...)?' → 'The X (that is ...) is {answer}.'
+
+    Examples:
+        'What kind of food is shown?' + 'donuts' → 'The food is donuts.'
+        'What kind of vegetable is on the sandwich?' + 'none'
+            → 'There is no vegetable on the sandwich.'
+        'What kind of stuffed animal is on top of the monitor?' + 'turtle'
+            → 'The stuffed animal that is on top of the monitor is a turtle.'
+    """
+    m = re.match(r"^what (?:kind|type) of (.+)$", question, re.I)
     if not m:
         return None
-    obj = m.group(1).strip()
-    noun = with_article(answer)
+    head, aux, tail = _split_head_tail(m.group(1).strip())
+    if not head:
+        return None
+    if is_no(answer):
+        return f"There is no {_plain_head_tail(head, tail)}."
+    noun = smart_article(answer)
     q_lower = question.lower()
     if "this" in q_lower or "that" in q_lower:
         return f"This is {noun}."
     if "these" in q_lower or "those" in q_lower:
         return f"These are {noun}."
-    return f"The {obj} is {noun}."
+    subj = _describe_with_tail(head, aux, tail)
+    return f"The {subj} is {noun}."
 
 
 def rule_where(question: str, answer: str) -> Optional[str]:
@@ -427,7 +678,7 @@ def rule_where(question: str, answer: str) -> Optional[str]:
         return None
     subj = m.group(1).strip()
     verb = "are" if " are " in question.lower() else "is"
-    return f"The {subj} {verb} {answer}."
+    return f"{prefix_the(subj)} {verb} {answer}."
 
 
 def rule_who(question: str, answer: str) -> Optional[str]:
@@ -492,6 +743,10 @@ def rule_is_are_yesno(question: str, answer: str) -> Optional[str]:
             → 'These wings are strong.'
         'Are these wings strong?' + no
             → 'These wings are not strong.'
+        'Is she wearing a bathing suit?' + yes
+            → 'She is wearing a bathing suit.'
+        'Is one of the giraffes eating?' + yes
+            → 'One of the giraffes is eating.'
     """
     m = re.match(
         r"^(is|are|was|were|does|do|did|can|could|will|would|has|have|had)\s+(.+)$",
@@ -510,18 +765,28 @@ def rule_is_are_yesno(question: str, answer: str) -> Optional[str]:
 
     # ---- Do-support: Does / Do / Did ----
     if aux in {"does", "do", "did"}:
-        tokens = rest.split()
-        if len(tokens) < 2:
-            return None
-        # Subject = leading NP (demonstrative+noun or the+noun or first token)
-        if tokens[0].lower() in {"this", "that", "these", "those", "the"} and len(tokens) >= 3:
-            subj = " ".join(tokens[:2])
-            verb = tokens[2]
-            tail = " ".join(tokens[3:]).strip()
+        quant_m = _QUANT_OF_RE.match(rest)
+        if quant_m:
+            # 'one of the elephants' is the whole subject; don't chop at "of".
+            subj = quant_m.group(1).strip()
+            rem_tokens = quant_m.group(2).strip().split()
+            if not rem_tokens:
+                return None
+            verb = rem_tokens[0]
+            tail = " ".join(rem_tokens[1:]).strip()
         else:
-            subj = tokens[0]
-            verb = tokens[1]
-            tail = " ".join(tokens[2:]).strip()
+            tokens = rest.split()
+            if len(tokens) < 2:
+                return None
+            # Subject = leading NP (demonstrative+noun or the+noun or first token)
+            if tokens[0].lower() in {"this", "that", "these", "those", "the"} and len(tokens) >= 3:
+                subj = " ".join(tokens[:2])
+                verb = tokens[2]
+                tail = " ".join(tokens[3:]).strip()
+            else:
+                subj = tokens[0]
+                verb = tokens[1]
+                tail = " ".join(tokens[2:]).strip()
 
         if aux == "does":
             main = conjugate_3sg(verb)
@@ -531,13 +796,7 @@ def rule_is_are_yesno(question: str, answer: str) -> Optional[str]:
             main = verb.lower()
 
         pred = f"{main} {tail}".strip() if tail else main
-        # Demonstrative subjects keep their own determiner
-        if subj.lower().startswith(("this ", "that ", "these ", "those ")):
-            pos = f"{capitalize_first(subj)} {pred}."
-        elif subj.lower().startswith("the "):
-            pos = f"The {subj[4:]} {pred}."
-        else:
-            pos = f"{capitalize_first(subj)} {pred}."
+        pos = f"{prefix_the(subj)} {pred}."
 
     # ---- Copula: Is / Are / Was / Were ----
     elif aux in {"is", "are", "was", "were"}:
@@ -553,6 +812,7 @@ def rule_is_are_yesno(question: str, answer: str) -> Optional[str]:
             pos = f"{capitalize_first(det)} {be} {art} {noun}."
         else:
             subj, pred = split_subject_predicate(rest)
+            pred = _drop_duplicate_leading_aux(pred, aux)
             if not pred:
                 return None
             if aux in {"are", "were"}:
@@ -566,6 +826,7 @@ def rule_is_are_yesno(question: str, answer: str) -> Optional[str]:
     # ---- Have / Has / Had / Modals: keep auxiliary ----
     elif aux in {"has", "have", "had", "can", "could", "will", "would"}:
         subj, pred = split_subject_predicate(rest)
+        pred = _drop_duplicate_leading_aux(pred, aux)
         if not pred:
             # "Has it snowed?" style — treat whole rest as after aux
             if rest.lower().startswith(("this ", "that ", "these ", "those ", "the ")):
@@ -573,12 +834,7 @@ def rule_is_are_yesno(question: str, answer: str) -> Optional[str]:
             else:
                 return None
         else:
-            if subj.lower().startswith(("this ", "that ", "these ", "those ")):
-                pos = f"{capitalize_first(subj)} {aux} {pred}."
-            elif subj.lower().startswith("the "):
-                pos = f"The {subj[4:]} {aux} {pred}."
-            else:
-                pos = f"{capitalize_first(subj)} {aux} {pred}."
+            pos = f"{prefix_the(subj)} {aux} {pred}."
 
     if pos is None:
         return None
@@ -589,6 +845,57 @@ def rule_is_are_yesno(question: str, answer: str) -> Optional[str]:
     return None
 
 
+def _rule_what_is_participle(rest: str, answer: str) -> Optional[str]:
+    """Sub-pattern of rule_what_is: 'What is SUBJECT V-ing (PREP ...)?'.
+
+    Keeps the verb instead of collapsing it into 'SUBJECT is ANSWER':
+        'the giraffe standing behind' + tree -> 'The giraffe is standing behind a tree.'
+        'the vase sitting on' + railing      -> 'The vase is sitting on a railing.'
+        'the animal eating' + grass          -> 'The animal is eating grass.'
+        'she holding' + broccoli             -> 'She is holding broccoli.'
+        'this person wearing on head' + hat  -> 'This person is wearing a hat on the head.'
+    """
+    tokens = rest.split()
+    verb_idx = next(
+        (i for i, t in enumerate(tokens) if t.lower() in _ACTION_PARTICIPLES),
+        None,
+    )
+    if verb_idx is None:
+        return None
+
+    subject_tokens = tokens[:verb_idx]
+    if not subject_tokens:
+        return None
+    if len(subject_tokens) == 1 and subject_tokens[0].lower() not in PRONOUNS:
+        return None
+
+    verb = tokens[verb_idx].lower()
+    trailing_tokens = tokens[verb_idx + 1 :]
+    subject = prefix_the(" ".join(subject_tokens))
+    ans = smart_article(answer)
+
+    if not trailing_tokens:
+        predicate = f"{verb} {ans}"
+    elif trailing_tokens[-1].lower() in _TRAILING_PREPOSITIONS:
+        # Dangling preposition — the answer is its object.
+        # e.g. 'sitting on' + railing -> 'sitting on a railing'
+        predicate = f"{verb} {' '.join(trailing_tokens)} {ans}"
+    else:
+        # Trailing is already a full prepositional phrase (has its own noun);
+        # the answer is the verb's direct object instead.
+        # e.g. 'wearing on head' + hat -> 'wearing a hat on the head'
+        tail_tokens = list(trailing_tokens)
+        if (
+            tail_tokens[0].lower() in _TRAILING_PREPOSITIONS
+            and len(tail_tokens) >= 2
+            and tail_tokens[-1].lower() not in ARTICLES
+        ):
+            tail_tokens = [tail_tokens[0], "the"] + tail_tokens[1:]
+        predicate = f"{verb} {ans} {' '.join(tail_tokens)}"
+
+    return f"{subject} is {predicate}."
+
+
 def rule_what_is(question: str, answer: str) -> Optional[str]:
     """Pattern: 'What is ...?' → natural declarative with the answer.
 
@@ -597,6 +904,8 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
             → 'A tree is in front of the giraffes.'
         'What is in the picture?' + 'clock'
             → 'The picture shows a clock.'
+        'What is the giraffe standing behind?' + 'tree'
+            → 'The giraffe is standing behind a tree.'
         'What is the car?' + 'taxi'
             → 'The car is a taxi.'  (fallback-style identity)
     """
@@ -606,6 +915,11 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
     rest = m.group(1).strip()
     if not rest or answer in YES | NO:
         return None
+
+    # "What is SUBJECT V-ing (PREP ...)?" — keep the verb, don't collapse it.
+    participle_cap = _rule_what_is_participle(rest, answer)
+    if participle_cap:
+        return participle_cap
 
     ans_np = with_article(answer)
 
@@ -652,12 +966,31 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
 
 
 def rule_what_brand_sport(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'What brand/sport/... X?' → 'The {kind} X is {answer}.'"""
-    m = re.match(r"^what (brand|sport|room|animal|vehicle|food|drink) (.+)$", question, re.I)
+    """Pattern: 'What brand/sport/room/animal/vehicle/food/drink (of X) (is/are ...)?'
+    → 'The {kind} (of X) (that is ...) is {answer}.'
+
+    Examples:
+        'What animal is shown?' + 'dog' → 'The animal is a dog.'
+        'What animal is laying next to the dog?' + 'giraffe'
+            → 'The animal that is laying next to the dog is a giraffe.'
+        'What brand of computer is in the image?' + 'dell'
+            → 'The brand of computer is dell.'
+    """
+    m = re.match(
+        r"^what (brand|sport|room|animal|vehicle|food|drink)\s*(.*)$",
+        question,
+        re.I,
+    )
     if not m:
         return None
-    kind, rest = m.group(1).lower(), m.group(2).strip()
-    return f"The {kind} {rest} is {answer}."
+    kind = m.group(1).lower()
+    head, aux, tail = _split_head_tail(m.group(2).strip())
+    subj = f"{kind} {head}".strip() if head else kind
+    if is_no(answer):
+        return f"There is no {_plain_head_tail(subj, tail)}."
+    noun = smart_article(answer)
+    subj_full = _describe_with_tail(subj, aux, tail)
+    return f"The {subj_full} is {noun}."
 
 
 def rule_fallback(question: str, answer: str) -> str:
