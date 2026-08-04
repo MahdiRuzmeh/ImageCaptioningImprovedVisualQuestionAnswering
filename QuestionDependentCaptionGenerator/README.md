@@ -6,10 +6,12 @@ Har sample: `(soal, javab)` → caption mesl `"The car is red."`
 
 Pipeline:
 
-1. VQA questions + annotations ro load mikone (duplicate `(image_id, question, answer)` rows — az annotator haye mokhtalef ke soal-e eyni neveshtan — drop mishan, faghat avalin occurrence mimoone)
-2. Rule engine try mikone (`caption_rules.py`) — faghat pattern haye daghigh va motmaen (color, how-many-e sade, is/are-e narrow, ...)
-3. Age hich rule match nakone, row `rule="needs_llm"` va `caption=""` mishe (hich template-e sakhtegi sakhte nemishe)
-4. Age `--llm` on bashe → Ollama/Mistral ba **packed batch** captioning-e in row ha ro anjam mide, ba format validator + retry
+1. VQA questions + annotations ro load mikone
+2. OCR-dependent Q/A pair ha (`is_ocr_question`) — soal hayi ke javab-eshun faghat az ru-ye reading-e text/adad-e ru-ye tasvir mishe fahmid (sign, logo, brand, plate, jersey number, clock) — kollan hazf mishan, chon `SimpleImageCaptioner` OCR nadare va nemitune in target ha ro yad begire; count-esh dar `info.ocr_excluded_count` save mishe
+3. Duplicate `(image_id, question, answer)` rows (az annotator haye mokhtalef ke soal-e eyni neveshtan) drop mishan, faghat avalin occurrence mimoone
+4. Rule engine try mikone (`caption_rules.py`) — faghat pattern haye daghigh va motmaen (color, how-many-e sade, is/are-e narrow, ...)
+5. Age hich rule match nakone, row `rule="needs_llm"` va `caption=""` mishe (hich template-e sakhtegi sakhte nemishe)
+6. Age `--llm` on bashe → Ollama/Mistral ba **packed batch** captioning-e in row ha ro anjam mide, ba format validator + retry
 
 ## Files
 
@@ -28,6 +30,19 @@ Pipeline:
 ## Rule engine
 
 `caption_rules.py` faghat pattern hayi ro handle mikone ke bedoon POS tagging motmaen split mishan. Har chizi ke motmaen nist (mesalan subject-e ba article-e nامعین mesle `"a military person"`, ya `which`/`where`/`what brand/sport/room/animal/vehicle/food/drink` — ke NP-eshun azad-tar az un chizi hast ke bе rule split beshe) → `needs_llm`, va SLM (`--llm`) jaygozin-esh mikone. **Hich catch-all fallback rule vojud nadare** — age rule match nashe, caption khali mimoone ta LLM por-esh kone.
+
+### OCR filter (`is_ocr_question`)
+
+Ghabl az rule engine, har Q/A pair check mishe ke aya javab-esh faghat az reading-e text/adad-e ru-ye tasvir be dast miyad (sign says, brand, logo, license plate, jersey/bus number, clock/watch time). `SimpleImageCaptioner` (Stage 1) yek Faster R-CNN region-feature + LSTM captioner-e bedoon OCR hast — faghat pooled visual features mibine, glyph nemikhoone. Pas caption-e sahih baraye in soal ha (mesal: `"The sign says 3M."`) ye target-e yad-nagereftani baraye un mishe, va in pipeline hazfeshun mikone ta signal-e training kasif nashe.
+
+In ye **heuristic** hast, na ground truth (VQA v2 field-e explicit-e "requires OCR" nadare) — do signal combine mishe:
+
+1. Regex-e ru-ye khod-e matn-e soal (`_OCR_QUESTION_RE` toye `caption_rules.py`): "what does ... say", "what is written", "what word(s)", "what letter(s)", "license number/plate", "what brand", "what logo", "what number is on/the/...", "what is the number on...", "what time is it/does".
+2. `question_type` (az annotations file, na questions file) — chand prefix-e OCR-heavy (`what does the`, `what brand`, `what number is`, `what time`) tanha-shun ham kafi'e, hata age regex match nakone.
+
+Amdan conservative: prefix haye mobham mesle `what is the name` (mitune "what is the name of this fruit" — OCR nist — ya "what is the name on the jersey" — OCR hast) az list kenar gozashte shode ta soal haye ma'mooli-e visual bishtar-az-hadd filter nashan.
+
+Excluded item ha kollan az `rows` biroon mimoonan (na `needs_llm`, na rule-e digei) — count-eshoon toye stdout print mishe va dar `info.ocr_excluded_count` save mishe.
 
 ### Yes/No rule ha (jaye ye `is_are_yesno`-e omoomi)
 
@@ -176,10 +191,12 @@ If `--llm` finishes with any `needs_llm` left, the process exits with code `1` a
 
 `info.llm` (age `--llm`): `model`, `batch_size`, `workers`, `host`, `prompt_version`.
 
+`info.ocr_excluded_count`: chand ta OCR-dependent Q/A pair kollan hazf shod ghabl az caption generation (see [OCR filter](#ocr-filter-is_ocr_question)).
+
 ## Notes
 
 - Javab = mode answer (10 annotator) — hamoon logic `SimpleVQA/train.py`
 - `rule_counts` to `info` baraye statistik
+- OCR-e-mahvar soal ha (`is_ocr_question`) kollan az `rows` hazf mishan ghabl az dedup/rule — count-eshoon `info.ocr_excluded_count` va stdout
 - Duplicate `(image_id, question, answer)` rows (mesal: do ta annotator-e mokhtalef literally hamun soal ro neveshtan) dar `load_vqa_pairs` drop mishan — count-esh toye stdout print mishe
 - Baraye train captioner: dataset loader `(image_id, question, caption)` lazem hast — faghat rows-e `caption` gheyr-khali estefade kon (yani `rule != "needs_llm"`)
-- OCR-e-mahvar soal ha (soal hayi ke reading-e text/adad az ru-ye tasvir mikhan) hanuz filter nashodan — in ye phase-e ba'di hast

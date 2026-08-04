@@ -24,7 +24,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from caption_rules import answer_mode_stats, generate_caption
+from caption_rules import answer_mode_stats, generate_caption, is_ocr_question
 from llm_client import ItemOutcome, OllamaClient, run_batches_concurrent
 from llm_prompts import PROMPT_VERSION
 
@@ -152,7 +152,7 @@ def load_vqa_pairs(
     questions_json: Path,
     annotations_json: Path,
     max_items: Optional[int] = None,
-) -> Tuple[List[Dict[str, Any]], Counter]:
+) -> Tuple[List[Dict[str, Any]], Counter, int]:
     """Soal va javab haye VQA v2 ro load kon va ba rule caption besaz.
 
     Args:
@@ -161,12 +161,19 @@ def load_vqa_pairs(
         max_items: age set shode, faghat N sample aval (smoke test)
 
     Returns:
-        (rows, rule_counts) — rows + statistik rule ha.
+        (rows, rule_counts, ocr_excluded_count) — rows + statistik rule ha +
+        chand ta item OCR-dependent bood ke kollan hazf shod (nemiyad toye
+        rows, chon SimpleImageCaptioner OCR nadare — see ``is_ocr_question``).
 
     Skips duplicate rows: VQA v2 sometimes has two distinct question_ids for
     the same image with the exact same question text and answer (independent
     annotators asked the same thing) — only the first (lowest question_id)
     occurrence per image is kept.
+
+    Skips OCR-dependent rows entirely (``is_ocr_question``): questions that
+    can only be answered by reading rendered text/digits (signs, logos,
+    brands, plates, jersey numbers, clock faces) are dropped before caption
+    generation, since the downstream captioner has no way to learn them.
     """
     with questions_json.open("r", encoding="utf-8") as f:
         questions = json.load(f)["questions"]
@@ -183,11 +190,18 @@ def load_vqa_pairs(
     rule_counts: Counter = Counter()
     seen_per_image: Dict[int, Set[Tuple[str, str]]] = {}
     duplicates_dropped = 0
+    ocr_excluded = 0
 
     for qid in qids:
         q = qmap[qid]
         ann = amap[qid]
         image_id = int(q["image_id"])
+        question_type = str(ann.get("question_type") or "")
+
+        if is_ocr_question(q["question"], question_type):
+            ocr_excluded += 1
+            continue
+
         answers = [x["answer"] for x in ann["answers"]]
         ans, answer_count, answer_confidence = answer_mode_stats(answers)
 
@@ -214,13 +228,18 @@ def load_vqa_pairs(
             }
         )
 
+    if ocr_excluded:
+        print(
+            f"OCR filter: {ocr_excluded} OCR-dependent question/answer pairs "
+            "excluded (is_ocr_question) — captioner cannot read rendered text."
+        )
     if duplicates_dropped:
         print(
             f"Dedup: {duplicates_dropped} duplicate (image_id, question, answer) "
             "rows dropped — kept the first occurrence of each."
         )
 
-    return rows, rule_counts
+    return rows, rule_counts, ocr_excluded
 
 
 def merge_llm_resume(
@@ -339,6 +358,7 @@ def apply_llm_fallbacks(
     failure_log: Optional[LlmFailureLogger] = None,
     single_retries: int = 3,
     final_retries: int = 3,
+    ocr_excluded_count: int = 0,
 ) -> Counter:
     """Row haye rule=needs_llm ro ba packed LLM caption update mikone.
 
@@ -361,6 +381,7 @@ def apply_llm_fallbacks(
         failure_log: optional logger for rejected / failed items
         single_retries: per-item retries inside each batch
         final_retries: extra single calls for leftovers at the end
+        ocr_excluded_count: forwarded to checkpoint writes (info.ocr_excluded_count)
     """
     resume_map = resume_map or {}
     restored = merge_llm_resume(rows, resume_map)
@@ -419,6 +440,7 @@ def apply_llm_fallbacks(
                 questions_json,
                 annotations_json,
                 llm_meta=llm_meta,
+                ocr_excluded_count=ocr_excluded_count,
             )
             print(f"  checkpoint saved -> {output_path}")
 
@@ -492,13 +514,21 @@ def write_output_json(
     questions_json: Path,
     annotations_json: Path,
     llm_meta: Optional[Dict[str, Any]] = None,
+    ocr_excluded_count: int = 0,
 ) -> None:
-    """Natije ro atomic be JSON file save kon (crash-safe)."""
+    """Natije ro atomic be JSON file save kon (crash-safe).
+
+    Args:
+        ocr_excluded_count: chand ta OCR-dependent Q/A pair kollan hazf shod
+            ghabl az caption generation (see ``is_ocr_question``); stored
+            under ``info.ocr_excluded_count`` baraye visibility.
+    """
     info: Dict[str, Any] = {
         "description": "VQA v2 question-dependent captions (rule-based Q+A → statement)",
         "source_questions": str(questions_json),
         "source_annotations": str(annotations_json),
         "num_samples": len(rows),
+        "ocr_excluded_count": ocr_excluded_count,
         "rule_counts": dict(rule_counts),
     }
     if llm_meta:
@@ -537,10 +567,13 @@ def print_stats(
     rows: List[Dict[str, Any]],
     rule_counts: Counter,
     output_path: Path,
+    ocr_excluded_count: int = 0,
 ) -> None:
     """Statistik rule ha ro chap kon ta befahmim cheghadr needs_llm darim."""
     total = len(rows)
     print(f"Wrote {total} captions -> {output_path}")
+    if ocr_excluded_count:
+        print(f"  (excluded {ocr_excluded_count} OCR-dependent question/answer pairs)")
     for rule, count in rule_counts.most_common():
         pct = 100.0 * count / total if total else 0.0
         print(f"  {rule}: {count} ({pct:.1f}%)")
@@ -690,19 +723,24 @@ def main() -> None:
 
     rows: Optional[List[Dict[str, Any]]] = None
     rule_counts: Counter
+    ocr_excluded_count = 0
 
     # Resume sari: age output size match bashe, dobare rule run nakon
     if args.llm and not args.no_resume:
         rows = try_load_checkpoint_rows(output_path, expected_n)
         if rows is not None:
             rule_counts = recount_rules(rows)
+            prev_payload = load_output_payload(output_path) or {}
+            ocr_excluded_count = int(
+                (prev_payload.get("info") or {}).get("ocr_excluded_count", 0)
+            )
             print(
                 f"Loaded checkpoint ({len(rows)} rows) az {output_path} "
                 f"— rules skip, LLM az ja-monde edame."
             )
 
     if rows is None:
-        rows, rule_counts = load_vqa_pairs(
+        rows, rule_counts, ocr_excluded_count = load_vqa_pairs(
             questions_json,
             annotations_json,
             max_items=args.max_items,
@@ -749,6 +787,7 @@ def main() -> None:
                 llm_meta=llm_meta,
                 resume_map=resume_map,
                 failure_log=failure_log,
+                ocr_excluded_count=ocr_excluded_count,
             )
         except KeyboardInterrupt:
             # Ctrl+C: last state ro save kon ta resume beshe
@@ -761,6 +800,7 @@ def main() -> None:
                 questions_json,
                 annotations_json,
                 llm_meta=llm_meta,
+                ocr_excluded_count=ocr_excluded_count,
             )
             still = sum(1 for r in rows if r["rule"] == "needs_llm")
             if failure_log is not None:
@@ -783,8 +823,9 @@ def main() -> None:
         questions_json,
         annotations_json,
         llm_meta=llm_meta,
+        ocr_excluded_count=ocr_excluded_count,
     )
-    print_stats(rows, rule_counts, output_path)
+    print_stats(rows, rule_counts, output_path, ocr_excluded_count=ocr_excluded_count)
     if args.llm:
         still = sum(1 for r in rows if r["rule"] == "needs_llm")
         if still:

@@ -91,6 +91,84 @@ def answer_mode_stats(answers: List[str]) -> Tuple[str, int, float]:
     return mode_ans, count, confidence
 
 
+# ---------------------------------------------------------------------------
+# OCR-dependent question detection
+# ---------------------------------------------------------------------------
+#
+# Some VQA v2 questions can only be answered by reading rendered text/digits
+# in the image — a sign, a logo, a jersey number, a license plate, a clock
+# face, a scoreboard ("What does the sign say?" -> "3M"). The downstream
+# SimpleImageCaptioner (Stage 1) is a Faster R-CNN region-feature + LSTM
+# captioner with no OCR/text-recognition component: it only ever sees pooled
+# visual region features, so it cannot genuinely read glyphs. Training it on
+# these targets ("The sign says 3M.") gives it an unlearnable label — the
+# model can only memorize incidental visual correlations, not the actual
+# text — so we flag these pairs to exclude them instead of quietly poisoning
+# the training signal.
+#
+# This is a heuristic, NOT ground truth: VQA v2 has no explicit "requires
+# OCR" annotation. It combines two signals:
+#   1. A regex over the question text for phrasing that specifically asks
+#      what is written/printed/displayed (sign says, brand, logo, license
+#      plate, jersey/bus number, clock/watch time, ...).
+#   2. The official VQA ``question_type`` prefix (from the annotations file,
+#      NOT the questions file), when the caller has it — a few prefixes are
+#      OCR-heavy enough to flag on their own even without a text-regex hit.
+#
+# Deliberately conservative: ambiguous prefixes like "what is the name"
+# (could be "what is the name of this fruit" — not OCR — or "what is the
+# name on the jersey" — OCR) are left OUT to avoid over-filtering ordinary
+# visual questions.
+
+_OCR_QUESTION_RE = re.compile(
+    r"""
+    \bwhat\s+(does|do)\s+.{0,40}?\bsay\b |        # "what does the sign say"
+    \bwhat\s+is\s+written\b |                     # "what is written on..."
+    \bwhat\s+words?\b |                           # "what word(s) are on..."
+    \bwhat\s+letters?\b |                         # "what letters are on..."
+    \blicense\s+(number|plate)\b |                # plate / registration number
+    \bwhat\s+brand\b | \bwhat\s+is\s+the\s+brand\b |
+    \bwhat\s+logo\b |
+    \bwhat\s+number\s+is\s+(on|the|this|that)\b | # jersey / bus / plate number
+    \bwhat\s+is\s+the\s+number\s+on\b |           # "what is the number on..."
+    \bwhat\s+time\s+(is\s+it|does)\b              # clock / watch reading
+    """,
+    re.I | re.X,
+)
+
+# ``question_type`` prefixes (VQA v2's official fixed taxonomy) that are OCR-
+# heavy enough to flag on their own, even when the regex above doesn't match
+# the exact phrasing of a given question.
+_OCR_QUESTION_TYPES = {
+    "what does the",
+    "what brand",
+    "what number is",
+    "what time",
+}
+
+
+def is_ocr_question(question: str, question_type: str = "") -> bool:
+    """True if answering ``question`` requires reading rendered text/digits.
+
+    Heuristic only — see the module comment above ``_OCR_QUESTION_RE`` for
+    the rationale (SimpleImageCaptioner has no OCR capability) and for what
+    counts as OCR here (signs/logos/brands/plates/jersey numbers/clock
+    reading), plus why some ambiguous phrasing is deliberately excluded.
+
+    Args:
+        question: raw question text.
+        question_type: VQA v2 ``annotations[i]["question_type"]`` if the
+            caller has it; pass ``""`` (default) to fall back to a
+            regex-only check on the question text.
+
+    Returns:
+        True if the pair should be treated as OCR-dependent and excluded.
+    """
+    if _OCR_QUESTION_RE.search(question):
+        return True
+    return (question_type or "").strip().lower() in _OCR_QUESTION_TYPES
+
+
 def normalize_answer(answer: str) -> str:
     """Javab ro lowercase kon; adad ro be kalame tabdil kon (3 → three)."""
     a = answer.strip().lower()

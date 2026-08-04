@@ -25,7 +25,7 @@ directly into a natural sentence about the image instead.
 - Do not use brackets, labels, explanations, or quotation marks.
 - Preserve the meaning of both the question and the answer.
 - Do not invent objects, actions, locations, or attributes that are not implied \
-by the question.
+by the question or answer.
 - Do not add extra details not present in the answer (no invented units, times \
 of day, brands, counts, or qualifiers). E.g. answer "1:50" -> "It is 1:50.", \
 NOT "It's 1:50 PM."
