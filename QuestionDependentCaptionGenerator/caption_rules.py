@@ -73,6 +73,24 @@ def mode_answer(answers: List[str]) -> str:
     return Counter(a.strip().lower() for a in answers).most_common(1)[0][0]
 
 
+def answer_mode_stats(answers: List[str]) -> Tuple[str, int, float]:
+    """Mode answer + annotator agreement stats.
+
+    Returns:
+        (mode_answer, answer_count, answer_confidence) — ``answer_count`` is
+        how many of the annotators gave the mode answer (normalized,
+        case-insensitive), ``answer_confidence`` is that count divided by
+        the total number of annotators (rounded to 4 decimals), e.g.
+        8 agreeing out of 10 -> (mode, 8, 0.8).
+    """
+    normalized = [a.strip().lower() for a in answers]
+    if not normalized:
+        return "", 0, 0.0
+    mode_ans, count = Counter(normalized).most_common(1)[0]
+    confidence = round(count / len(normalized), 4)
+    return mode_ans, count, confidence
+
+
 def normalize_answer(answer: str) -> str:
     """Javab ro lowercase kon; adad ro be kalame tabdil kon (3 → three)."""
     a = answer.strip().lower()
@@ -443,6 +461,11 @@ def split_subject_predicate(rest: str) -> Tuple[str, str]:
         'this photo from a zoo' → ('this photo', 'from a zoo')
         'one of the giraffes eating' → ('one of the giraffes', 'eating')
         'the person on the elephant tall' → heuristic NP + last AP
+
+    Returns ``("", "")`` when the subject can't be split reliably (e.g. an
+    indefinite article followed by a multi-word NP like 'a military
+    person', where the head noun's length can't be guessed without POS
+    tagging) — callers should treat that as "defer to the SLM".
     """
     quant_m = _QUANT_OF_RE.match(rest)
     if quant_m:
@@ -456,6 +479,22 @@ def split_subject_predicate(rest: str) -> Tuple[str, str]:
         return rest, ""
 
     det = tokens[0].lower()
+
+    if det in {"a", "an"}:
+        return "", ""
+
+    # Verb-ing predicate: locate it by scanning for a known participle
+    # instead of assuming a fixed subject length. Fixes adjective-modified
+    # subjects like 'the small elephant touching the big elephant' — the
+    # naive "determiner + 1 word" heuristic below would wrongly cut the
+    # subject at 'the small' and mangle 'elephant touching ...' as if it
+    # were the predicate.
+    participle_idx = next(
+        (i for i, t in enumerate(tokens[1:], start=1) if t.lower() in _ACTION_PARTICIPLES),
+        None,
+    )
+    if participle_idx is not None:
+        return " ".join(tokens[:participle_idx]), " ".join(tokens[participle_idx:])
 
     # Demonstrative: this/that/these/those + NOUN (+ mods) + PREDICATE
     if det in {"this", "that", "these", "those"}:
@@ -475,11 +514,6 @@ def split_subject_predicate(rest: str) -> Tuple[str, str]:
         return tokens[0], " ".join(tokens[1:])
 
     return tokens[0], " ".join(tokens[1:])
-
-
-def subject_verb_from_is(rest: str) -> Tuple[str, str]:
-    """Alias — keep old name for callers; delegates to ``split_subject_predicate``."""
-    return split_subject_predicate(rest)
 
 
 def _drop_duplicate_leading_aux(pred: str, aux: str) -> str:
@@ -577,61 +611,62 @@ def rule_what_color(question: str, answer: str) -> Optional[str]:
     return format_the_subject(obj, answer, verb)
 
 
-# Trailing question fluff for "How many X ...?" — not part of the noun phrase.
-# e.g. "cookies can be seen" → "cookies", "cars are in the image" → "cars"
-_HOW_MANY_STRIP_TAIL = re.compile(
-    r"\s+(?:"
-    r"are there|is there|"
-    r"can be seen|can you see|do you see|"
-    r"are visible|is visible|"
-    r"(?:are|is)\s+(?:in|on|at|near|behind|under|over|inside|outside|next to)\b.*|"
-    r"(?:in|on)\s+.+"
-    r")$",
-    re.I,
-)
+# Only two "How many ...?" shapes are safe to handle with a rule (anything
+# else — "...can you see eating?", "...are standing?", "...can be seen?" —
+# is too free-form to rewrite reliably and defers to the SLM instead):
+#   "How many <noun> are/is there?"
+#   "How many <noun> are/is in/on ...?"    (the location is dropped, not kept)
+_HOW_MANY_ARE_THERE_RE = re.compile(r"^(.+?)\s+(?:are|is)\s+there$", re.I)
+_HOW_MANY_ARE_IN_ON_RE = re.compile(r"^(.+?)\s+(?:are|is)\s+(?:in|on)\s+.+$", re.I)
 
-# Remaining verb clause after the noun: "people are standing" → predicate form.
-_HOW_MANY_PREDICATE = re.compile(
-    r"^(.+?)\s+((?:are|is|was|were|have|has|do|does|can|could)\s+.+)$",
-    re.I,
-)
+
+def _singularize_full_np(phrase: str) -> str:
+    """Singularize a full noun phrase, including a trailing 'of X' complement.
+
+    Used only for a count of one, where the whole phrase denotes a single
+    item/category: 'kinds of animals' -> 'kind of animal' (not 'kind of
+    animals') — both the head noun and the 'of' complement become singular.
+    """
+    if " of " in phrase:
+        head, _, tail = phrase.partition(" of ")
+        head = singularize_noun_phrase(head)
+        tail_tokens = tail.split()
+        if tail_tokens:
+            tail_tokens[-1] = singularize_word(tail_tokens[-1])
+        return f"{head} of {' '.join(tail_tokens)}".strip()
+    return singularize_noun_phrase(phrase)
 
 
 def rule_how_many(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'How many X ...?' → 'There are {answer} X.' (or '{N} X are ...').
+    """Pattern: 'How many X are/is there|in/on ...?' → 'There is/are {answer} X.'
 
-    Strips visibility/location scaffolding so
-    "How many cookies can be seen?" → "There are two cookies."
-    Keeps real predicates when present:
-    "How many people are standing?" → "Two people are standing."
-    Singularizes the noun when the count is one:
-    "How many windows are on the caboose?" (1) → "There is one window."
+    Examples:
+        'How many cookies are there?' + '2' → 'There are two cookies.'
+        'How many windows are on the caboose?' + '1' → 'There is one window.'
+        'How many kinds of animals are in this photo?' + '1'
+            → 'There is one kind of animal.'
+
+    Any other shape (a verb-ing predicate, 'can be seen', 'can you see',
+    ...) returns None and defers to the SLM.
     """
     m = re.match(r"^how many (.+)$", question, re.I)
     if not m:
         return None
-    obj = _HOW_MANY_STRIP_TAIL.sub("", m.group(1).strip()).strip()
-    if not obj:
+    rest = m.group(1).strip()
+
+    noun_m = _HOW_MANY_ARE_THERE_RE.match(rest) or _HOW_MANY_ARE_IN_ON_RE.match(rest)
+    if not noun_m:
         return None
+    noun = noun_m.group(1).strip()
+    if not noun:
+        return None
+
     ans = normalize_answer(answer)
-
-    pred_m = _HOW_MANY_PREDICATE.match(obj)
-    if pred_m:
-        noun, predicate = pred_m.group(1).strip(), pred_m.group(2).strip()
-        if is_no(answer) or ans in {"zero", "none"}:
-            return f"There are no {noun}."
-        if ans in {"one", "1"}:
-            # "is" for singular when the predicate starts with are/is
-            predicate = re.sub(r"^(are|were)\b", "is", predicate, count=1, flags=re.I)
-            return f"One {singularize_noun_phrase(noun)} {predicate}."
-        return f"{capitalize_first(ans)} {noun} {predicate}."
-
     if is_no(answer) or ans in {"zero", "none"}:
-        return f"There are no {obj}."
-
+        return f"There are no {noun}."
     if ans in {"one", "1"}:
-        return f"There is one {singularize_noun_phrase(obj)}."
-    return f"There are {ans} {obj}."
+        return f"There is one {_singularize_full_np(noun)}."
+    return f"There are {ans} {noun}."
 
 
 def rule_what_is_doing(question: str, answer: str) -> Optional[str]:
@@ -671,16 +706,6 @@ def rule_what_kind_type(question: str, answer: str) -> Optional[str]:
     return f"The {subj} is {noun}."
 
 
-def rule_where(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'Where is/are the X?' → 'The X is/are {answer}.'"""
-    m = re.match(r"^where (?:is|are) (?:the )?(.+)$", question, re.I)
-    if not m:
-        return None
-    subj = m.group(1).strip()
-    verb = "are" if " are " in question.lower() else "is"
-    return f"{prefix_the(subj)} {verb} {answer}."
-
-
 def rule_who(question: str, answer: str) -> Optional[str]:
     """Pattern: 'Who is/are X?' → '{Answer} is/are X.'"""
     m = re.match(r"^who (?:is|are) (.+)$", question, re.I)
@@ -689,15 +714,6 @@ def rule_who(question: str, answer: str) -> Optional[str]:
     rest = m.group(1).strip()
     verb = "are" if " are " in question.lower() else "is"
     return f"{capitalize_first(answer)} {verb} {rest}."
-
-
-def rule_which(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'Which X ...?' → 'The X is {answer}.'"""
-    m = re.match(r"^which (.+)$", question, re.I)
-    if not m:
-        return None
-    rest = m.group(1).strip()
-    return f"The {rest} is {answer}."
 
 
 def rule_is_there(question: str, answer: str) -> Optional[str]:
@@ -726,118 +742,242 @@ def rule_are_there(question: str, answer: str) -> Optional[str]:
     return f"There are {answer} {obj}."
 
 
-def rule_is_are_yesno(question: str, answer: str) -> Optional[str]:
-    """Yes/no questions with auxiliaries → affirmative / negative statement.
+# ---------------------------------------------------------------------------
+# Yes/no rules — deliberately split into narrow, high-precision sub-rules
+# instead of one generic "is_are_yesno" catch-all. Each rule only fires for
+# a syntactic shape it can transform with confidence; anything else (e.g. an
+# indefinite-article subject like 'a military person', whose head noun can't
+# be found without POS tagging) returns None so the item defers to the SLM
+# instead of producing a guessed, possibly-wrong sentence.
+# ---------------------------------------------------------------------------
 
-    Transformations:
-        Does + SUBJ + VERB + REST  → SUBJ + VERB_3sg + REST
-        Do   + SUBJ + VERB + REST  → SUBJ + VERB_base + REST
-        Did  + SUBJ + VERB + REST  → SUBJ + VERB_past + REST
-        Is/Are/Was/Were + SUBJ + PRED → SUBJ + copula + PRED
-        Has/Have/Had / Can/...     → keep auxiliary + rest
 
-    Examples:
-        'Does this photo show train tracks?' + yes
-            → 'This photo shows train tracks.'
-        'Are these wings strong?' + yes
-            → 'These wings are strong.'
-        'Are these wings strong?' + no
-            → 'These wings are not strong.'
-        'Is she wearing a bathing suit?' + yes
-            → 'She is wearing a bathing suit.'
-        'Is one of the giraffes eating?' + yes
-            → 'One of the giraffes is eating.'
+def rule_yesno_is_anyone(question: str, answer: str) -> Optional[str]:
+    """Pattern: 'Is/Are anyone ...?' → 'Someone is {pred}.' / 'No one is {pred}.'
+
+    Example:
+        'Is anyone wearing wrist protection?' + yes
+            → 'Someone is wearing wrist protection.'
+        'Is anyone wearing wrist protection?' + no
+            → 'No one is wearing wrist protection.'
     """
-    m = re.match(
-        r"^(is|are|was|were|does|do|did|can|could|will|would|has|have|had)\s+(.+)$",
-        question,
-        re.I,
-    )
+    m = re.match(r"^(?:is|are)\s+anyone\s+(.+)$", question, re.I)
     if not m:
         return None
+    pred = m.group(1).strip()
+    if not pred:
+        return None
+    if is_yes(answer):
+        return f"Someone is {pred}."
+    if is_no(answer):
+        return f"No one is {pred}."
+    return None
 
+
+def rule_yesno_are_any(question: str, answer: str) -> Optional[str]:
+    """Pattern: 'Are any of ...?' → 'At least one of {subj} is {pred}.' / 'None of {subj} is {pred}.'
+
+    Example:
+        'Are any of the animals eating?' + yes
+            → 'At least one of the animals is eating.'
+        'Are any of the animals eating?' + no
+            → 'None of the animals is eating.'
+    """
+    m = re.match(r"^are any of (.+)$", question, re.I)
+    if not m:
+        return None
+    subj, pred = split_subject_predicate(m.group(1).strip())
+    if not subj or not pred:
+        return None
+    if is_yes(answer):
+        return f"At least one of {subj} is {pred}."
+    if is_no(answer):
+        return f"None of {subj} is {pred}."
+    return None
+
+
+def rule_yesno_are_all(question: str, answer: str) -> Optional[str]:
+    """Pattern: 'Is/Are all ...?' → 'All {subj} {be} {pred}.' / 'Not all {subj} {be} {pred}.'
+
+    Example:
+        'Are all the flowers white?' + no
+            → 'Not all the flowers are white.'
+        'Are all the flowers white?' + yes
+            → 'All the flowers are white.'
+    """
+    m = re.match(r"^(is|are)\s+all\s+(.+)$", question, re.I)
+    if not m:
+        return None
+    be = m.group(1).lower()
+    subj, pred = split_subject_predicate(m.group(2).strip())
+    if not subj or not pred:
+        return None
+    if is_yes(answer):
+        return f"All {subj} {be} {pred}."
+    if is_no(answer):
+        return f"Not all {subj} {be} {pred}."
+    return None
+
+
+def rule_yesno_are_both(question: str, answer: str) -> Optional[str]:
+    """Pattern: 'Are both ...?' → 'Both {subj} are {pred}.' / 'Not both {subj} are {pred}.'
+
+    Example:
+        'Are both giraffes standing?' + no
+            → 'Not both giraffes are standing.'
+        'Are both giraffes standing?' + yes
+            → 'Both giraffes are standing.'
+    """
+    m = re.match(r"^are both (.+)$", question, re.I)
+    if not m:
+        return None
+    subj, pred = split_subject_predicate(m.group(1).strip())
+    if not subj or not pred:
+        return None
+    if is_yes(answer):
+        return f"Both {subj} are {pred}."
+    if is_no(answer):
+        return f"Not both {subj} are {pred}."
+    return None
+
+
+def rule_yesno_does_do(question: str, answer: str) -> Optional[str]:
+    """Pattern: 'Does/Do/Did + subject + verb ...?' → affirmative/negative statement.
+
+    Transformations:
+        Does + SUBJ + VERB + REST → SUBJ + VERB_3sg + REST
+        Do   + SUBJ + VERB + REST → SUBJ + VERB_base + REST
+        Did  + SUBJ + VERB + REST → SUBJ + VERB_past + REST
+
+    Example:
+        'Does this photo show train tracks?' + yes
+            → 'This photo shows train tracks.'
+    """
+    m = re.match(r"^(does|do|did)\s+(.+)$", question, re.I)
+    if not m:
+        return None
     aux = m.group(1).lower()
     rest = m.group(2).strip()
     if not rest:
         return None
 
-    pos: Optional[str] = None
-
-    # ---- Do-support: Does / Do / Did ----
-    if aux in {"does", "do", "did"}:
-        quant_m = _QUANT_OF_RE.match(rest)
-        if quant_m:
-            # 'one of the elephants' is the whole subject; don't chop at "of".
-            subj = quant_m.group(1).strip()
-            rem_tokens = quant_m.group(2).strip().split()
-            if not rem_tokens:
-                return None
-            verb = rem_tokens[0]
-            tail = " ".join(rem_tokens[1:]).strip()
+    quant_m = _QUANT_OF_RE.match(rest)
+    if quant_m:
+        # 'one of the elephants' is the whole subject; don't chop at "of".
+        subj = quant_m.group(1).strip()
+        rem_tokens = quant_m.group(2).strip().split()
+        if not rem_tokens:
+            return None
+        verb = rem_tokens[0]
+        tail = " ".join(rem_tokens[1:]).strip()
+    else:
+        tokens = rest.split()
+        if len(tokens) < 2:
+            return None
+        first_word = tokens[0].lower()
+        if first_word in {"a", "an"}:
+            # Ambiguous multi-word NP after an indefinite article — defer to
+            # the SLM instead of guessing the head noun.
+            return None
+        if first_word in {"this", "that", "these", "those", "the"} and len(tokens) >= 3:
+            subj = " ".join(tokens[:2])
+            verb = tokens[2]
+            tail = " ".join(tokens[3:]).strip()
         else:
-            tokens = rest.split()
-            if len(tokens) < 2:
-                return None
-            # Subject = leading NP (demonstrative+noun or the+noun or first token)
-            if tokens[0].lower() in {"this", "that", "these", "those", "the"} and len(tokens) >= 3:
-                subj = " ".join(tokens[:2])
-                verb = tokens[2]
-                tail = " ".join(tokens[3:]).strip()
-            else:
-                subj = tokens[0]
-                verb = tokens[1]
-                tail = " ".join(tokens[2:]).strip()
+            subj = tokens[0]
+            verb = tokens[1]
+            tail = " ".join(tokens[2:]).strip()
 
-        if aux == "does":
-            main = conjugate_3sg(verb)
-        elif aux == "did":
-            main = conjugate_past(verb)
+    if aux == "does":
+        main = conjugate_3sg(verb)
+    elif aux == "did":
+        main = conjugate_past(verb)
+    else:
+        main = verb.lower()
+
+    pred = f"{main} {tail}".strip() if tail else main
+    pos = f"{prefix_the(subj)} {pred}."
+
+    if is_yes(answer):
+        return pos
+    if is_no(answer):
+        return insert_not(pos)
+    return None
+
+
+def rule_yesno_modal_have(question: str, answer: str) -> Optional[str]:
+    """Pattern: 'Can/Could/Will/Would/Has/Have/Had ...?' → keep the auxiliary.
+
+    Example:
+        'Could this photo be from a zoo?' + yes
+            → 'This photo could be from a zoo.'
+    """
+    m = re.match(r"^(can|could|will|would|has|have|had)\s+(.+)$", question, re.I)
+    if not m:
+        return None
+    aux = m.group(1).lower()
+    rest = m.group(2).strip()
+    if not rest:
+        return None
+
+    subj, pred = split_subject_predicate(rest)
+    pred = _drop_duplicate_leading_aux(pred, aux)
+    if not subj or not pred:
+        # "Has it snowed?" style — treat whole rest as after aux
+        if rest.lower().startswith(("this ", "that ", "these ", "those ", "the ")):
+            pos = f"{capitalize_first(rest)}."
         else:
-            main = verb.lower()
+            return None
+    else:
+        pos = f"{prefix_the(subj)} {aux} {pred}."
 
-        pred = f"{main} {tail}".strip() if tail else main
-        pos = f"{prefix_the(subj)} {pred}."
+    if is_yes(answer):
+        return pos
+    if is_no(answer):
+        return insert_not(pos)
+    return None
 
-    # ---- Copula: Is / Are / Was / Were ----
-    elif aux in {"is", "are", "was", "were"}:
-        # "Is this a train?" / "Is that an apple?"
-        m2 = re.match(r"^(this|that|these|those)\s+(a|an|the)\s+(.+)$", rest, re.I)
-        if m2:
-            det, art, noun = m2.group(1), m2.group(2).lower(), m2.group(3)
-            be = "are" if aux in {"are", "were"} else "is"
-            if aux == "was":
-                be = "was"
-            elif aux == "were":
-                be = "were"
-            pos = f"{capitalize_first(det)} {be} {art} {noun}."
-        else:
-            subj, pred = split_subject_predicate(rest)
-            pred = _drop_duplicate_leading_aux(pred, aux)
-            if not pred:
-                return None
-            if aux in {"are", "were"}:
-                be = "are" if aux == "are" else "were"
-            elif aux == "was":
-                be = "was"
-            else:
-                be = "is"
-            pos = format_subject_be(subj, pred, be)
 
-    # ---- Have / Has / Had / Modals: keep auxiliary ----
-    elif aux in {"has", "have", "had", "can", "could", "will", "would"}:
+def rule_yesno_is_are_predicate(question: str, answer: str) -> Optional[str]:
+    """Pattern: 'Is/Are/Was/Were + subject + (adjective | verb-ing | ...)?'.
+
+    Example:
+        'Are these wings strong?' + yes → 'These wings are strong.'
+        'Are these wings strong?' + no  → 'These wings are not strong.'
+        'Is she wearing a bathing suit?' + yes
+            → 'She is wearing a bathing suit.'
+        'Is one of the giraffes eating?' + yes
+            → 'One of the giraffes is eating.'
+
+    Subjects led by an indefinite article ('a military person') are
+    ambiguous without POS tagging (is the head noun 'a' or 'a military
+    person'?) — this rule returns None for those so the SLM handles them
+    instead of producing a broken sentence like 'The a is military person...'.
+    """
+    m = re.match(r"^(is|are|was|were)\s+(.+)$", question, re.I)
+    if not m:
+        return None
+    aux = m.group(1).lower()
+    rest = m.group(2).strip()
+    if not rest:
+        return None
+    if rest.split()[0].lower() in {"a", "an"}:
+        return None
+
+    be = {"is": "is", "was": "was", "are": "are", "were": "were"}[aux]
+
+    # "Is this a train?" / "Is that an apple?"
+    m2 = re.match(r"^(this|that|these|those)\s+(a|an|the)\s+(.+)$", rest, re.I)
+    if m2:
+        det, art, noun = m2.group(1), m2.group(2).lower(), m2.group(3)
+        pos = f"{capitalize_first(det)} {be} {art} {noun}."
+    else:
         subj, pred = split_subject_predicate(rest)
         pred = _drop_duplicate_leading_aux(pred, aux)
-        if not pred:
-            # "Has it snowed?" style — treat whole rest as after aux
-            if rest.lower().startswith(("this ", "that ", "these ", "those ", "the ")):
-                pos = f"{capitalize_first(rest)}."
-            else:
-                return None
-        else:
-            pos = f"{prefix_the(subj)} {aux} {pred}."
+        if not subj or not pred:
+            return None
+        pos = format_subject_be(subj, pred, be)
 
-    if pos is None:
-        return None
     if is_yes(answer):
         return pos
     if is_no(answer):
@@ -965,46 +1105,13 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
     return format_the_subject(subj, answer, "is")
 
 
-def rule_what_brand_sport(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'What brand/sport/room/animal/vehicle/food/drink (of X) (is/are ...)?'
-    → 'The {kind} (of X) (that is ...) is {answer}.'
-
-    Examples:
-        'What animal is shown?' + 'dog' → 'The animal is a dog.'
-        'What animal is laying next to the dog?' + 'giraffe'
-            → 'The animal that is laying next to the dog is a giraffe.'
-        'What brand of computer is in the image?' + 'dell'
-            → 'The brand of computer is dell.'
-    """
-    m = re.match(
-        r"^what (brand|sport|room|animal|vehicle|food|drink)\s*(.*)$",
-        question,
-        re.I,
-    )
-    if not m:
-        return None
-    kind = m.group(1).lower()
-    head, aux, tail = _split_head_tail(m.group(2).strip())
-    subj = f"{kind} {head}".strip() if head else kind
-    if is_no(answer):
-        return f"There is no {_plain_head_tail(subj, tail)}."
-    noun = smart_article(answer)
-    subj_full = _describe_with_tail(subj, aux, tail)
-    return f"The {subj_full} is {noun}."
-
-
-def rule_fallback(question: str, answer: str) -> str:
-    """Age hich rule match nashod, in fallback estefade mishe."""
-    q_clean = strip_question_mark(question)
-    if is_yes(answer):
-        return f"{capitalize_first(q_clean)} — yes."
-    if is_no(answer):
-        return f"{capitalize_first(q_clean)} — no."
-    return f"{capitalize_first(q_clean)} The answer is {answer}."
-
-
 # ---------------------------------------------------------------------------
-# Rule list — tartib mohem hast: rule haye specific aval, fallback akhar
+# Rule list — order matters: most specific rules first. Deliberately
+# excludes 'which', 'where', and 'what brand/sport/room/animal/vehicle/
+# food/drink' (too free-form to split into a reliable subject/predicate
+# without POS tagging) — those always defer to the SLM. There is no
+# catch-all fallback rule: anything unmatched is marked "needs_llm" with an
+# empty caption instead of a fabricated template sentence.
 # ---------------------------------------------------------------------------
 
 RULES: List[Tuple[str, RuleFn]] = [
@@ -1012,13 +1119,16 @@ RULES: List[Tuple[str, RuleFn]] = [
     ("how_many", rule_how_many),
     ("what_is_doing", rule_what_is_doing),
     ("what_kind_type", rule_what_kind_type),
-    ("where", rule_where),
     ("who", rule_who),
-    ("which", rule_which),
     ("is_there", rule_is_there),
     ("are_there", rule_are_there),
-    ("is_are_yesno", rule_is_are_yesno),
-    ("what_brand_sport", rule_what_brand_sport),
+    ("yesno_is_anyone", rule_yesno_is_anyone),
+    ("yesno_are_any", rule_yesno_are_any),
+    ("yesno_are_all", rule_yesno_are_all),
+    ("yesno_are_both", rule_yesno_are_both),
+    ("yesno_does_do", rule_yesno_does_do),
+    ("yesno_modal_have", rule_yesno_modal_have),
+    ("yesno_is_are_predicate", rule_yesno_is_are_predicate),
     ("what_is", rule_what_is),
 ]
 
@@ -1027,7 +1137,10 @@ def generate_caption(question: str, answer: str) -> Tuple[str, str]:
     """Az (soal, javab) yek caption + esm rule ro tolid kon.
 
     Returns:
-        (caption, rule_name) — rule_name baraye debug/statistics.
+        (caption, rule_name) — rule_name baraye debug/statistics. When no
+        rule matches confidently, returns ``("", "needs_llm")`` — an empty
+        caption, never a fabricated template sentence. The row must be
+        filled in by the SLM (``generate.py --llm``) before it's usable.
     """
     q = strip_question_mark(question).lower()
     a = normalize_answer(answer)
@@ -1037,4 +1150,4 @@ def generate_caption(question: str, answer: str) -> Tuple[str, str]:
         if caption:
             return caption, rule_name
 
-    return rule_fallback(q, a), "fallback"
+    return "", "needs_llm"

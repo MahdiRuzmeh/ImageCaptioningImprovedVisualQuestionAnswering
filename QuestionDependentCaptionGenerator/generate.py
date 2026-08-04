@@ -22,9 +22,9 @@ import os
 import tempfile
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from caption_rules import generate_caption, mode_answer
+from caption_rules import answer_mode_stats, generate_caption
 from llm_client import ItemOutcome, OllamaClient, run_batches_concurrent
 from llm_prompts import PROMPT_VERSION
 
@@ -162,6 +162,11 @@ def load_vqa_pairs(
 
     Returns:
         (rows, rule_counts) — rows + statistik rule ha.
+
+    Skips duplicate rows: VQA v2 sometimes has two distinct question_ids for
+    the same image with the exact same question text and answer (independent
+    annotators asked the same thing) — only the first (lowest question_id)
+    occurrence per image is kept.
     """
     with questions_json.open("r", encoding="utf-8") as f:
         questions = json.load(f)["questions"]
@@ -176,24 +181,43 @@ def load_vqa_pairs(
 
     rows: List[Dict[str, Any]] = []
     rule_counts: Counter = Counter()
+    seen_per_image: Dict[int, Set[Tuple[str, str]]] = {}
+    duplicates_dropped = 0
 
     for qid in qids:
         q = qmap[qid]
         ann = amap[qid]
+        image_id = int(q["image_id"])
         answers = [x["answer"] for x in ann["answers"]]
-        ans = mode_answer(answers)
+        ans, answer_count, answer_confidence = answer_mode_stats(answers)
+
+        dedup_key = (q["question"].strip().lower(), ans)
+        seen = seen_per_image.setdefault(image_id, set())
+        if dedup_key in seen:
+            duplicates_dropped += 1
+            continue
+        seen.add(dedup_key)
+
         caption, rule = generate_caption(q["question"], ans)
         rule_counts[rule] += 1
 
         rows.append(
             {
                 "question_id": qid,
-                "image_id": int(q["image_id"]),
+                "image_id": image_id,
                 "question": q["question"],
                 "answer": ans,
+                "answer_count": answer_count,
+                "answer_confidence": answer_confidence,
                 "caption": caption,
                 "rule": rule,
             }
+        )
+
+    if duplicates_dropped:
+        print(
+            f"Dedup: {duplicates_dropped} duplicate (image_id, question, answer) "
+            "rows dropped — kept the first occurrence of each."
         )
 
     return rows, rule_counts
@@ -210,7 +234,7 @@ def merge_llm_resume(
     """
     restored = 0
     for row in rows:
-        if row["rule"] != "fallback":
+        if row["rule"] != "needs_llm":
             continue
         prev = resume_map.get(int(row["question_id"]))
         if prev is None:
@@ -230,7 +254,7 @@ def llm_failure_log_path(output_path: Path) -> Path:
 
 
 class LlmFailureLogger:
-    """Append-only log file that explains why LLM could not replace ``fallback``.
+    """Append-only log file that explains why LLM could not resolve ``needs_llm``.
 
     Written next to the captions JSON so connection / parse / answer-mismatch
     reasons are visible without silent leftovers.
@@ -245,7 +269,7 @@ class LlmFailureLogger:
         self.reason_counts: Counter = Counter()
         self._fh.write(
             "# LLM fallback failure log\n"
-            "# Each block = one Q+A that stayed rule=fallback after LLM attempts.\n"
+            "# Each block = one Q+A that stayed rule=needs_llm after LLM attempts.\n"
             f"# log_path={self.path.resolve()}\n"
             f"{'=' * 72}\n"
         )
@@ -275,18 +299,18 @@ class LlmFailureLogger:
         )
         self._fh.flush()
 
-    def write_summary(self, still_fallback: int) -> None:
+    def write_summary(self, still_needs_llm: int) -> None:
         """Append reason histogram + leftover count."""
         self._fh.write(f"\n{'=' * 72}\n")
         self._fh.write("SUMMARY\n")
         self._fh.write(f"  failures_logged: {self.count}\n")
-        self._fh.write(f"  still_rule_fallback: {still_fallback}\n")
+        self._fh.write(f"  still_rule_needs_llm: {still_needs_llm}\n")
         if self.reason_counts:
             self._fh.write("  by_reason:\n")
             for reason, n in self.reason_counts.most_common():
                 self._fh.write(f"    {reason}: {n}\n")
         self._fh.write(
-            "\nIf still_rule_fallback > 0, the system did NOT fully succeed.\n"
+            "\nIf still_rule_needs_llm > 0, the system did NOT fully succeed.\n"
             "Fix the top reason (Ollama down, parse_length_mismatch, "
             "answer_mismatch, …) and re-run the same --llm command.\n"
         )
@@ -313,15 +337,15 @@ def apply_llm_fallbacks(
     llm_meta: Dict[str, Any],
     resume_map: Optional[Dict[int, Dict[str, Any]]] = None,
     failure_log: Optional[LlmFailureLogger] = None,
-    single_retries: int = 2,
+    single_retries: int = 3,
     final_retries: int = 3,
 ) -> Counter:
-    """Row haye rule=fallback ro ba packed LLM caption update mikone.
+    """Row haye rule=needs_llm ro ba packed LLM caption update mikone.
 
     Resume: age question_id toye resume_map bashe, LLM call nemikone.
     Checkpoint: har N batch (default 1), JSON ro atomic save mikone.
     Failures: written to ``failure_log`` (why LLM could not be used).
-    Final pass: leftover fallbacks get extra single-item retries.
+    Final pass: leftover needs_llm rows get extra single-item retries.
 
     Args:
         rows: annotation rows (mutated in place)
@@ -344,7 +368,7 @@ def apply_llm_fallbacks(
         print(f"Resume: {restored} llm_fallback az checkpoint restore shod")
 
     pending_idx: List[int] = [
-        i for i, r in enumerate(rows) if r["rule"] == "fallback"
+        i for i, r in enumerate(rows) if r["rule"] == "needs_llm"
     ]
     already = sum(1 for r in rows if r["rule"] == "llm_fallback")
     print(
@@ -380,11 +404,11 @@ def apply_llm_fallbacks(
             rows[row_i]["rule"] = "llm_fallback"
             ok_n += 1
         done_batches += 1
-        still = sum(1 for r in rows if r["rule"] == "fallback")
+        still = sum(1 for r in rows if r["rule"] == "needs_llm")
         print(
             f"  LLM batch {batch_i + 1}/{total_batches} done "
             f"(accepted {ok_n}/{len(outcomes)}, "
-            f"{still} fallback left)"
+            f"{still} needs_llm left)"
         )
         if checkpoint_every > 0 and done_batches % checkpoint_every == 0:
             counts = recount_rules(rows)
@@ -406,10 +430,10 @@ def apply_llm_fallbacks(
         single_retries=single_retries,
     )
 
-    leftover = [i for i, r in enumerate(rows) if r["rule"] == "fallback"]
+    leftover = [i for i, r in enumerate(rows) if r["rule"] == "needs_llm"]
     if leftover and final_retries > 0:
         print(
-            f"Final salvage: {len(leftover)} fallback left — "
+            f"Final salvage: {len(leftover)} needs_llm left — "
             f"single-item retry x{final_retries}"
         )
         for row_i in leftover:
@@ -427,7 +451,7 @@ def apply_llm_fallbacks(
 
     if failure_log is not None:
         for row_i, row in enumerate(rows):
-            if row["rule"] != "fallback":
+            if row["rule"] != "needs_llm":
                 continue
             outcome = last_outcome.get(
                 row_i,
@@ -443,16 +467,16 @@ def apply_llm_fallbacks(
                 template_caption=str(row["caption"]),
                 outcome=outcome,
             )
-        still_logged = sum(1 for r in rows if r["rule"] == "fallback")
+        still_logged = sum(1 for r in rows if r["rule"] == "needs_llm")
         failure_log.write_summary(still_logged)
 
-    still = sum(1 for r in rows if r["rule"] == "fallback")
+    still = sum(1 for r in rows if r["rule"] == "needs_llm")
     if still:
         log_hint = (
             f" — see {failure_log.path}" if failure_log is not None else ""
         )
         print(
-            f"WARNING: {still} rows still rule=fallback after LLM"
+            f"WARNING: {still} rows still rule=needs_llm after LLM"
             f"{log_hint}. System did not fully succeed."
         )
     else:
@@ -514,7 +538,7 @@ def print_stats(
     rule_counts: Counter,
     output_path: Path,
 ) -> None:
-    """Statistik rule ha ro chap kon ta befahmim cheghadr fallback darim."""
+    """Statistik rule ha ro chap kon ta befahmim cheghadr needs_llm darim."""
     total = len(rows)
     print(f"Wrote {total} captions -> {output_path}")
     for rule, count in rule_counts.most_common():
@@ -537,11 +561,11 @@ def print_stats(
             print(f"  C: {row['caption']}  [{row['rule']}]")
             print()
 
-    still = sum(1 for r in rows if r["rule"] == "fallback")
+    still = sum(1 for r in rows if r["rule"] == "needs_llm")
     if still:
         log_p = llm_failure_log_path(output_path)
         print(
-            f"NOTE: {still} rule=fallback remain. "
+            f"NOTE: {still} rule=needs_llm remain. "
             f"With --llm, see failure reasons in:\n  {log_p}"
         )
 
@@ -592,7 +616,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--llm",
         action="store_true",
-        help="Baraye rule=fallback az Ollama/Mistral caption begir",
+        help="Baraye rule=needs_llm az Ollama/Mistral caption begir",
     )
     parser.add_argument(
         "--batch-size",
@@ -738,14 +762,14 @@ def main() -> None:
                 annotations_json,
                 llm_meta=llm_meta,
             )
-            still = sum(1 for r in rows if r["rule"] == "fallback")
+            still = sum(1 for r in rows if r["rule"] == "needs_llm")
             if failure_log is not None:
                 # Log whatever we know so far (outcomes may be partial)
                 failure_log.write_summary(still)
                 failure_log.close()
             print(
                 f"Checkpoint saved -> {output_path} "
-                f"({still} fallback left). Dobare hamoon command ro bezan."
+                f"({still} needs_llm left). Dobare hamoon command ro bezan."
             )
             raise SystemExit(130) from None
         finally:
@@ -762,10 +786,10 @@ def main() -> None:
     )
     print_stats(rows, rule_counts, output_path)
     if args.llm:
-        still = sum(1 for r in rows if r["rule"] == "fallback")
+        still = sum(1 for r in rows if r["rule"] == "needs_llm")
         if still:
             print(
-                f"ERROR: {still} fallback remain after --llm. "
+                f"ERROR: {still} needs_llm remain after --llm. "
                 f"Inspect {llm_failure_log_path(output_path)}"
             )
             raise SystemExit(1)

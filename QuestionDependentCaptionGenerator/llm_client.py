@@ -12,9 +12,55 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Set, Tuple
 
+from caption_rules import DIGIT_TO_WORD
 from llm_prompts import chat_messages
+
+_WORD_TO_DIGIT = {word: digit for digit, word in DIGIT_TO_WORD.items()}
+
+
+def _numeric_equivalents(token: str) -> Set[str]:
+    """A token plus its digit<->word number form (e.g. '2' <-> 'two')."""
+    equivalents = {token}
+    if token in DIGIT_TO_WORD:
+        equivalents.add(DIGIT_TO_WORD[token])
+    if token in _WORD_TO_DIGIT:
+        equivalents.add(_WORD_TO_DIGIT[token])
+    return equivalents
+
+
+
+# Suffixes stripped longest-first so a word matches only one bucket (a word
+# can't end in both "ing" and "s"). Used for a light stem comparison so verb/
+# noun inflections count as the same word (answer 'stands' <-> caption
+# 'standing', answer 'dogs' <-> caption 'dog').
+_INFLECTION_SUFFIXES = ("ing", "edly", "ed", "es", "s")
+
+
+def _stem(word: str) -> str:
+    """Strip a common inflection suffix, but only if >=3 letters remain."""
+    for suf in _INFLECTION_SUFFIXES:
+        if word.endswith(suf) and len(word) - len(suf) >= 3:
+            return word[: -len(suf)]
+    return word
+
+
+def _token_present(token: str, caption_lower: str) -> bool:
+    """Match a token in the caption: exact word, numeric equivalent, or shared stem.
+
+    - '2' matches 'two' (``_numeric_equivalents``).
+    - 'stands' matches 'standing', 'dogs' matches 'dog' (shared stem, via a
+      light suffix-stripping heuristic — not a real lemmatizer, but enough to
+      stop false 'answer_mismatch' rejections on simple inflections).
+    """
+    if any(re.search(rf"\b{re.escape(t)}\b", caption_lower) for t in _numeric_equivalents(token)):
+        return True
+    token_stem = _stem(token)
+    if len(token_stem) < 3:
+        return False
+    caption_words = re.findall(r"[a-z']+", caption_lower)
+    return any(_stem(w) == token_stem for w in caption_words)
 
 
 # ---------------------------------------------------------------------------
@@ -161,9 +207,63 @@ _NO = {"no", "none", "0", "zero", "n/a", "not", "nothing"}
 # passes a naive substring check).
 _NEGATION_RE = re.compile(r"\b(no|not|n't|never|none|nobody|nothing|neither|without)\b", re.I)
 
+# Structural sanity check: brackets/labels and stray quotation marks mean the
+# model echoed formatting instead of writing a plain sentence.
+_BRACKET_CHARS = "[]{}"
+_QUOTE_CHARS = "\"\u201c\u201d"
+
+# The model should never write 'the answer is ...' / 'the answer' — it must
+# weave the answer into a natural sentence about the image instead.
+_ANSWER_PHRASE_RE = re.compile(r"\bthe answer\b", re.I)
+
+
+def caption_format_is_valid(caption: str) -> Tuple[bool, str]:
+    """Structural check for one clean declarative sentence.
+
+    Rejects captions that are:
+      - empty, or fewer than 2 words
+      - a question (contains '?')
+      - wrapped/labeled with brackets or quotation marks
+      - more than one sentence (an internal '.'/'!'/'?' before the final
+        terminator, e.g. 'This is a home. Not a restaurant.')
+      - littered with a stray double period ('..')
+      - using the meta-phrase 'the answer'/'the answer is' instead of a
+        natural sentence
+
+    Returns:
+        (ok, reason) — reason is 'ok' or a short machine-readable code.
+    """
+    c = caption.strip()
+    if not c:
+        return False, "empty_caption"
+    if len(c.split()) < 2:
+        return False, "too_short"
+    if "?" in c:
+        return False, "contains_question_mark"
+    if any(ch in c for ch in _BRACKET_CHARS):
+        return False, "contains_brackets"
+    if any(ch in c for ch in _QUOTE_CHARS):
+        return False, "contains_quotes"
+    if ".." in c:
+        return False, "double_period"
+    if _ANSWER_PHRASE_RE.search(c):
+        return False, "contains_answer_phrase"
+    body = c[:-1] if c[-1] in ".!?" else c
+    if re.search(r"[.!?]", body):
+        return False, "multiple_sentences"
+    return True, "ok"
+
 
 def answer_in_caption(answer: str, caption: str) -> bool:
-    """Check mikone javab toye caption hast; yes/no joda handle mishe."""
+    """Check mikone javab toye caption hast; yes/no joda handle mishe.
+
+    Two relaxations vs. a strict substring check:
+      - digit/word number forms are treated as equivalent ('2' matches 'two'),
+        via ``_token_present``.
+      - not every answer token has to appear — matching >=50% of the answer's
+        tokens is enough (e.g. answer 'holding it' is satisfied by a caption
+        that only reflects 'holding', since 'it' is a placeholder pronoun).
+    """
     a = answer.strip().lower()
     c = caption.strip().lower()
     if not a or not c:
@@ -175,7 +275,8 @@ def answer_in_caption(answer: str, caption: str) -> bool:
     tokens = [t for t in re.split(r"\W+", a) if t]
     if not tokens:
         return False
-    return all(t in c for t in tokens)
+    matched = sum(1 for t in tokens if _token_present(t, c))
+    return matched / len(tokens) >= 0.5
 
 
 def has_spurious_negation(answer: str, caption: str) -> bool:
@@ -198,11 +299,15 @@ def has_spurious_negation(answer: str, caption: str) -> bool:
 
 
 def caption_is_valid(answer: str, caption: str) -> Tuple[bool, str]:
-    """Combined acceptance check: answer grounded in caption AND no meaning-flip.
+    """Combined acceptance check: format, answer grounding, and no meaning-flip.
 
     Returns:
-        (ok, reason) — reason is 'ok', 'answer_mismatch', or 'spurious_negation'.
+        (ok, reason) — reason is 'ok', a ``caption_format_is_valid`` failure
+        code, 'answer_mismatch', or 'spurious_negation'.
     """
+    fmt_ok, fmt_reason = caption_format_is_valid(caption)
+    if not fmt_ok:
+        return False, fmt_reason
     if has_spurious_negation(answer, caption):
         return False, "spurious_negation"
     if answer_in_caption(answer, caption):
@@ -214,9 +319,12 @@ def answer_mismatch_detail(answer: str, caption: str) -> str:
     """Human-readable why answer_in_caption failed."""
     a = answer.strip().lower()
     c = caption.strip().lower()
-    missing = [t for t in re.split(r"\W+", a) if t and t not in c]
+    tokens = [t for t in re.split(r"\W+", a) if t]
+    missing = [t for t in tokens if not _token_present(t, c)]
+    matched_pct = round(100 * (len(tokens) - len(missing)) / len(tokens)) if tokens else 0
     return (
-        f"answer={answer!r} not reflected in caption={caption!r}"
+        f"answer={answer!r} not reflected in caption={caption!r} "
+        f"({matched_pct}% of tokens matched, need >=50%)"
         + (f"; missing_tokens={missing}" if missing else "")
     )
 
@@ -228,6 +336,32 @@ def spurious_negation_detail(answer: str, caption: str) -> str:
         f"answer={answer!r} is not yes/no, but caption={caption!r} "
         f"contains negation word(s) {hits} — likely a meaning-flip hallucination"
     )
+
+
+def format_invalid_detail(reason: str, caption: str) -> str:
+    """Human-readable why ``caption_format_is_valid`` rejected a caption."""
+    return f"caption={caption!r} failed format check: {reason}"
+
+
+_FORMAT_REASONS = {
+    "empty_caption",
+    "too_short",
+    "contains_question_mark",
+    "contains_brackets",
+    "contains_quotes",
+    "double_period",
+    "contains_answer_phrase",
+    "multiple_sentences",
+}
+
+
+def rejection_detail(reason: str, answer: str, caption: str) -> str:
+    """Dispatch to the right human-readable detail message for a reject reason."""
+    if reason in _FORMAT_REASONS:
+        return format_invalid_detail(reason, caption)
+    if reason == "spurious_negation":
+        return spurious_negation_detail(answer, caption)
+    return answer_mismatch_detail(answer, caption)
 
 
 @dataclass
@@ -351,13 +485,18 @@ class OllamaClient:
         self,
         pairs: Sequence[Tuple[str, str]],
         *,
-        single_retries: int = 2,
+        single_retries: int = 3,
     ) -> List[ItemOutcome]:
         """Batch try, then per-item single retries with reasons.
+
+        A rejection can be a content problem (answer not grounded, spurious
+        negation) or a format problem (``caption_format_is_valid`` — not one
+        clean declarative sentence); either one triggers the same retry path.
 
         Args:
             pairs: (question, answer) batch
             single_retries: extra single-item calls after batch miss
+                (default 3, per-item, on any rejection reason)
 
         Returns:
             one ``ItemOutcome`` per input pair
@@ -381,14 +520,9 @@ class OllamaClient:
                         attempts=[f"batch:ok"],
                     )
                 else:
-                    detail = (
-                        spurious_negation_detail(a, cap)
-                        if reason == "spurious_negation"
-                        else answer_mismatch_detail(a, cap)
-                    )
                     out[i] = ItemOutcome(
                         reason=reason,
-                        detail=detail,
+                        detail=rejection_detail(reason, a, cap),
                         attempts=[f"batch:{reason}"],
                     )
         else:
@@ -427,11 +561,7 @@ class OllamaClient:
                     break
                 last.attempts.append(f"{tag}:{reason}")
                 last.reason = reason
-                last.detail = (
-                    spurious_negation_detail(a, cap)
-                    if reason == "spurious_negation"
-                    else answer_mismatch_detail(a, cap)
-                )
+                last.detail = rejection_detail(reason, a, cap)
             else:
                 out[i] = last
         return out
@@ -442,7 +572,7 @@ def run_batches_concurrent(
     batches: Sequence[Sequence[Tuple[str, str]]],
     workers: int = 1,
     on_batch_done: Optional[Callable[[int, List[ItemOutcome]], None]] = None,
-    single_retries: int = 2,
+    single_retries: int = 3,
 ) -> List[List[ItemOutcome]]:
     """Chand packed batch ro sequential ya ba ThreadPool mifreste.
 
