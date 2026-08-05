@@ -33,6 +33,9 @@ NOT "It's 1:50 PM."
 naturally in the question.
 - Use natural English that a human would write.
 - Keep each caption under 15 words.
+- Spell out numbers from zero to ten (e.g. "two dogs", "three cars"), unless the answer is clearly a numeric label, score, time, year, model number, or identifier.
+- If the question asks what multiple objects or people "have in common", describe the shared property directly instead of using the phrase "have in common".
+- Prefer active or direct descriptive sentences over passive constructions when both express the same meaning.
 - If the answer is "yes" or "no", convert the question into a natural affirmative \
 or negative statement.
 - If the answer is anything else (an object, person, animal, color, number, \
@@ -41,7 +44,7 @@ attribute, name, ...), the caption MUST be affirmative/positive — never add \
 "no"/"none". E.g. question "Who made the clock?" answer "rolex" -> \
 "Rolex made the clock.", NOT "No clock was made by Rolex."
 - If the answer is an object, person, animal, color, number, or attribute, \
-integrate it naturally into the sentence.
+ Integrate the answer naturally into a complete image description instead of mechanically converting the question into a statement.
 - Return ONLY a JSON array of caption strings (same order as the inputs). \
 No other text, no labels, no "Caption:" prefixes.\
 """
@@ -83,6 +86,16 @@ _FEW_SHOT: List[Tuple[str, str, str]] = [
         "yes",
         "These wings are strong.",
     ),
+    {
+        "How many cookies can be seen?",
+        "2",
+        "Two cookies can be seen.",
+    },
+    {
+        "What do these giraffes have in common?",
+        "eating",
+        "These giraffes are eating."
+    }
 ]
 
 

@@ -170,9 +170,16 @@ def is_ocr_question(question: str, question_type: str = "") -> bool:
 
 
 def normalize_answer(answer: str) -> str:
-    """Javab ro lowercase kon; adad ro be kalame tabdil kon (3 → three)."""
+    """Lowercase the answer; spell out small integers (0–12) as words."""
     a = answer.strip().lower()
-    return DIGIT_TO_WORD.get(a, a)
+    if a in DIGIT_TO_WORD:
+        return DIGIT_TO_WORD[a]
+    # "2 giraffes" → "two giraffes"
+    m = re.match(r"^(\d+)\b(.*)$", a)
+    if m and m.group(1) in DIGIT_TO_WORD:
+        tail = m.group(2)
+        return f"{DIGIT_TO_WORD[m.group(1)]}{tail}"
+    return a
 
 
 def capitalize_first(text: str) -> str:
@@ -267,18 +274,45 @@ def prefix_the(subject: str) -> str:
     return f"The {subj}"
 
 
+_AUX_RE = (
+    r"is|are|was|were|has|have|had|can|could|will|would|do|does|did"
+)
+_SUBJ_LEAD_RE = (
+    r"There|This|That|These|Those|The|He|She|It|They|We|You|I|"
+    r"One|Some|Any|Each|All|Both|Most|Many|Few|Several|None|Someone|No one|"
+    r"At least one|Not all|Not both"
+)
+
+
 def insert_not(sentence: str) -> str:
-    """Negation sade: 'The boy is wearing glasses.' → 'The boy is not wearing glasses.'"""
+    """Natural negation — never the 'It is not true that ...' template.
+
+    Examples:
+        'This is a horse.' → 'This is not a horse.'
+        'This plane is landing.' → 'This plane is not landing.'
+        'They are playing polo.' → 'They are not playing polo.'
+        'This photo shows train tracks.' → 'This photo does not show train tracks.'
+    """
     s = sentence.rstrip(".")
-    # Copula / auxiliary already present
+
+    # Pronoun / demonstrative / existential + AUX + REST (no intervening NP)
+    m0 = re.match(
+        rf"^({_SUBJ_LEAD_RE})\s+({_AUX_RE})\s+(.+)$",
+        s,
+        re.I,
+    )
+    if m0:
+        return f"{m0.group(1)} {m0.group(2)} not {m0.group(3)}."
+
+    # Full NP subject + AUX + REST
     m = re.match(
-        r"^(There|This|That|These|Those|The|He|She|It|They|We|You|I|One|Some|Any|Each|All|Both|Most|Many|Few|Several|None)\s+(.+?)\s+"
-        r"(is|are|was|were|has|have|had|can|could|will|would)\s+(.+)$",
+        rf"^({_SUBJ_LEAD_RE})\s+(.+?)\s+({_AUX_RE})\s+(.+)$",
         s,
         re.I,
     )
     if m:
         return f"{m.group(1)} {m.group(2)} {m.group(3)} not {m.group(4)}."
+
     # Lexical verb (from Does/Do rewrite): "This photo shows X." → "... does not show X."
     m2 = re.match(
         r"^(There|This|That|These|Those|The)\s+(.+?)\s+(\w+)s\s+(.+)$",
@@ -286,27 +320,31 @@ def insert_not(sentence: str) -> str:
         re.I,
     )
     if m2 and m2.group(3).lower() not in {
-        "is",
-        "are",
-        "was",
-        "were",
-        "has",
-        "have",
-        "had",
+        "is", "are", "was", "were", "has", "have", "had",
     }:
         base = m2.group(3)
-        # strip trailing 's' from 3sg (shows→show); leave irregulars alone below
         if base.lower().endswith("ies"):
             verb_base = base[:-3] + "y"
-        elif base.lower().endswith("es") and base.lower()[:-2].endswith(("s", "x", "z", "ch", "sh")):
+        elif base.lower().endswith("es") and base.lower()[:-2].endswith(
+            ("s", "x", "z", "ch", "sh")
+        ):
             verb_base = base[:-2]
         elif base.lower().endswith("s"):
             verb_base = base[:-1]
         else:
             verb_base = base
-        return f"{m2.group(1)} {m2.group(2)} does not {verb_base.lower()} {m2.group(4)}."
-    return f"It is not true that {s.lower()}."
+        return (
+            f"{m2.group(1)} {m2.group(2)} does not "
+            f"{verb_base.lower()} {m2.group(4)}."
+        )
 
+    # Last-resort: insert "not" after the first auxiliary anywhere in the sentence.
+    m3 = re.search(rf"\b({_AUX_RE})\b", s, re.I)
+    if m3:
+        return f"{s[: m3.end()]} not{s[m3.end():]}."
+
+    # Bare lexical clause with no aux — wrap with do-support on the first verb-ish token.
+    return f"It is not {s[0].lower() + s[1:]}." if s else s
 
 def format_the_subject(subject: str, predicate: str, be: str) -> str:
     """Jomle besaz ba 'SUBJECT is/are PREDICATE' (subject article-aware)."""
@@ -384,7 +422,10 @@ _ACTION_PARTICIPLES = _COLOR_PARTICIPLES | {
     "buying", "showing", "displaying", "skating", "skateboarding",
     "snowboarding", "grazing", "browsing", "sniffing", "licking",
     "biting", "kissing", "hugging", "dancing", "singing", "shouting",
-    "yelling", "laughing", "crying",
+    "yelling", "laughing", "crying", "taking", "coming", "going",
+    "getting", "putting", "setting", "giving", "leaving", "moving",
+    "turning", "passing", "crossing", "entering", "exiting", "landing",
+    "boarding",
 }
 
 _MEDIA_NOUNS = {"picture", "photo", "image", "photograph", "scene", "shot"}
@@ -529,21 +570,210 @@ _QUANT_BARE_RE = re.compile(
     re.I,
 )
 
+# Past-participle / adjective-like predicates that open a verbal complement.
+_PREDICATE_STARTERS = _ACTION_PARTICIPLES | {
+    "made", "done", "gone", "seen", "shown", "known", "used", "based",
+    "located", "situated", "covered", "filled", "attached", "connected",
+    "turned", "switched", "tucked", "closed", "opened", "broken",
+    "painted", "written", "printed", "dressed", "armed", "equipped",
+    "hidden", "buried", "tied", "wrapped", "folded", "parked", "stopped",
+    "built", "designed", "named", "called", "colored", "coloured",
+}
+
+# Short adjectival / particle predicates commonly peeled from the right.
+_SHORT_PREDICATES = {
+    "on", "off", "up", "down", "out", "away", "back", "open", "closed",
+    "visible", "invisible", "empty", "full", "clear", "dark", "bright",
+    "strong", "weak", "wet", "dry", "hot", "cold", "warm", "cool",
+    "big", "small", "large", "little", "old", "new", "young", "tall",
+    "short", "long", "alone", "together", "ready", "done", "gone",
+    "right", "left", "straight", "backwards", "forward", "correct",
+    "safe", "dangerous", "clean", "dirty", "broken", "alive", "dead",
+    "asleep", "awake", "happy", "sad", "angry", "squishy", "soft",
+    "hard", "sharp", "real", "fake", "true", "false", "same", "different",
+    "black", "white", "red", "blue", "green", "brown", "yellow", "pink",
+    "orange", "purple", "gray", "grey",
+}
+
+_PREP_WORDS = _TRAILING_PREPOSITIONS | {
+    "into", "onto", "upon", "off", "over", "through", "without", "within",
+}
+
+
+def _leading_np_length(tokens: List[str]) -> Optional[int]:
+    """Conservative length of a leading NP: (DET)? NOUN.
+
+    Used after a preposition to find the PP object so any leftover tokens
+    can be treated as the yes/no predicate
+    ('on the elephants tourists' → object 'the elephants', pred 'tourists').
+    """
+    if not tokens:
+        return None
+    if tokens[0].lower() in ARTICLES | {"this", "that", "these", "those"}:
+        return 2 if len(tokens) >= 2 else None
+    return 1
+
+
+def _split_possessive_subject(rest: str) -> Optional[Tuple[str, str]]:
+    """Possessive NP subjects: \"the zebra's tail up\" → (\"the zebra's tail\", \"up\")."""
+    tokens = rest.split()
+    poss_idx = next(
+        (
+            i
+            for i, t in enumerate(tokens)
+            if t.endswith("'s") or t.endswith("s'")
+        ),
+        None,
+    )
+    if poss_idx is None:
+        return None
+    after = tokens[poss_idx + 1 :]
+    if not after:
+        return None
+
+    # Prefer a verbal/participle boundary after the possessed head noun(s).
+    part_rel = next(
+        (
+            i
+            for i, t in enumerate(after)
+            if t.lower() in _PREDICATE_STARTERS
+        ),
+        None,
+    )
+    if part_rel is not None and part_rel > 0:
+        cut = poss_idx + 1 + part_rel
+        return " ".join(tokens[:cut]), " ".join(tokens[cut:])
+
+    # 'the cat's eyes the same color' → possessed head + complement predicate
+    if len(after) >= 2 and after[1].lower() in ARTICLES:
+        cut = poss_idx + 2
+        return " ".join(tokens[:cut]), " ".join(tokens[cut:])
+
+    # 'the zebra's tail up' / 'the cat's eyes open' / 'the plane's engine on'
+    if len(after) == 2:
+        cut = poss_idx + 2
+        return " ".join(tokens[:cut]), after[1]
+
+    # 'the boy's hat on backwards' — possessed noun then particle/adj phrase
+    if len(after) >= 2 and after[1].lower() in _SHORT_PREDICATES | _PREP_WORDS:
+        cut = poss_idx + 2
+        return " ".join(tokens[:cut]), " ".join(after[1:])
+
+    # 'the man's white shirt tucked in' without hitting the participle set above
+    # Fallback: first token after 's is the possessed head; rest is predicate
+    # when the remainder looks predicative (≥1 token and not a bare noun-only).
+    if len(after) >= 2:
+        cut = poss_idx + 2
+        # If more adjectives sit before a later participle, grow the possessed NP.
+        for j in range(1, len(after)):
+            if after[j].lower() in _PREDICATE_STARTERS | _SHORT_PREDICATES:
+                cut = poss_idx + 1 + j
+                break
+        else:
+            # e.g. 'hair brown' already handled; multi-word unknown → defer shape
+            cut = poss_idx + 2 if len(after) == 2 else poss_idx + 1 + 1
+        if cut < len(tokens):
+            return " ".join(tokens[:cut]), " ".join(tokens[cut:])
+    return None
+
+
+def _split_coordinated_subject(rest: str) -> Optional[Tuple[str, str]]:
+    """Coordinated NP subjects: \"the clock and owl made ...\"."""
+    m = re.match(
+        r"^((?:the|a|an|this|that|these|those)\s+\S+\s+and\s+(?:(?:the|a|an)\s+)?\S+)\s+(.+)$",
+        rest,
+        re.I,
+    )
+    if not m:
+        return None
+    subj, pred = m.group(1).strip(), m.group(2).strip()
+    if not pred:
+        return None
+    return subj, pred
+
+
+def _split_pp_modified_subject(rest: str) -> Optional[Tuple[str, str]]:
+    """NP + PP-modifier + trailing predicate.
+
+    'the people on the elephants tourists'
+        → ('the people on the elephants', 'tourists')
+    'the ground near the waterfront squishy'
+        → ('the ground near the waterfront', 'squishy')
+
+    When the PP consumes the remainder ('this photo from a zoo'), returns
+    None so a later heuristic can treat the PP as the predicate.
+    """
+    tokens = rest.split()
+    prep_indices = [
+        i
+        for i, t in enumerate(tokens)
+        if t.lower() in _PREP_WORDS and 0 < i < len(tokens) - 1
+    ]
+    for prep_i in reversed(prep_indices):
+        rem = tokens[prep_i + 1 :]
+        obj_len = _leading_np_length(rem)
+        if obj_len is None or obj_len >= len(rem):
+            continue
+        pred_tokens = rem[obj_len:]
+        # Trailing predicate should be short/contentful, not another long NP
+        # introduced by 'and' (coordination is handled separately).
+        if pred_tokens[0].lower() == "and":
+            continue
+        subj = " ".join(tokens[: prep_i + 1 + obj_len])
+        pred = " ".join(pred_tokens)
+        return subj, pred
+    return None
+
+
+def _split_right_predicate(rest: str) -> Optional[Tuple[str, str]]:
+    """Peel a short final particle/adjective: 'the stove light on'.
+
+    Phrasal verbs keep the -ing verb with the particle:
+    'this plane taking off' → ('this plane', 'taking off').
+    """
+    tokens = rest.split()
+    if len(tokens) < 3:
+        return None
+    last = tokens[-1].lower()
+    if last not in _SHORT_PREDICATES:
+        return None
+    subj_tokens = tokens[:-1]
+    first = subj_tokens[0].lower()
+    if first not in ARTICLES | PRONOUNS | _QUANTIFIER_LEAD | {
+        "this", "that", "these", "those",
+    }:
+        return None
+    if len(subj_tokens) >= 2 and subj_tokens[-1].lower() in _PREP_WORDS:
+        return None
+    # '... V-ing off/up/on' — particle belongs to the verb, not the subject NP
+    if len(subj_tokens) >= 2 and subj_tokens[-1].lower().endswith("ing"):
+        return (
+            " ".join(subj_tokens[:-1]),
+            f"{subj_tokens[-1]} {tokens[-1]}",
+        )
+    return " ".join(subj_tokens), tokens[-1]
+
 
 def split_subject_predicate(rest: str) -> Tuple[str, str]:
     """Split yes/no rest into SUBJECT + PREDICATE.
 
-    Examples:
+    Specialized extractors run first (possessive, coordination, PP-modified
+    NP, right-edge particle). Only then fall back to participle / determiner
+    heuristics. Examples:
+
         'these wings strong' → ('these wings', 'strong')
+        'the stove light on' → ('the stove light', 'on')
+        \"the zebra's tail up\" → (\"the zebra's tail\", 'up')
+        'the people on the elephants tourists'
+            → ('the people on the elephants', 'tourists')
+        'the clock and owl made in the same artistic fashion'
+            → ('the clock and owl', 'made in the same artistic fashion')
         'the boy wearing glasses' → ('the boy', 'wearing glasses')
-        'this photo from a zoo' → ('this photo', 'from a zoo')
         'one of the giraffes eating' → ('one of the giraffes', 'eating')
-        'the person on the elephant tall' → heuristic NP + last AP
 
     Returns ``("", "")`` when the subject can't be split reliably (e.g. an
     indefinite article followed by a multi-word NP like 'a military
-    person', where the head noun's length can't be guessed without POS
-    tagging) — callers should treat that as "defer to the SLM".
+    person') — callers should treat that as "defer to the SLM".
     """
     quant_m = _QUANT_OF_RE.match(rest)
     if quant_m:
@@ -557,37 +787,48 @@ def split_subject_predicate(rest: str) -> Tuple[str, str]:
         return rest, ""
 
     det = tokens[0].lower()
-
     if det in {"a", "an"}:
         return "", ""
 
-    # Verb-ing predicate: locate it by scanning for a known participle
-    # instead of assuming a fixed subject length. Fixes adjective-modified
-    # subjects like 'the small elephant touching the big elephant' — the
-    # naive "determiner + 1 word" heuristic below would wrongly cut the
-    # subject at 'the small' and mangle 'elephant touching ...' as if it
-    # were the predicate.
+    for splitter in (
+        _split_possessive_subject,
+        _split_coordinated_subject,
+        _split_pp_modified_subject,
+    ):
+        hit = splitter(rest)
+        if hit is not None:
+            return hit
+
+    # Verb-ing / past-participle predicate: scan for a known starter after
+    # the first token so adjective-modified subjects stay intact
+    # ('the small elephant touching the big elephant').
     participle_idx = next(
-        (i for i, t in enumerate(tokens[1:], start=1) if t.lower() in _ACTION_PARTICIPLES),
+        (
+            i
+            for i, t in enumerate(tokens[1:], start=1)
+            if t.lower() in _PREDICATE_STARTERS
+        ),
         None,
     )
     if participle_idx is not None:
-        return " ".join(tokens[:participle_idx]), " ".join(tokens[participle_idx:])
+        return (
+            " ".join(tokens[:participle_idx]),
+            " ".join(tokens[participle_idx:]),
+        )
+
+    right = _split_right_predicate(rest)
+    if right is not None:
+        return right
 
     # Demonstrative: this/that/these/those + NOUN (+ mods) + PREDICATE
     if det in {"this", "that", "these", "those"}:
         if len(tokens) == 2:
             return tokens[0], tokens[1]
-        # Default: determiner + first noun = subject; remainder = predicate
-        # "these wings strong" → these wings | strong
-        # "this photo show train tracks" handled elsewhere (do-support)
         return " ".join(tokens[:2]), " ".join(tokens[2:])
 
-    # "the X ..." — take determiner + head noun as subject when short;
-    # keep longer NP before a clear verbal/adjectival predicate when possible.
+    # "the X ..." — determiner + head noun as subject when short.
     if det == "the":
         if len(tokens) >= 3:
-            # Prefer "the NOUN" as subject when the next token looks like a verb/adj predicate head
             return " ".join(tokens[:2]), " ".join(tokens[2:])
         return tokens[0], " ".join(tokens[1:])
 
@@ -756,15 +997,68 @@ def rule_what_is_doing(question: str, answer: str) -> Optional[str]:
     return f"{prefix_the(subj)} is {answer}."
 
 
+# Broad category heads where the answer is a hyponym/instance, not a
+# pre-modifier: "What kind of food ...?" + "donuts" → "The food is donuts."
+# (not "donut food").
+_KIND_IDENTITY_HEADS = {
+    "food", "foods", "animal", "animals", "vegetable", "vegetables",
+    "fruit", "fruits", "meat", "bird", "birds", "fish", "dog", "dogs",
+    "cat", "cats", "flower", "flowers", "plant", "plants",
+    "vehicle", "vehicles", "car", "cars", "material", "fabric", "metal",
+    "wood", "plastic", "sport", "sports", "game", "games", "drink",
+    "drinks", "beverage", "instrument", "tool", "tools", "furniture",
+    "clothing", "clothes", "person", "people", "man", "woman", "breed",
+    "species", "style", "flavor", "flavour", "color", "colour", "race",
+    "ethnicity", "profession", "job", "occupation", "brand", "model",
+    "pattern", "shape", "size", "texture", "weather", "emotion",
+}
+
+
+def _compose_kind_np(head: str, answer: str) -> str:
+    """Build the NP that names the kind/type, preserving the semantic head.
+
+    'celebration' + 'birthday' → 'a birthday celebration'
+    'sign' + 'stop' → 'a stop sign'
+    'court' + 'soccer' → 'a soccer court'
+    'food' + 'donuts' → 'donuts'          (identity head)
+    'stuffed animal' + 'turtle' → 'a turtle'  (head ends with identity noun)
+    """
+    ans = answer.strip()
+    head = head.strip()
+    if not ans:
+        return smart_article(head)
+    ans_l = ans.lower()
+    head_l = head.lower()
+    head_sing = singularize_noun_phrase(head_l)
+    head_tokens = head_sing.split()
+    head_key = singularize_word(head_tokens[-1]) if head_tokens else head_sing
+
+    # Answer already contains the head ('stop sign', 'soccer ball', ...)
+    if head_sing in ans_l or head_key in ans_l.split():
+        return smart_article(ans)
+
+    # Broad category → answer stands alone as the instance.
+    if head_key in _KIND_IDENTITY_HEADS or head_sing in _KIND_IDENTITY_HEADS:
+        return smart_article(ans)
+
+    # Modifier + head compound: preserve the semantic head noun.
+    return smart_article(f"{ans_l} {head_sing}")
+
+
 def rule_what_kind_type(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'What kind/type of X (is/are ...)?' → 'The X (that is ...) is {answer}.'
+    """Pattern: 'What kind/type of X (is/are ...)?' → preserve head noun X.
 
     Examples:
-        'What kind of food is shown?' + 'donuts' → 'The food is donuts.'
+        'What kind of celebration is this?' + 'birthday'
+            → 'This is a birthday celebration.'
+        'What kind of sign is in the picture?' + 'stop'
+            → 'The sign is a stop sign.'
+        'What kind of court is in the background?' + 'soccer'
+            → 'The court that is in the background is a soccer court.'
+        'What kind of food is shown?' + 'donuts'
+            → 'The food is donuts.'
         'What kind of vegetable is on the sandwich?' + 'none'
             → 'There is no vegetable on the sandwich.'
-        'What kind of stuffed animal is on top of the monitor?' + 'turtle'
-            → 'The stuffed animal that is on top of the monitor is a turtle.'
     """
     m = re.match(r"^what (?:kind|type) of (.+)$", question, re.I)
     if not m:
@@ -774,12 +1068,20 @@ def rule_what_kind_type(question: str, answer: str) -> Optional[str]:
         return None
     if is_no(answer):
         return f"There is no {_plain_head_tail(head, tail)}."
-    noun = smart_article(answer)
+
+    noun = _compose_kind_np(head, answer)
     q_lower = question.lower()
-    if "this" in q_lower or "that" in q_lower:
+    if re.search(r"\b(?:is|are)\s+(?:this|that)\b", q_lower) or re.search(
+        r"\b(?:this|that)\s*$", m.group(1).strip().lower()
+    ):
         return f"This is {noun}."
-    if "these" in q_lower or "those" in q_lower:
+    if re.search(r"\b(?:is|are)\s+(?:these|those)\b", q_lower) or re.search(
+        r"\b(?:these|those)\s*$", m.group(1).strip().lower()
+    ):
         return f"These are {noun}."
+
+    # Filler tails ('shown', 'in the picture') drop; real locations stay as
+    # a relative clause so we don't emit double-copula sentences.
     subj = _describe_with_tail(head, aux, tail)
     return f"The {subj} is {noun}."
 
@@ -1016,6 +1318,93 @@ def rule_yesno_modal_have(question: str, answer: str) -> Optional[str]:
     return None
 
 
+def rule_yesno_is_this_a(question: str, answer: str) -> Optional[str]:
+    """Pattern: 'Is/Are this/that/these/those a/an/the X?'
+
+    Example:
+        'Is this a horse?' + no → 'This is not a horse.'
+        'Is that an apple?' + yes → 'That is an apple.'
+    """
+    m = re.match(
+        r"^(is|are|was|were)\s+(this|that|these|those)\s+(a|an|the)\s+(.+)$",
+        question,
+        re.I,
+    )
+    if not m:
+        return None
+    aux, det, art, noun = (
+        m.group(1).lower(),
+        m.group(2),
+        m.group(3).lower(),
+        m.group(4).strip(),
+    )
+    be = {"is": "is", "was": "was", "are": "are", "were": "were"}[aux]
+    pos = f"{capitalize_first(det)} {be} {art} {noun}."
+    if is_yes(answer):
+        return pos
+    if is_no(answer):
+        return insert_not(pos)
+    return None
+
+
+def rule_yesno_is_are_possessive(question: str, answer: str) -> Optional[str]:
+    """Pattern: 'Is/Are the X's Y ...?' possessive subjects.
+
+    Example:
+        \"Is the zebra's tail up?\" + no → \"The zebra's tail is not up.\"
+        \"Are the cat's eyes open?\" + yes → \"The cat's eyes are open.\"
+    """
+    m = re.match(r"^(is|are|was|were)\s+(.+)$", question, re.I)
+    if not m:
+        return None
+    rest = m.group(2).strip()
+    if not re.search(r"\S+(?:'s|s')\b", rest):
+        return None
+    aux = m.group(1).lower()
+    be = {"is": "is", "was": "was", "are": "are", "were": "were"}[aux]
+    hit = _split_possessive_subject(rest)
+    if not hit:
+        return None
+    subj, pred = hit
+    pred = _drop_duplicate_leading_aux(pred, aux)
+    if not subj or not pred:
+        return None
+    pos = format_subject_be(subj, pred, be)
+    if is_yes(answer):
+        return pos
+    if is_no(answer):
+        return insert_not(pos)
+    return None
+
+
+def rule_yesno_is_are_coordinated(question: str, answer: str) -> Optional[str]:
+    """Pattern: 'Is/Are the X and Y ...?' coordinated subjects.
+
+    Example:
+        'Are the clock and owl made in the same artistic fashion?' + no
+            → 'The clock and owl are not made in the same artistic fashion.'
+    """
+    m = re.match(r"^(is|are|was|were)\s+(.+)$", question, re.I)
+    if not m:
+        return None
+    rest = m.group(2).strip()
+    hit = _split_coordinated_subject(rest)
+    if not hit:
+        return None
+    aux = m.group(1).lower()
+    be = {"is": "is", "was": "was", "are": "are", "were": "were"}[aux]
+    subj, pred = hit
+    pred = _drop_duplicate_leading_aux(pred, aux)
+    if not subj or not pred:
+        return None
+    pos = format_subject_be(subj, pred, be)
+    if is_yes(answer):
+        return pos
+    if is_no(answer):
+        return insert_not(pos)
+    return None
+
+
 def rule_yesno_is_are_predicate(question: str, answer: str) -> Optional[str]:
     """Pattern: 'Is/Are/Was/Were + subject + (adjective | verb-ing | ...)?'.
 
@@ -1026,11 +1415,15 @@ def rule_yesno_is_are_predicate(question: str, answer: str) -> Optional[str]:
             → 'She is wearing a bathing suit.'
         'Is one of the giraffes eating?' + yes
             → 'One of the giraffes is eating.'
+        'Is the stove light on?' + yes
+            → 'The stove light is on.'
+        'Are the people on the elephants tourists?' + yes
+            → 'The people on the elephants are tourists.'
 
     Subjects led by an indefinite article ('a military person') are
-    ambiguous without POS tagging (is the head noun 'a' or 'a military
-    person'?) — this rule returns None for those so the SLM handles them
-    instead of producing a broken sentence like 'The a is military person...'.
+    ambiguous without POS tagging — this rule returns None for those so
+    the SLM handles them. Possessive / coordinated / 'is this a' shapes
+    are handled by earlier specialized rules.
     """
     m = re.match(r"^(is|are|was|were)\s+(.+)$", question, re.I)
     if not m:
@@ -1044,23 +1437,107 @@ def rule_yesno_is_are_predicate(question: str, answer: str) -> Optional[str]:
 
     be = {"is": "is", "was": "was", "are": "are", "were": "were"}[aux]
 
-    # "Is this a train?" / "Is that an apple?"
-    m2 = re.match(r"^(this|that|these|those)\s+(a|an|the)\s+(.+)$", rest, re.I)
-    if m2:
-        det, art, noun = m2.group(1), m2.group(2).lower(), m2.group(3)
-        pos = f"{capitalize_first(det)} {be} {art} {noun}."
-    else:
-        subj, pred = split_subject_predicate(rest)
-        pred = _drop_duplicate_leading_aux(pred, aux)
-        if not subj or not pred:
-            return None
-        pos = format_subject_be(subj, pred, be)
+    subj, pred = split_subject_predicate(rest)
+    pred = _drop_duplicate_leading_aux(pred, aux)
+    if not subj or not pred:
+        return None
+    pos = format_subject_be(subj, pred, be)
 
     if is_yes(answer):
         return pos
     if is_no(answer):
         return insert_not(pos)
     return None
+
+
+# Surfaces that typically *display* text — prefer "The sign says ...".
+_TEXT_SURFACE_NOUNS = {
+    "sign", "signs", "board", "boards", "label", "labels", "poster",
+    "posters", "banner", "banners", "plaque", "plaques", "screen",
+    "display", "billboard", "billboards", "shirt", "jersey", "paper",
+    "page", "book", "menu", "box", "package", "bottle", "wrapper",
+    "sticker", "tag", "plate", "monitor", "tv", "television", "scoreboard",
+}
+
+_TEXT_RENDER_VERBS = {
+    "printed", "written", "painted", "displayed", "shown", "embossed",
+    "engraved", "stamped", "drawn", "scribbled",
+}
+
+# Bare "What is V-ing PREP ...?" where "what" is the theme/subject of V-ing.
+_LOCATIVE_PARTICIPLES = {
+    "hanging", "sitting", "standing", "lying", "resting", "floating",
+    "mounted", "attached", "tied", "placed", "located", "leaning",
+    "parked", "growing", "sticking", "protruding", "dangling", "suspended",
+    "shown", "displayed", "hidden", "buried", "parked", "waiting",
+}
+
+
+def _plural_be(answer: str) -> str:
+    """Pick is/are from a bare answer noun (best-effort)."""
+    ans_l = answer.strip().lower()
+    if not ans_l:
+        return "is"
+    if ans_l in {"people", "children", "men", "women", "mice", "geese"}:
+        return "are"
+    if " " in ans_l:
+        return "is"
+    if ans_l.endswith("s") and not ans_l.endswith(("ss", "us", "is", "ous")):
+        return "are"
+    return "is"
+
+
+def _rule_what_is_text_render(rest: str, answer: str) -> Optional[str]:
+    """'What is printed/written/painted on SURFACE?' → surface says/displays answer.
+
+    Examples:
+        'printed on the orange sign' + pizza
+            → \"The orange sign says 'pizza'.\"
+        'written on the plane' + china airlines
+            → 'China airlines is written on the plane.'
+    """
+    m = re.match(
+        r"^(" + "|".join(_TEXT_RENDER_VERBS) + r")\s+"
+        r"(on|in|across|over|under|inside|onto|upon|along)\s+(.+)$",
+        rest,
+        re.I,
+    )
+    if not m:
+        return None
+    participle = m.group(1).lower()
+    prep = m.group(2).lower()
+    surface = m.group(3).strip()
+    if not surface:
+        return None
+
+    surface_core = re.sub(r"^(?:the|a|an)\s+", "", surface, flags=re.I).strip()
+    head = surface_core.split()[-1].lower() if surface_core else ""
+    looks_textual = head in _TEXT_SURFACE_NOUNS or any(
+        key in surface_core.lower().split()
+        for key in ("sign", "board", "label", "banner", "poster", "shirt", "jersey")
+    )
+
+    if looks_textual and participle in {
+        "printed", "written", "painted", "displayed", "shown", "embossed",
+        "engraved", "stamped",
+    }:
+        verb = "says" if participle in {"printed", "written", "stamped", "embossed", "engraved"} else "displays"
+        return f"{prefix_the(surface_core)} {verb} '{answer}'."
+
+    return f"{capitalize_first(answer)} is {participle} {prep} {surface}."
+
+
+def _rule_what_is_bare_participle(rest: str, answer: str) -> Optional[str]:
+    """'What is hanging/sitting/... PREP ...?' — answer is the theme subject.
+
+    'hanging above the stove' + lights → 'Lights are hanging above the stove.'
+    'shown here' + scooter → 'A scooter is shown here.'
+    """
+    tokens = rest.split()
+    if not tokens or tokens[0].lower() not in _LOCATIVE_PARTICIPLES:
+        return None
+    ans = smart_article(answer)
+    return f"{capitalize_first(ans)} {_plural_be(answer)} {rest}."
 
 
 def _rule_what_is_participle(rest: str, answer: str) -> Optional[str]:
@@ -1115,17 +1592,22 @@ def _rule_what_is_participle(rest: str, answer: str) -> Optional[str]:
 
 
 def rule_what_is(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'What is ...?' → natural declarative with the answer.
+    """Pattern: 'What is ...?' — role-aware declarative with the answer.
 
-    Examples:
-        'What is in front of the giraffes?' + 'tree'
+    Understands that 'what' is not always the sentence subject:
+
+        'What is printed on the orange sign?' + pizza
+            → \"The orange sign says 'pizza'.\"
+        'What is hanging above the stove?' + lights
+            → 'Lights are hanging above the stove.'
+        'What is in front of the giraffes?' + tree
             → 'A tree is in front of the giraffes.'
-        'What is in the picture?' + 'clock'
+        'What is in the picture?' + clock
             → 'The picture shows a clock.'
-        'What is the giraffe standing behind?' + 'tree'
+        'What is the giraffe standing behind?' + tree
             → 'The giraffe is standing behind a tree.'
-        'What is the car?' + 'taxi'
-            → 'The car is a taxi.'  (fallback-style identity)
+        'What is the car?' + taxi
+            → 'The car is a taxi.'
     """
     m = re.match(r"^what is\s+(.+)$", question, re.I)
     if not m:
@@ -1139,7 +1621,17 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
     if participle_cap:
         return participle_cap
 
-    ans_np = with_article(answer)
+    # "What is printed/written/... on SURFACE?"
+    text_cap = _rule_what_is_text_render(rest, answer)
+    if text_cap:
+        return text_cap
+
+    # "What is hanging/sitting/... PREP ...?" — answer is the theme.
+    bare_cap = _rule_what_is_bare_participle(rest, answer)
+    if bare_cap:
+        return bare_cap
+
+    ans_np = smart_article(answer)
 
     # "What is in/on the picture/photo/image?" → "The picture shows a/an {answer}."
     media_m = re.match(
@@ -1151,11 +1643,11 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
         media = media_m.group(1).lower()
         return f"The {media} shows {ans_np}."
 
-    # "What is PREP_PHRASE?" → "A {answer} is PREP_PHRASE."
+    # "What is PREP_PHRASE?" → "A {answer} is/are PREP_PHRASE."
     rest_l = rest.lower()
     for prep in _LOCATION_HEADS:
         if rest_l == prep or rest_l.startswith(prep + " "):
-            return f"{capitalize_first(ans_np)} is {rest}."
+            return f"{capitalize_first(ans_np)} {_plural_be(answer)} {rest}."
 
     # "What is the X?" / "What is X?" → "The X is {answer}."
     # Drop trailing location fluff only when subject remains non-empty.
@@ -1180,7 +1672,11 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
         "between",
     }:
         return f"{capitalize_first(ans_np)} is {rest}."
-    return format_the_subject(subj, answer, "is")
+    return format_the_subject(
+        subj,
+        smart_article(answer) if len(answer.split()) == 1 else answer,
+        "is",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1206,6 +1702,9 @@ RULES: List[Tuple[str, RuleFn]] = [
     ("yesno_are_both", rule_yesno_are_both),
     ("yesno_does_do", rule_yesno_does_do),
     ("yesno_modal_have", rule_yesno_modal_have),
+    ("yesno_is_this_a", rule_yesno_is_this_a),
+    ("yesno_is_are_possessive", rule_yesno_is_are_possessive),
+    ("yesno_is_are_coordinated", rule_yesno_is_are_coordinated),
     ("yesno_is_are_predicate", rule_yesno_is_are_predicate),
     ("what_is", rule_what_is),
 ]

@@ -56,7 +56,10 @@ Be jaye ye rule-e omoomi, chand sub-rule-e narrow darim — har kodoom faghat ba
 | `yesno_are_both` | `Are both ...?` | "Are both giraffes standing?" + no → "Not both giraffes are standing." |
 | `yesno_does_do` | `Does/Do/Did + subject + verb ...?` | "Does this photo show train tracks?" + yes → "This photo shows train tracks." |
 | `yesno_modal_have` | `Can/Could/Will/Would/Has/Have/Had ...?` | "Could this photo be from a zoo?" + yes → "This photo could be from a zoo." |
-| `yesno_is_are_predicate` | `Is/Are/Was/Were + subject + (adjective \| verb-ing \| ...)?` | "Are these wings strong?" + yes → "These wings are strong." |
+| `yesno_is_this_a` | `Is/Are this/that a/an/the X?` | "Is this a horse?" + no → "This is not a horse." |
+| `yesno_is_are_possessive` | `Is/Are the X's Y ...?` | "Is the zebra's tail up?" + no → "The zebra's tail is not up." |
+| `yesno_is_are_coordinated` | `Is/Are the X and Y ...?` | "Are the clock and owl made ...?" + no → "The clock and owl are not made ..." |
+| `yesno_is_are_predicate` | `Is/Are/Was/Were + subject + predicate` | "Is the stove light on?" + yes → "The stove light is on." |
 
 A subject led by an indefinite article (`"a"`/`"an"`, e.g. `"Is a military person in the picture?"`) can't be split into a head noun without POS tagging, so those rules return `None` and defer to the SLM instead of guessing.
 
