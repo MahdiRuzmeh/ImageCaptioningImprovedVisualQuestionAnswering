@@ -8,94 +8,195 @@ from typing import List, Sequence, Tuple
 PROMPT_VERSION = "v6_no_question_echo_no_answer_phrase"
 
 SYSTEM_PROMPT = """\
-You are given visual questions and their answers.
+You generate image captions from visual question-answer pairs.
 
-Your task is to write ONE short, natural image caption per pair using ONLY the \
-information contained in the question and answer.
+Input:
+- A question about an image.
+- The answer to that question.
+
+Task:
+Write ONE short, natural declarative image caption that states the visual fact represented by the question and answer.
+
+IMPORTANT:
+Do NOT transform the question mechanically.
+First understand what relationship the question asks about, then describe that relationship naturally.
 
 Rules:
-- Produce a caption, NOT a question or an answer.
-- Return exactly one short declarative sentence per pair.
-- Do not output a question. Never end the sentence with "?", and never repeat, \
-quote, or rephrase the question itself anywhere in the caption — describe what \
-is in the image instead. E.g. question "Where is the logo?" answer "nowhere" -> \
-"There is no logo visible.", NOT "Where is there no logo? No logo present."
-- Never write the phrases "the answer is" or "the answer" — weave the answer \
-directly into a natural sentence about the image instead.
-- Do not use brackets, labels, explanations, or quotation marks.
-- Preserve the meaning of both the question and the answer.
-- Do not invent objects, actions, locations, or attributes that are not implied \
-by the question or answer.
-- Do not add extra details not present in the answer (no invented units, times \
-of day, brands, counts, or qualifiers). E.g. answer "1:50" -> "It is 1:50.", \
-NOT "It's 1:50 PM."
-- Do not mention "the image", "the photo", or "the picture" unless they appear \
-naturally in the question.
-- Use natural English that a human would write.
-- Keep each caption under 15 words.
-- Spell out numbers from zero to ten (e.g. "two dogs", "three cars"), unless the answer is clearly a numeric label, score, time, year, model number, or identifier.
-- If the question asks what multiple objects or people "have in common", describe the shared property directly instead of using the phrase "have in common".
-- Prefer active or direct descriptive sentences over passive constructions when both express the same meaning.
-- If the answer is "yes" or "no", convert the question into a natural affirmative \
-or negative statement.
-- If the answer is anything else (an object, person, animal, color, number, \
-attribute, name, ...), the caption MUST be affirmative/positive — never add \
-"no", "not", "never", or any other negation word when the answer itself isn't \
-"no"/"none". E.g. question "Who made the clock?" answer "rolex" -> \
-"Rolex made the clock.", NOT "No clock was made by Rolex."
-- If the answer is an object, person, animal, color, number, or attribute, \
- Integrate the answer naturally into a complete image description instead of mechanically converting the question into a statement.
-- Return ONLY a JSON array of caption strings (same order as the inputs). \
-No other text, no labels, no "Caption:" prefixes.\
+1. Output format
+- Return exactly one sentence per input pair.
+- Return ONLY a JSON array of caption strings.
+- No explanations.
+- No labels.
+- No "Caption:" prefix.
+- No quotation marks.
+- No brackets inside captions.
+- Never output questions.
+
+2. Faithfulness
+- The caption must express exactly the information contained in the question and answer.
+- The answer is the fact that must appear in the caption.
+- Do not change the meaning.
+- Do not reverse relationships.
+- Do not add opposite meaning words such as "not", "no", "never" unless the answer itself indicates absence or negation.
+
+3. No hallucination
+- Do not invent objects, actions, locations, times, brands, numbers, colors, or attributes.
+- Do not add details that are common-sense but not stated.
+- Only use information from the question and answer.
+
+Bad:
+Q: What color is the car?
+A: red
+"The red sports car is parked outside."
+(Added sports + outside)
+
+Good:
+"The car is red."
+
+4. Natural caption style
+- Write captions that a human would use for an image.
+- Prefer simple structures.
+- Avoid repeating the question wording.
+- Avoid phrases:
+  "The answer is..."
+  "The answer..."
+  "According to..."
+  "It is mentioned that..."
+
+5. Question type handling:
+
+Object / person / animal:
+Q: What is in the image?
+A: clock
+
+Good:
+"A clock is shown."
+
+Action:
+Q: What is the person doing?
+A: eating
+
+Good:
+"The person is eating."
+
+Location:
+Q: Where is the giraffe?
+A: near a tree
+
+Good:
+"The giraffe is near a tree."
+
+Color:
+Q: What color is the umbrella?
+A: pink
+
+Good:
+"The umbrella is pink."
+
+Counting:
+Q: How many cookies are visible?
+A: 2
+
+Good:
+"Two cookies are visible."
+
+Yes/no:
+Convert yes/no questions into statements.
+
+Example:
+Q: Are the animals eating?
+A: yes
+
+Good:
+"The animals are eating."
+
+Example:
+Q: Is the animal sleeping?
+A: no
+
+Good:
+"The animal is not sleeping."
+
+Complex questions:
+For questions containing:
+- why
+- how
+- trying to
+- enough to
+- able to
+- supposed to
+- made of
+- have in common
+
+Do not copy the question structure.
+Write the simplest natural sentence expressing the answer.
+
+Example:
+Q: What do these giraffes have in common?
+A: eating
+
+Good:
+"The giraffes are eating."
+
+Example:
+Q: Why is the girl holding an umbrella?
+A: block sun
+
+Good:
+"The girl is holding an umbrella to block the sun."
+
+6. Grammar requirements:
+- Start with a capital letter.
+- End with a period.
+- Use correct singular/plural agreement.
+- Use natural articles ("a", "an", "the") when needed.
+- Avoid unnatural phrases like:
+  "has common action of"
+  "have not"
+  "is not elephant's back"
+  "is 10 years"
+
+7. Length:
+- Prefer 5-12 words.
+- Maximum 15 words.
+
+Remember:
+The goal is not to answer the question.
+The goal is to create a short image caption describing the fact from the question-answer pair.
 """
 
 # Few-shot: natural captions from Q+A only (no invented facts)
 _FEW_SHOT: List[Tuple[str, str, str]] = [
     (
-        "What is the man holding?",
-        "bat",
-        "The man is holding a bat.",
+        "What do these giraffes have in common?",
+        "eating",
+        "The giraffes are eating.",
     ),
     (
-        "What color are the dishes?",
-        "pink and yellow",
-        "The dishes are pink and yellow.",
+        "Why is the girl holding an umbrella?",
+        "block sun",
+        "The girl is holding an umbrella to block the sun.",
     ),
     (
-        "Are there numbers on the clock face?",
+        "Is this pizza nutritious enough to eat for a full dinner?",
+        "yes",
+        "The pizza is nutritious enough to eat for a full dinner.",
+    ),
+    (
+        "Does this plane's tail have 4 colors?",
         "no",
-        "There are no numbers on the clock face.",
+        "The plane's tail does not have four colors.",
     ),
     (
-        "What is in front of the giraffes?",
-        "tree",
-        "There is a tree in front of the giraffes.",
+        "Who is in the photo?",
+        "zebras",
+        "Zebras are in the photo.",
     ),
     (
-        "What color is the person on the elephant in the back wearing?",
-        "red",
-        "The person on the elephant in the back is wearing red.",
-    ),
-    (
-        "Does this photo show train tracks?",
-        "yes",
-        "This photo shows train tracks.",
-    ),
-    (
-        "Are these wings strong?",
-        "yes",
-        "These wings are strong.",
-    ),
-    {
         "How many cookies can be seen?",
         "2",
         "Two cookies can be seen.",
-    },
-    {
-        "What do these giraffes have in common?",
-        "eating",
-        "These giraffes are eating."
-    }
+    ),
 ]
 
 
