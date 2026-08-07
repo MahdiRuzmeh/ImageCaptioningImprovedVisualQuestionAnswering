@@ -539,6 +539,68 @@ def singularize_word(word: str) -> str:
     return low
 
 
+_IRREGULAR_PLURAL: Dict[str, str] = {
+    "person": "people",
+    "man": "men",
+    "woman": "women",
+    "child": "children",
+    "goose": "geese",
+    "mouse": "mice",
+    "foot": "feet",
+    "tooth": "teeth",
+    "knife": "knives",
+    "leaf": "leaves",
+    "wolf": "wolves",
+    "shelf": "shelves",
+    "loaf": "loaves",
+    "life": "lives",
+    "wife": "wives",
+    "bus": "buses",
+    "dish": "dishes",
+    "box": "boxes",
+    "watch": "watches",
+    "bench": "benches",
+    "bush": "bushes",
+    "church": "churches",
+}
+
+
+def _looks_plural_word(word: str) -> bool:
+    """True when a single token already looks plural."""
+    low = word.strip().lower()
+    if not low:
+        return False
+    if low in _IRREGULAR_SINGULAR or low in {
+        "people", "children", "men", "women", "mice", "geese", "feet", "teeth",
+    }:
+        return True
+    if low.endswith(("ches", "shes", "sses", "xes", "zes", "ies")):
+        return True
+    if low.endswith("s") and not low.endswith("ss") and len(low) > 1:
+        return True
+    return False
+
+
+def pluralize_word(word: str) -> str:
+    """Best-effort singular → plural for the head noun of a counted NP."""
+    low = word.strip().lower()
+    if not low:
+        return low
+    if low in _IRREGULAR_PLURAL:
+        return _IRREGULAR_PLURAL[low]
+    if _looks_plural_word(low):
+        return low
+    if low.endswith(("s", "x", "z", "ch", "sh")):
+        return low + "es"
+    if low.endswith("y") and len(low) > 1 and low[-2] not in "aeiou":
+        return low[:-1] + "ies"
+    if low.endswith("fe"):
+        return low[:-2] + "ves"
+    if low.endswith("f") and not low.endswith("ff"):
+        return low[:-1] + "ves"
+    return low + "s"
+
+
 def singularize_noun_phrase(phrase: str) -> str:
     """Singularize only the head noun of a counted NP.
 
@@ -554,6 +616,22 @@ def singularize_noun_phrase(phrase: str) -> str:
         tokens[0] = singularize_word(tokens[0])
     else:
         tokens[-1] = singularize_word(tokens[-1])
+    return " ".join(tokens)
+
+
+def pluralize_noun_phrase(phrase: str) -> str:
+    """Pluralize only the head noun of a counted NP.
+
+    'light post' -> 'light posts'; 'cookie' -> 'cookies'; 'people' -> 'people'
+    Head-initial 'NOUN of NOUN': 'kind of animal' -> 'kinds of animal'
+    """
+    tokens = phrase.strip().split()
+    if not tokens:
+        return phrase
+    if len(tokens) >= 3 and tokens[1].lower() == "of":
+        tokens[0] = pluralize_word(tokens[0])
+    else:
+        tokens[-1] = pluralize_word(tokens[-1])
     return " ".join(tokens)
 
 
@@ -956,11 +1034,24 @@ def _singularize_full_np(phrase: str) -> str:
     return singularize_noun_phrase(phrase)
 
 
+def _pluralize_full_np(phrase: str) -> str:
+    """Pluralize a counted NP for count != 1.
+
+    'light post' -> 'light posts'; 'kinds of animals' stays plural on the
+    head ('kinds') without forcing the complement.
+    """
+    if " of " in phrase:
+        head, _, tail = phrase.partition(" of ")
+        return f"{pluralize_noun_phrase(head)} of {tail}".strip()
+    return pluralize_noun_phrase(phrase)
+
+
 def rule_how_many(question: str, answer: str) -> Optional[str]:
     """Pattern: 'How many X are/is there|in/on ...?' → 'There is/are {answer} X.'
 
     Examples:
         'How many cookies are there?' + '2' → 'There are two cookies.'
+        'How many light post is there?' + '4' → 'There are four light posts.'
         'How many windows are on the caboose?' + '1' → 'There is one window.'
         'How many kinds of animals are in this photo?' + '1'
             → 'There is one kind of animal.'
@@ -982,19 +1073,51 @@ def rule_how_many(question: str, answer: str) -> Optional[str]:
 
     ans = normalize_answer(answer)
     if is_no(answer) or ans in {"zero", "none"}:
-        return f"There are no {noun}."
+        return f"There are no {_pluralize_full_np(noun)}."
     if ans in {"one", "1"}:
         return f"There is one {_singularize_full_np(noun)}."
-    return f"There are {ans} {noun}."
+    return f"There are {ans} {_pluralize_full_np(noun)}."
+
+
+def _naturalize_doing_answer(answer: str) -> str:
+    """Add a missing article on a bare object after a V-ing verb.
+
+    'cutting tie' → 'cutting a tie'
+    'eating grass' → 'eating grass'   (mass noun)
+    'holding the dog' → unchanged
+    'running' → unchanged
+    """
+    tokens = answer.strip().split()
+    if len(tokens) < 2:
+        return answer.strip()
+    if not tokens[0].lower().endswith("ing"):
+        return answer.strip()
+    if tokens[1].lower() in ARTICLES | PRONOUNS | _QUANTIFIER_LEAD:
+        return answer.strip()
+    obj = " ".join(tokens[1:])
+    obj_head = tokens[-1].lower()
+    if obj_head in _MASS_ANSWER_NOUNS:
+        return answer.strip()
+    if _looks_plural_word(obj_head) and len(tokens) == 2:
+        return answer.strip()
+    return f"{tokens[0]} {smart_article(obj)}"
 
 
 def rule_what_is_doing(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'What is the X doing?' → 'The X is {answer}.'"""
+    """Pattern: 'What is the X doing?' → 'The X is {naturalized answer}.'
+
+    Example:
+        'What is the woman doing?' + 'cutting tie'
+            → 'The woman is cutting a tie.'
+    """
     m = re.match(r"^what is (?:the )?(.+?) doing$", question, re.I)
     if not m:
         return None
     subj = m.group(1).strip()
-    return f"{prefix_the(subj)} is {answer}."
+    if not subj or not answer.strip():
+        return None
+    pred = _naturalize_doing_answer(answer)
+    return f"{prefix_the(subj)} is {pred}."
 
 
 # Broad category heads where the answer is a hyponym/instance, not a
@@ -1086,14 +1209,209 @@ def rule_what_kind_type(question: str, answer: str) -> Optional[str]:
     return f"The {subj} is {noun}."
 
 
+# ---------------------------------------------------------------------------
+# Routing helpers — decide rule vs LLM without scattering checks in every rule.
+#
+# Why some categories always/often go to LLM:
+#   - Does/Do/Did: auxiliary inversion + missing copulas ("look like it
+#     chocolate") are too fragile for deterministic rewrite.
+#   - Complex Is/Are: clause embeddings ("trying to", "enough to", long
+#     multi-verb predicates) break the subject/predicate splitter.
+#   - Who (non is/are, or uncertain answer NP): "Who made X?" needs a
+#     lexical-verb rewrite the rule cannot do safely.
+# ---------------------------------------------------------------------------
+
+# Phrases that mark an Is/Are question as too complex for the rule engine.
+_COMPLEX_IS_ARE_PHRASES = (
+    "trying to",
+    "enough to",
+    "able to",
+    "supposed to",
+    "going to",
+    "have in common",
+    "has in common",
+    "in order to",
+    "as if",
+    "as though",
+)
+
+# Soft length cutoff: beyond this, Is/Are rewrites are unreliable.
+_COMPLEX_IS_ARE_MAX_TOKENS = 12
+
+
+def should_use_llm_for_does_do(question: str, answer: str = "") -> bool:
+    """True for Does/Do/Did questions — always routed to LLM.
+
+    ``rule_yesno_does_do`` is kept in the codebase for reference / future
+    narrowing, but routing never applies it: auxiliary transforms are a
+    frequent source of broken captions
+    ("This cake looks like it chocolate.").
+    """
+    del answer  # answer unused; signature matches the other helpers
+    q = strip_question_mark(question).lower()
+    return bool(re.match(r"^(does|do|did)\s+", q))
+
+
+def is_complex_is_are_question(question: str) -> bool:
+    """True when an Is/Are/Was/Were question should skip rule generation.
+
+    Simple cases stay rule-based:
+        'Are the animals eating?' → rule
+        'Is the water calm?' → rule
+
+    Complex cases go to LLM:
+        'Is this pizza nutritious enough to eat for a full dinner?'
+        'Is the big elephant trying to ride on the small elephant's back?'
+    """
+    q = strip_question_mark(question).lower()
+    if not re.match(r"^(is|are|was|were)\s+", q):
+        return False
+
+    if any(p in q for p in _COMPLEX_IS_ARE_PHRASES):
+        return True
+    if re.search(r"\bwhy\b", q):
+        return True
+    if len(q.split()) > _COMPLEX_IS_ARE_MAX_TOKENS:
+        return True
+
+    # Multiple -ing verbs usually means an embedded clause / long predicate.
+    rest = re.sub(r"^(?:is|are|was|were)\s+", "", q)
+    if len(re.findall(r"\b\w+ing\b", rest)) >= 2:
+        return True
+
+    # Two or more infinitival "to VERB" marks (excluding the phrases above).
+    if len(re.findall(r"\bto\s+[a-z]+\b", rest)) >= 2:
+        return True
+
+    return False
+
+
+def should_use_llm_for_who(question: str, answer: str = "") -> bool:
+    """True when a Who-question cannot be rewritten safely by ``rule_who``.
+
+    - 'Who made the clock?' (lexical verb) → LLM
+    - 'Who is in the photo?' + short answer → try rule
+    - Very long / multi-phrase answers → LLM
+    """
+    q = strip_question_mark(question).lower()
+    if not q.startswith("who"):
+        return False
+    # Only Who is/are ... is potentially rule-safe.
+    if not re.match(r"^who (?:is|are)\s+", q):
+        return True
+    ans_tokens = answer.strip().split()
+    if not ans_tokens or len(ans_tokens) > 4:
+        return True
+    return False
+
+
+def can_generate_safe_rule_caption(
+    question: str,
+    answer: str,
+    caption: str = "",
+    rule_name: str = "",
+) -> bool:
+    """Reject captions that are known-broken templates.
+
+    Used both inside individual rules and by ``generate_caption`` as a
+    final safety net before accepting a rule output.
+    """
+    del question, answer, rule_name  # available for future rule-specific checks
+    if not caption or not caption.strip():
+        return False
+    low = caption.lower().strip()
+    if "the answer is" in low or low.startswith("the answer"):
+        return False
+    if "it is not true that" in low:
+        return False
+    # "The in the picture is ..." / "The on the table is ..."
+    if re.match(r"^the (?:in|on|at|of|to|for|near|under|over|behind)\b", low):
+        return False
+    if re.search(r"\bthe (?:in|on|at) the\b", low):
+        return False
+    return True
+
+
+def caption_generation_strategy(question: str, answer: str) -> str:
+    """High-level routing: return ``\"rule\"`` or ``\"llm\"``.
+
+    ``\"rule\"`` means the rule engine is allowed to try; it may still
+    return ``needs_llm`` when no rule matches confidently.
+    ``\"llm\"`` means skip rules for this category and go straight to the
+    SLM fallback.
+    """
+    if should_use_llm_for_does_do(question, answer):
+        return "llm"
+    if is_complex_is_are_question(question):
+        return "llm"
+    if should_use_llm_for_who(question, answer):
+        return "llm"
+    return "rule"
+
+
+_WHO_THE_NOUNS = {"man", "woman", "boy", "girl", "child", "guy", "lady", "gentleman"}
+_WHO_A_NOUNS = {"person", "adult", "kid", "toddler", "rider", "driver", "pilot", "chef"}
+
+
+def _format_who_subject(answer: str) -> Optional[str]:
+    """Build a safe subject NP from a Who-answer, or None if unsure."""
+    raw = answer.strip()
+    if not raw:
+        return None
+    a = raw.lower()
+    tokens = a.split()
+    if len(tokens) > 4:
+        return None
+    if a in PRONOUNS:
+        return capitalize_first(a)
+    if _looks_plural_word(tokens[-1]) or a in {"people", "children", "men", "women"}:
+        return capitalize_first(a)
+    if a in _WHO_THE_NOUNS:
+        return f"The {a}"
+    if a in _WHO_A_NOUNS:
+        return capitalize_first(with_article(a))
+    if len(tokens) == 1:
+        # Bare common noun → article; likely proper name still gets article
+        # only when it looks like a common noun (all lowercase single token).
+        return capitalize_first(smart_article(a))
+    # Multi-word answers like "a man in a hat" — keep if already determined.
+    if tokens[0] in ARTICLES:
+        return capitalize_first(a)
+    return None
+
+
 def rule_who(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'Who is/are X?' → '{Answer} is/are X.'"""
-    m = re.match(r"^who (?:is|are) (.+)$", question, re.I)
+    """Pattern: 'Who is/are X?' → safe '{Subject} is/are X.'
+
+    Examples:
+        'Who is in the photo?' + 'zebras' → 'Zebras are in the photo.'
+        'Who is going to eat this pizza?' + 'person'
+            → 'A person is going to eat this pizza.'
+        'Who is the pilot?' + 'man' → 'The man is the pilot.'
+
+    Non is/are shapes ('Who made the clock?') and uncertain answers return
+    None so routing sends them to the LLM.
+    """
+    m = re.match(r"^who (is|are) (.+)$", question, re.I)
     if not m:
         return None
-    rest = m.group(1).strip()
-    verb = "are" if " are " in question.lower() else "is"
-    return f"{capitalize_first(answer)} {verb} {rest}."
+    rest = m.group(2).strip()
+    if not rest:
+        return None
+    # Reject rests that would create awkward templates.
+    first = rest.split()[0].lower()
+    if first in {"why", "how"}:
+        return None
+
+    subj = _format_who_subject(answer)
+    if subj is None:
+        return None
+
+    be = "are" if _looks_plural_word(answer.strip().split()[-1]) else "is"
+    caption = f"{subj} {be} {rest}."
+    if not can_generate_safe_rule_caption(question, answer, caption, "who"):
+        return None
+    return caption
 
 
 def rule_is_there(question: str, answer: str) -> Optional[str]:
@@ -1224,17 +1542,22 @@ def rule_yesno_are_both(question: str, answer: str) -> Optional[str]:
 def rule_yesno_does_do(question: str, answer: str) -> Optional[str]:
     """Pattern: 'Does/Do/Did + subject + verb ...?' → affirmative/negative statement.
 
-    Transformations:
+    NOTE: Kept for reference / possible future narrowing, but
+    ``should_use_llm_for_does_do`` / ``caption_generation_strategy`` always
+    route Does/Do/Did questions to the LLM. ``generate_caption`` skips this
+    rule so fragile auxiliary rewrites never ship as training captions.
+
+    Transformations (if ever re-enabled for a narrow subset):
         Does + SUBJ + VERB + REST → SUBJ + VERB_3sg + REST
         Do   + SUBJ + VERB + REST → SUBJ + VERB_base + REST
         Did  + SUBJ + VERB + REST → SUBJ + VERB_past + REST
-
-    Example:
-        'Does this photo show train tracks?' + yes
-            → 'This photo shows train tracks.'
     """
     m = re.match(r"^(does|do|did)\s+(.+)$", question, re.I)
     if not m:
+        return None
+    # Soft-disable: routing should have already diverted these; return None
+    # so a direct call also defers to the LLM.
+    if should_use_llm_for_does_do(question, answer):
         return None
     aux = m.group(1).lower()
     rest = m.group(2).strip()
@@ -1420,11 +1743,12 @@ def rule_yesno_is_are_predicate(question: str, answer: str) -> Optional[str]:
         'Are the people on the elephants tourists?' + yes
             → 'The people on the elephants are tourists.'
 
-    Subjects led by an indefinite article ('a military person') are
-    ambiguous without POS tagging — this rule returns None for those so
-    the SLM handles them. Possessive / coordinated / 'is this a' shapes
-    are handled by earlier specialized rules.
+    Complex predicates ('trying to', 'enough to', long multi-verb clauses)
+    return None — see ``is_complex_is_are_question``. Subjects led by an
+    indefinite article ('a military person') also return None.
     """
+    if is_complex_is_are_question(question):
+        return None
     m = re.match(r"^(is|are|was|were)\s+(.+)$", question, re.I)
     if not m:
         return None
@@ -1606,8 +1930,13 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
             → 'The picture shows a clock.'
         'What is the giraffe standing behind?' + tree
             → 'The giraffe is standing behind a tree.'
+        'What is the animal eating?' + grass
+            → 'The animal is eating grass.'
         'What is the car?' + taxi
             → 'The car is a taxi.'
+
+    Returns None (LLM fallback) when the template would be ungrammatical
+    ("The in the picture is...", "The answer is...").
     """
     m = re.match(r"^what is\s+(.+)$", question, re.I)
     if not m:
@@ -1616,67 +1945,74 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
     if not rest or answer in YES | NO:
         return None
 
+    caption: Optional[str] = None
+
     # "What is SUBJECT V-ing (PREP ...)?" — keep the verb, don't collapse it.
     participle_cap = _rule_what_is_participle(rest, answer)
     if participle_cap:
-        return participle_cap
+        caption = participle_cap
 
     # "What is printed/written/... on SURFACE?"
-    text_cap = _rule_what_is_text_render(rest, answer)
-    if text_cap:
-        return text_cap
+    if caption is None:
+        text_cap = _rule_what_is_text_render(rest, answer)
+        if text_cap:
+            caption = text_cap
 
     # "What is hanging/sitting/... PREP ...?" — answer is the theme.
-    bare_cap = _rule_what_is_bare_participle(rest, answer)
-    if bare_cap:
-        return bare_cap
+    if caption is None:
+        bare_cap = _rule_what_is_bare_participle(rest, answer)
+        if bare_cap:
+            caption = bare_cap
 
     ans_np = smart_article(answer)
 
     # "What is in/on the picture/photo/image?" → "The picture shows a/an {answer}."
-    media_m = re.match(
-        r"^(?:in|on)\s+(?:the\s+)?(picture|photo|image|photograph|scene|shot)$",
-        rest,
-        re.I,
-    )
-    if media_m:
-        media = media_m.group(1).lower()
-        return f"The {media} shows {ans_np}."
+    if caption is None:
+        media_m = re.match(
+            r"^(?:in|on)\s+(?:the\s+)?(picture|photo|image|photograph|scene|shot)$",
+            rest,
+            re.I,
+        )
+        if media_m:
+            media = media_m.group(1).lower()
+            caption = f"The {media} shows {ans_np}."
 
     # "What is PREP_PHRASE?" → "A {answer} is/are PREP_PHRASE."
-    rest_l = rest.lower()
-    for prep in _LOCATION_HEADS:
-        if rest_l == prep or rest_l.startswith(prep + " "):
-            return f"{capitalize_first(ans_np)} {_plural_be(answer)} {rest}."
+    if caption is None:
+        rest_l = rest.lower()
+        for prep in _LOCATION_HEADS:
+            if rest_l == prep or rest_l.startswith(prep + " "):
+                caption = (
+                    f"{capitalize_first(ans_np)} {_plural_be(answer)} {rest}."
+                )
+                break
 
     # "What is the X?" / "What is X?" → "The X is {answer}."
-    # Drop trailing location fluff only when subject remains non-empty.
-    subj_m = re.match(
-        r"^(?:the\s+)?(.+?)(?:\s+(?:on|in|near|at|under|over|behind)\s+.+)?$",
-        rest,
-        re.I,
-    )
-    if not subj_m:
-        return None
-    subj = subj_m.group(1).strip()
-    # Avoid swallowing pure location phrases that somehow missed the prep list
-    if not subj or subj.lower().split()[0] in {
-        "in",
-        "on",
-        "at",
-        "near",
-        "behind",
-        "under",
-        "over",
-        "among",
-        "between",
-    }:
-        return f"{capitalize_first(ans_np)} is {rest}."
-    return format_the_subject(
-        subj,
-        smart_article(answer) if len(answer.split()) == 1 else answer,
-        "is",
-    )
+    if caption is None:
+        subj_m = re.match(
+            r"^(?:the\s+)?(.+?)(?:\s+(?:on|in|near|at|under|over|behind)\s+.+)?$",
+            rest,
+            re.I,
+        )
+        if not subj_m:
+            return None
+        subj = subj_m.group(1).strip()
+        first = subj.lower().split()[0] if subj else ""
+        # Bare preposition / empty subject → unsafe ("The in the picture is...")
+        if not subj or first in {
+            "in", "on", "at", "near", "behind", "under", "over",
+            "among", "between", "of", "to", "for", "with", "by",
+        }:
+            return None
+        caption = format_the_subject(
+            subj,
+            smart_article(answer) if len(answer.split()) == 1 else answer,
+            "is",
+        )
+
+    if caption and can_generate_safe_rule_caption(question, answer, caption, "what_is"):
+        return caption
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1700,6 +2036,8 @@ RULES: List[Tuple[str, RuleFn]] = [
     ("yesno_are_any", rule_yesno_are_any),
     ("yesno_are_all", rule_yesno_are_all),
     ("yesno_are_both", rule_yesno_are_both),
+    # Kept in the list for name compatibility / inspection, but
+    # should_use_llm_for_does_do + the rule body always defer to LLM.
     ("yesno_does_do", rule_yesno_does_do),
     ("yesno_modal_have", rule_yesno_modal_have),
     ("yesno_is_this_a", rule_yesno_is_this_a),
@@ -1718,13 +2056,32 @@ def generate_caption(question: str, answer: str) -> Tuple[str, str]:
         rule matches confidently, returns ``("", "needs_llm")`` — an empty
         caption, never a fabricated template sentence. The row must be
         filled in by the SLM (``generate.py --llm``) before it's usable.
+
+    Routing (see ``caption_generation_strategy``):
+        - Does/Do/Did → always ``needs_llm``
+        - Complex Is/Are → ``needs_llm``
+        - Uncertain Who → ``needs_llm``
+        - Otherwise try rules; reject unsafe captions
     """
     q = strip_question_mark(question).lower()
     a = normalize_answer(answer)
 
+    # Category-level LLM routing (do not run fragile rules at all).
+    if caption_generation_strategy(question, answer) == "llm":
+        return "", "needs_llm"
+
     for rule_name, rule_fn in RULES:
+        # Does/Do/Did is also guarded here in case strategy is bypassed.
+        if rule_name == "yesno_does_do":
+            continue
+        if rule_name.startswith("yesno_is_are") or rule_name == "yesno_is_this_a":
+            if is_complex_is_are_question(q):
+                continue
+        if rule_name == "who" and should_use_llm_for_who(q, a):
+            continue
+
         caption = rule_fn(q, a)
-        if caption:
+        if caption and can_generate_safe_rule_caption(q, a, caption, rule_name):
             return caption, rule_name
 
     return "", "needs_llm"

@@ -54,14 +54,28 @@ Be jaye ye rule-e omoomi, chand sub-rule-e narrow darim — har kodoom faghat ba
 | `yesno_are_any` | `Are any of ...?` | "Are any of the animals eating?" + yes → "At least one of the animals is eating." |
 | `yesno_are_all` | `Is/Are all ...?` | "Are all the flowers white?" + no → "Not all the flowers are white." |
 | `yesno_are_both` | `Are both ...?` | "Are both giraffes standing?" + no → "Not both giraffes are standing." |
-| `yesno_does_do` | `Does/Do/Did + subject + verb ...?` | "Does this photo show train tracks?" + yes → "This photo shows train tracks." |
+| `yesno_does_do` | `Does/Do/Did ...?` | **Routed to LLM** (rule kept, not applied) |
 | `yesno_modal_have` | `Can/Could/Will/Would/Has/Have/Had ...?` | "Could this photo be from a zoo?" + yes → "This photo could be from a zoo." |
 | `yesno_is_this_a` | `Is/Are this/that a/an/the X?` | "Is this a horse?" + no → "This is not a horse." |
 | `yesno_is_are_possessive` | `Is/Are the X's Y ...?` | "Is the zebra's tail up?" + no → "The zebra's tail is not up." |
 | `yesno_is_are_coordinated` | `Is/Are the X and Y ...?` | "Are the clock and owl made ...?" + no → "The clock and owl are not made ..." |
-| `yesno_is_are_predicate` | `Is/Are/Was/Were + subject + predicate` | "Is the stove light on?" + yes → "The stove light is on." |
+| `yesno_is_are_predicate` | Simple `Is/Are` + subject + predicate | "Are the animals eating?" + yes → "The animals are eating." (complex → LLM) |
 
 A subject led by an indefinite article (`"a"`/`"an"`, e.g. `"Is a military person in the picture?"`) can't be split into a head noun without POS tagging, so those rules return `None` and defer to the SLM instead of guessing.
+
+### Routing (`caption_generation_strategy`)
+
+Some categories are too fragile for deterministic rewrite. Helpers in `caption_rules.py`:
+
+| Helper | Behavior |
+|--------|----------|
+| `should_use_llm_for_does_do` | **Always** LLM for Does/Do/Did (rule kept but never applied) |
+| `is_complex_is_are_question` | LLM when predicate has `trying to` / `enough to` / `able to` / `supposed to` / `going to` / `have in common` / `why`, is very long, or has multiple verbs |
+| `should_use_llm_for_who` | LLM for non-`Who is/are` (e.g. `Who made...`) or uncertain answers |
+| `can_generate_safe_rule_caption` | Rejects broken templates (`The in the...`, `the answer is...`) |
+| `caption_generation_strategy` | Returns `"rule"` or `"llm"` |
+
+Simple Is/Are (`Are the animals eating?`) stay rule-based.
 
 ### How-many rule (narrowed)
 
@@ -70,7 +84,7 @@ A subject led by an indefinite article (`"a"`/`"an"`, e.g. `"Is a military perso
 - `How many <noun> are/is there?`
 - `How many <noun> are/is in/on ...?` (location dropped az output)
 
-Har chizi dige (`"...can you see eating?"`, `"...are standing?"`, `"...can be seen?"`) → `needs_llm`. Count=1 ham "of"-tail ro singularize mikone: `"kinds of animals"` → `"kind of animal"`.
+Har chizi dige (`"...can you see eating?"`, `"...are standing?"`, `"...can be seen?"`) → `needs_llm`. Count agreement: count=1 singularizes (`"windows"` → `"window"`); count>1 / zero pluralizes (`"light post"` → `"light posts"`).
 
 ## Run (rules only)
 
