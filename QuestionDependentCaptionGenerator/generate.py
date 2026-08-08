@@ -22,7 +22,7 @@ import os
 import tempfile
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from caption_rules import answer_mode_stats, generate_caption, is_ocr_question
 from llm_client import ItemOutcome, OllamaClient, run_batches_concurrent
@@ -380,7 +380,7 @@ def apply_llm_fallbacks(
     resume_map: Optional[Dict[int, Dict[str, Any]]] = None,
     failure_log: Optional[LlmFailureLogger] = None,
     single_retries: int = 3,
-    final_retries: int = 3,
+    final_retries: int = 1,
     ocr_excluded_count: int = 0,
     dropped_empty_count: int = 0,
     subjective_excluded_count: int = 0,
@@ -392,7 +392,8 @@ def apply_llm_fallbacks(
     Resume: age question_id toye resume_map bashe, LLM call nemikone.
     Checkpoint: har N batch (default 1), JSON ro atomic save mikone.
     Failures: written to ``failure_log`` (why LLM could not be used).
-    Final pass: leftover needs_llm rows get extra single-item retries.
+    Final pass: leftover needs_llm rows get **batched** salvage (default 1 round),
+    not slow per-item retries.
 
     Args:
         rows: annotation rows (mutated in place)
@@ -406,8 +407,9 @@ def apply_llm_fallbacks(
         llm_meta: stored under info.llm
         resume_map: prior llm_fallback captions by question_id
         failure_log: optional logger for rejected / failed items
-        single_retries: per-item retries inside each batch
-        final_retries: extra single calls for leftovers at the end
+        single_retries: per-item retries inside each main-pass batch
+        final_retries: number of **batched** salvage rounds for leftovers
+            (default 1; each round uses packed batches with no per-item retry)
         ocr_excluded_count: forwarded to checkpoint writes (info.ocr_excluded_count)
         dropped_empty_count: forwarded to checkpoint writes
         subjective_excluded_count: forwarded to checkpoint writes
@@ -507,28 +509,72 @@ def apply_llm_fallbacks(
 
     leftover = [i for i, r in enumerate(rows) if r["rule"] == "needs_llm"]
     if leftover and final_retries > 0:
-        print(
-            f"Final salvage: {len(leftover)} needs_llm left — "
-            f"single-item retry x{final_retries}",
-            flush=True,
-        )
-        for salvage_i, row_i in enumerate(leftover, start=1):
+        # Batched salvage: one packed attempt per leftover batch (no slow
+        # per-item single retries). final_retries = number of salvage rounds.
+        for round_i in range(1, final_retries + 1):
+            leftover = [i for i, r in enumerate(rows) if r["rule"] == "needs_llm"]
+            if not leftover:
+                break
+            salvage_indexed = [
+                (row_i, (rows[row_i]["question"], rows[row_i]["answer"]))
+                for row_i in leftover
+            ]
+            salvage_batches_idx = chunked(salvage_indexed, batch_size)
+            salvage_pairs: List[List[Tuple[str, str]]] = [
+                [(q, a) for _, (q, a) in batch] for batch in salvage_batches_idx
+            ]
+            n_salvage = len(salvage_pairs)
             print(
-                f"  salvage {salvage_i}/{len(leftover)} "
-                f"(question_id={rows[row_i]['question_id']})...",
+                f"Final salvage round {round_i}/{final_retries}: "
+                f"{len(leftover)} leftovers in {n_salvage} packed batches "
+                f"(batch-size={batch_size}, no per-item retry)",
                 flush=True,
             )
-            q = rows[row_i]["question"]
-            a = rows[row_i]["answer"]
-            outcomes = client.captions_with_retry(
-                [(q, a)], single_retries=final_retries
+
+            def _make_salvage_callbacks(
+                batches_idx_local: List[List[Any]],
+                n_local: int,
+            ) -> Tuple[
+                Callable[[int, int], None],
+                Callable[[int, List[ItemOutcome]], None],
+            ]:
+                def _start(batch_i: int, batch_len: int) -> None:
+                    print(
+                        f"  salvage batch {batch_i + 1}/{n_local} calling Ollama "
+                        f"({batch_len} Q+A)...",
+                        flush=True,
+                    )
+
+                def _done(batch_i: int, outcomes: List[ItemOutcome]) -> None:
+                    ok_n = 0
+                    for j, outcome in enumerate(outcomes):
+                        row_i = batches_idx_local[batch_i][j][0]
+                        last_outcome[row_i] = outcome
+                        if outcome.caption is None:
+                            continue
+                        rows[row_i]["caption"] = outcome.caption
+                        rows[row_i]["rule"] = "llm_fallback"
+                        ok_n += 1
+                    still = sum(1 for r in rows if r["rule"] == "needs_llm")
+                    print(
+                        f"  salvage batch {batch_i + 1}/{n_local} done "
+                        f"(accepted {ok_n}/{len(outcomes)}, "
+                        f"{still} needs_llm left)",
+                        flush=True,
+                    )
+
+                return _start, _done
+
+            s_start, s_done = _make_salvage_callbacks(salvage_batches_idx, n_salvage)
+            run_batches_concurrent(
+                client,
+                salvage_pairs,
+                workers=workers,
+                on_batch_done=s_done,
+                on_batch_start=s_start,
+                # One packed call only — no per-item single retries
+                single_retries=0,
             )
-            outcome = outcomes[0]
-            last_outcome[row_i] = outcome
-            if outcome.caption is None:
-                continue
-            rows[row_i]["caption"] = outcome.caption
-            rows[row_i]["rule"] = "llm_fallback"
 
     if failure_log is not None:
         for row_i, row in enumerate(rows):

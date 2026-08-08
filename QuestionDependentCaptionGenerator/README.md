@@ -148,6 +148,8 @@ Har caption-e LLM, ghabl az accept shodan, 2 check migzarune:
 
 Age har kodoom fail beshe, hamun item ta **3 bar** (`single_retries=3`) dobare az LLM darkhast mishe (batch attempt + per-item retries), ghabl az inke `needs_llm` bemune.
 
+**Final salvage:** leftover-haye `needs_llm` **batched** retry mishan (hamoon `--batch-size`), default **1 round**, bedoon per-item single retry — chon single salvage kheili slow bud.
+
 ### Resume / checkpoint
 
 - `--checkpoint-every N` → har N LLM batch output save (atomic write).
