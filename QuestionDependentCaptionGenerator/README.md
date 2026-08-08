@@ -21,6 +21,9 @@ Pipeline:
 | `generate.py` | CLI: rules + optional LLM fallback |
 | `llm_prompts.py` | Packed prompt (chand Q+A toye yek request) |
 | `llm_client.py` | Ollama HTTP client + concurrent workers + output validator |
+| `question_classifier.py` | Two-stage subjective/OCR candidate filter |
+| `audit_captions.py` | Post-hoc QC audit on a captions JSON |
+| `tests/` | Unit tests for Comments6 failure cases |
 
 ## Data (pishfarz)
 
@@ -196,7 +199,7 @@ If `--llm` finishes with any `needs_llm` left, the process exits with code `1` a
   "question": "What color is the car?",
   "answer": "red",
   "answer_count": 8,
-  "answer_confidence": 0.8,
+  "answer_consensus": 0.8,
   "caption": "The car is red.",
   "rule": "what_color"
 }
@@ -204,11 +207,77 @@ If `--llm` finishes with any `needs_llm` left, the process exits with code `1` a
 
 `rule` mishe yeki az: rule name ha (`what_color`, `how_many`, `yesno_are_all`, …), `needs_llm` (hanuz LLM nagerefte — `caption` khali), ya `llm_fallback` (LLM tolid karde).
 
-`answer_count` = chand ta az 10 annotator dagigan hamun mode answer ro dadan; `answer_confidence` = `answer_count / total_annotators` (rounded).
+`answer_count` = chand ta az 10 annotator dagigan hamun mode answer ro dadan; `answer_consensus` = `answer_count / total_annotators` (rounded). In annotator agreement ast, na model confidence — ba'dan mitune baraye loss weighting estefade beshe.
 
 `info.llm` (age `--llm`): `model`, `batch_size`, `workers`, `host`, `prompt_version`.
 
 `info.ocr_excluded_count`: chand ta OCR-dependent Q/A pair kollan hazf shod ghabl az caption generation (see [OCR filter](#ocr-filter-is_ocr_question)).
+
+`info.dropped_empty_count`: rows ba caption khali / needs_llm ke az output hazf shodan.
+
+`info.subjective_excluded_count` / `classifier_ocr_excluded_count`: ba `--classify-questions` (ya `--drop-subjective-candidates`).
+
+## QC validators (LLM)
+
+Beyond format checks, accepted LLM captions must pass:
+
+1. **Yes polarity** — `answer=yes` + clear negation in caption → reject (unless the question itself embeds negation).
+2. **Question grounding** — yes/no captions must share content words with the question (stops batch swaps).
+3. **Batch contamination** — caption near-duplicate of another batch item, or better match to another Q+A → reject + retry.
+4. Prefer `--batch-size` ≤ 10.
+
+End of pipeline drops empty / `needs_llm` leftovers so they never reach a DataLoader.
+
+## Subjective / personal filter
+
+**Off by default.** Bedoon flag, `question_classifier.py` aslan call nemishe — hame soal-ha (bad az OCR filter) miran be Rule/LLM.
+
+### Flags
+
+| Flag | Chi mikone |
+|------|------------|
+| `--classify-questions` | Do-marhale: (1) regex candidate, (2) Qwen faghat rooye candidate-ha classify mikone → `VISUAL` / `SUBJECTIVE_PERSONAL` / `COMMONSENSE` / `OCR`. Gheyr-e `VISUAL` drop mishan. |
+| `--drop-subjective-candidates` | Offline / bedoon Ollama: hame regex candidate-ha ro drop mikone (mohtat). Qwen call nemishe. |
+| `--classifier-model` | (ekhtiari) model-e Ollama baraye classifier; default = hamoon `--model` |
+
+Age har do `--classify-questions` va `--drop-subjective-candidates` bashan, classify (Qwen) olaviat dare.
+
+### Do-marhale — na rooye hame Q/A
+
+1. **Har soal** ba regex-e arzan check mishe (`have you ever`, `would you prefer/like/want`, `do you like/think`, `safe` / `healthy` / `nutritious` / `beautiful` / …).
+2. **Faghat candidate-ha** be Qwen miran. Soal-haye gheyr-candidate bedoon LLM call VISUAL farz mishan va mimunan.
+
+Pas rooye ~443k train, Qwen faghat ye subset-e kuchik (candidate-ha) ro mibine — na har `(question, answer)`.
+
+```bash
+# ba Qwen classifier (pishnahadi)
+python generate.py --split train --llm --classify-questions \
+  --model qwen2.5:3b-instruct-q4_K_M --batch-size 10
+
+# offline: candidate-ha ro bedoon Qwen drop kon
+python generate.py --split train --drop-subjective-candidates
+```
+
+Counts: `info.subjective_excluded_count`, `info.classifier_ocr_excluded_count`, va (age classify) `info.question_classifier`.
+
+## Tests + audit
+
+`audit_captions.py` **ekhtiari** hast — `generate.py` import-esh nemikone. Faghat baraye QC-e ba'd az generate (shomaresh-e `The there`, `made of is`, empty caption, …). Mituni pak-esh koni; pipeline baz kar mikone.
+
+```bash
+cd QuestionDependentCaptionGenerator
+python -m unittest tests.test_qc_fixes -v
+python audit_captions.py outputs/v2_question_dependent_captions_train2014.json
+```
+
+## Re-pilot (before full 443k)
+
+```bash
+python generate.py --split train --llm --max-items 25000 --batch-size 10 \
+  --classify-questions --model qwen2.5:3b-instruct-q4_K_M \
+  --checkpoint-every 50 --output outputs/pilot_25k.json
+python audit_captions.py outputs/pilot_25k.json
+```
 
 ## Notes
 
@@ -216,4 +285,4 @@ If `--llm` finishes with any `needs_llm` left, the process exits with code `1` a
 - `rule_counts` to `info` baraye statistik
 - OCR-e-mahvar soal ha (`is_ocr_question`) kollan az `rows` hazf mishan ghabl az dedup/rule — count-eshoon `info.ocr_excluded_count` va stdout
 - Duplicate `(image_id, question, answer)` rows (mesal: do ta annotator-e mokhtalef literally hamun soal ro neveshtan) dar `load_vqa_pairs` drop mishan — count-esh toye stdout print mishe
-- Baraye train captioner: dataset loader `(image_id, question, caption)` lazem hast — faghat rows-e `caption` gheyr-khali estefade kon (yani `rule != "needs_llm"`)
+- Baraye train captioner: dataset loader `(image_id, question, caption)` lazem hast — faghat rows-e `caption` gheyr-khali (pipeline empty ha ro drop mikone)

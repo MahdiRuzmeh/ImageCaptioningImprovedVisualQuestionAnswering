@@ -205,7 +205,35 @@ _NO = {"no", "none", "0", "zero", "n/a", "not", "nothing"}
 # likely a hallucinated meaning-flip (e.g. Q: 'Who made the cock?' A: 'rolex'
 # -> LLM outputs 'No cock was made by Rolex.' — wrong, but 'rolex' still
 # passes a naive substring check).
-_NEGATION_RE = re.compile(r"\b(no|not|n't|never|none|nobody|nothing|neither|without)\b", re.I)
+_NEGATION_RE = re.compile(
+    r"\b(no|not|n't|never|none|nobody|nothing|neither|without|cannot|can't|"
+    r"no one|nowhere)\b",
+    re.I,
+)
+
+# Question embeds its own negation — a negative caption for answer=yes can be OK
+# (e.g. "Is there a light that is not turned on?" + yes → "... is not turned on.").
+_QUESTION_NEGATION_RE = re.compile(
+    r"\b(not|n't|never|no|none|nobody|nothing|neither|without|cannot|can't)\b",
+    re.I,
+)
+
+_STOPWORDS = {
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "to", "of", "in", "on", "at", "for", "with", "and", "or", "this", "that",
+    "these", "those", "there", "here", "it", "its", "do", "does", "did",
+    "can", "could", "will", "would", "have", "has", "had", "you", "your",
+    "what", "which", "who", "where", "when", "how", "many", "much", "any",
+    "some", "from", "by", "as", "if", "than", "then", "so", "too", "very",
+    "just", "about", "into", "over", "after", "before", "between", "out",
+    "up", "down", "off", "again", "further", "once", "all", "both", "each",
+    "few", "more", "most", "other", "such", "only", "own", "same",
+    "s", "t", "don", "now", "i", "me", "my", "we", "our",
+    "he", "she", "they", "them", "his", "her", "their",
+    # Negation / weak tokens — do not count as grounding overlap
+    "no", "not", "nor", "never", "none", "nobody", "nothing", "neither",
+    "without", "cannot", "one", "least", "also", "than", "enough",
+}
 
 # Structural sanity check: brackets/labels and stray quotation marks mean the
 # model echoed formatting instead of writing a plain sentence.
@@ -215,6 +243,17 @@ _QUOTE_CHARS = "\"\u201c\u201d"
 # The model should never write 'the answer is ...' / 'the answer' — it must
 # weave the answer into a natural sentence about the image instead.
 _ANSWER_PHRASE_RE = re.compile(r"\bthe answer\b", re.I)
+
+
+def _content_words(text: str) -> Set[str]:
+    """Content tokens (stemmed) after dropping stopwords / short tokens."""
+    words = re.findall(r"[a-z']+", text.lower())
+    out: Set[str] = set()
+    for w in words:
+        if w in _STOPWORDS or len(w) < 3:
+            continue
+        out.add(_stem(w))
+    return out
 
 
 def caption_format_is_valid(caption: str) -> Tuple[bool, str]:
@@ -254,7 +293,11 @@ def caption_format_is_valid(caption: str) -> Tuple[bool, str]:
     return True, "ok"
 
 
-def answer_in_caption(answer: str, caption: str) -> bool:
+def answer_in_caption(
+    answer: str,
+    caption: str,
+    question: str = "",
+) -> bool:
     """Check mikone javab toye caption hast; yes/no joda handle mishe.
 
     Two relaxations vs. a strict substring check:
@@ -263,13 +306,24 @@ def answer_in_caption(answer: str, caption: str) -> bool:
       - not every answer token has to appear — matching >=50% of the answer's
         tokens is enough (e.g. answer 'holding it' is satisfied by a caption
         that only reflects 'holding', since 'it' is a placeholder pronoun).
+
+    For yes/no answers, require at least one content-word overlap with the
+    question (when provided) instead of accepting any short declarative.
     """
     a = answer.strip().lower()
     c = caption.strip().lower()
     if not a or not c:
         return False
     if a in _YES or a in _NO:
-        return len(c.split()) <= 30
+        if len(c.split()) > 30:
+            return False
+        if not question.strip():
+            return True
+        q_words = _content_words(question)
+        c_words = _content_words(caption)
+        if not q_words:
+            return True
+        return bool(q_words & c_words)
     if a in c:
         return True
     tokens = [t for t in re.split(r"\W+", a) if t]
@@ -298,21 +352,103 @@ def has_spurious_negation(answer: str, caption: str) -> bool:
     return True
 
 
-def caption_is_valid(answer: str, caption: str) -> Tuple[bool, str]:
-    """Combined acceptance check: format, answer grounding, and no meaning-flip.
+def has_yes_polarity_mismatch(answer: str, caption: str, question: str = "") -> bool:
+    """True when answer=yes but the caption clearly negates (meaning flip).
+
+    Skipped when the question itself embeds negation (e.g. 'not turned on'),
+    where a negative surface form can still be correct for yes.
+    """
+    a = answer.strip().lower()
+    if a not in _YES:
+        return False
+    if not _NEGATION_RE.search(caption):
+        return False
+    if question and _QUESTION_NEGATION_RE.search(question):
+        return False
+    return True
+
+
+def is_batch_contamination(
+    question: str,
+    answer: str,
+    caption: str,
+    batch_pairs: Sequence[Tuple[str, str]],
+    batch_captions: Sequence[Optional[str]],
+    self_index: int,
+) -> bool:
+    """True if ``caption`` looks swapped from another item in the same batch.
+
+    Triggers when:
+      - another batch caption is near-identical, or
+      - caption content overlaps another Q+A strictly better than this one
+        while overlapping this Q+A poorly.
+    """
+    cap_words = _content_words(caption)
+    if not cap_words:
+        return False
+
+    self_qa = _content_words(f"{question} {answer}")
+    self_overlap = len(cap_words & self_qa)
+
+    norm_cap = " ".join(caption.lower().split())
+    for i, other_cap in enumerate(batch_captions):
+        if i == self_index or not other_cap:
+            continue
+        other_norm = " ".join(other_cap.lower().split())
+        if other_norm == norm_cap:
+            return True
+        # Near-duplicate: share most content words both ways
+        other_words = _content_words(other_cap)
+        if other_words and len(cap_words & other_words) / max(len(cap_words), len(other_words)) >= 0.85:
+            return True
+
+    for i, (oq, oa) in enumerate(batch_pairs):
+        if i == self_index:
+            continue
+        other_qa = _content_words(f"{oq} {oa}")
+        if not other_qa:
+            continue
+        other_overlap = len(cap_words & other_qa)
+        # Strong match to another item, weak match to self → contamination
+        if other_overlap >= 2 and other_overlap > self_overlap + 1:
+            if self_overlap == 0 or other_overlap >= self_overlap * 2:
+                return True
+    return False
+
+
+def caption_is_valid(
+    answer: str,
+    caption: str,
+    question: str = "",
+    *,
+    batch_pairs: Optional[Sequence[Tuple[str, str]]] = None,
+    batch_captions: Optional[Sequence[Optional[str]]] = None,
+    self_index: int = -1,
+) -> Tuple[bool, str]:
+    """Combined acceptance check: format, polarity, grounding, contamination.
 
     Returns:
-        (ok, reason) — reason is 'ok', a ``caption_format_is_valid`` failure
-        code, 'answer_mismatch', or 'spurious_negation'.
+        (ok, reason) — reason is 'ok' or a machine-readable reject code.
     """
     fmt_ok, fmt_reason = caption_format_is_valid(caption)
     if not fmt_ok:
         return False, fmt_reason
+    if has_yes_polarity_mismatch(answer, caption, question):
+        return False, "polarity_mismatch"
     if has_spurious_negation(answer, caption):
         return False, "spurious_negation"
-    if answer_in_caption(answer, caption):
-        return True, "ok"
-    return False, "answer_mismatch"
+    if not answer_in_caption(answer, caption, question):
+        return False, "answer_mismatch"
+    if (
+        batch_pairs is not None
+        and batch_captions is not None
+        and self_index >= 0
+        and is_batch_contamination(
+            question, answer, caption, batch_pairs, batch_captions, self_index
+        )
+    ):
+        return False, "batch_contamination"
+    return True, "ok"
 
 
 def answer_mismatch_detail(answer: str, caption: str) -> str:
@@ -338,6 +474,23 @@ def spurious_negation_detail(answer: str, caption: str) -> str:
     )
 
 
+def polarity_mismatch_detail(answer: str, caption: str, question: str = "") -> str:
+    """Human-readable why yes-answer polarity check failed."""
+    hits = _NEGATION_RE.findall(caption)
+    return (
+        f"answer={answer!r} is yes-like but caption={caption!r} "
+        f"contains negation {hits} (Q={question!r})"
+    )
+
+
+def batch_contamination_detail(caption: str) -> str:
+    """Human-readable why batch contamination was suspected."""
+    return (
+        f"caption={caption!r} looks swapped from another item in the same "
+        "LLM batch (near-duplicate or better match to another Q+A)"
+    )
+
+
 def format_invalid_detail(reason: str, caption: str) -> str:
     """Human-readable why ``caption_format_is_valid`` rejected a caption."""
     return f"caption={caption!r} failed format check: {reason}"
@@ -355,12 +508,21 @@ _FORMAT_REASONS = {
 }
 
 
-def rejection_detail(reason: str, answer: str, caption: str) -> str:
+def rejection_detail(
+    reason: str,
+    answer: str,
+    caption: str,
+    question: str = "",
+) -> str:
     """Dispatch to the right human-readable detail message for a reject reason."""
     if reason in _FORMAT_REASONS:
         return format_invalid_detail(reason, caption)
     if reason == "spurious_negation":
         return spurious_negation_detail(answer, caption)
+    if reason == "polarity_mismatch":
+        return polarity_mismatch_detail(answer, caption, question)
+    if reason == "batch_contamination":
+        return batch_contamination_detail(caption)
     return answer_mismatch_detail(answer, caption)
 
 
@@ -489,9 +651,9 @@ class OllamaClient:
     ) -> List[ItemOutcome]:
         """Batch try, then per-item single retries with reasons.
 
-        A rejection can be a content problem (answer not grounded, spurious
-        negation) or a format problem (``caption_format_is_valid`` — not one
-        clean declarative sentence); either one triggers the same retry path.
+        A rejection can be a content problem (answer not grounded, polarity
+        flip, batch contamination, spurious negation) or a format problem
+        (``caption_format_is_valid``); either one triggers the same retry path.
 
         Args:
             pairs: (question, answer) batch
@@ -508,21 +670,47 @@ class OllamaClient:
         ]
 
         batch = self.chat_captions(pairs_list)
+        batch_caps: List[Optional[str]] = [None] * n
         if batch.captions is not None:
+            # First pass: format / polarity / grounding without contamination
+            # (need all captions before cross-item checks).
+            tentative: List[Optional[str]] = [None] * n
             for i, cap in enumerate(batch.captions):
                 q, a = pairs_list[i]
-                ok, reason = caption_is_valid(a, cap)
+                ok, reason = caption_is_valid(a, cap, q)
                 if ok:
+                    tentative[i] = cap
+                else:
+                    out[i] = ItemOutcome(
+                        reason=reason,
+                        detail=rejection_detail(reason, a, cap, q),
+                        attempts=[f"batch:{reason}"],
+                    )
+            # Second pass: contamination against other batch captions
+            for i, cap in enumerate(tentative):
+                if cap is None:
+                    continue
+                q, a = pairs_list[i]
+                ok, reason = caption_is_valid(
+                    a,
+                    cap,
+                    q,
+                    batch_pairs=pairs_list,
+                    batch_captions=tentative,
+                    self_index=i,
+                )
+                if ok:
+                    batch_caps[i] = cap
                     out[i] = ItemOutcome(
                         caption=cap,
                         reason="ok",
                         detail="accepted from batch",
-                        attempts=[f"batch:ok"],
+                        attempts=["batch:ok"],
                     )
                 else:
                     out[i] = ItemOutcome(
                         reason=reason,
-                        detail=rejection_detail(reason, a, cap),
+                        detail=rejection_detail(reason, a, cap, q),
                         attempts=[f"batch:{reason}"],
                     )
         else:
@@ -536,7 +724,7 @@ class OllamaClient:
         if all(o.caption is not None for o in out):
             return out
 
-        # Per-item retries for anything still missing
+        # Per-item retries for anything still missing (no batch contamination)
         for i, (q, a) in enumerate(pairs_list):
             if out[i].caption is not None:
                 continue
@@ -550,7 +738,7 @@ class OllamaClient:
                     last.detail = single.detail
                     continue
                 cap = single.captions[0]
-                ok, reason = caption_is_valid(a, cap)
+                ok, reason = caption_is_valid(a, cap, q)
                 if ok:
                     out[i] = ItemOutcome(
                         caption=cap,
@@ -561,7 +749,7 @@ class OllamaClient:
                     break
                 last.attempts.append(f"{tag}:{reason}")
                 last.reason = reason
-                last.detail = rejection_detail(reason, a, cap)
+                last.detail = rejection_detail(reason, a, cap, q)
             else:
                 out[i] = last
         return out

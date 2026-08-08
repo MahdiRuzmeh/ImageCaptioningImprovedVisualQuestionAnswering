@@ -77,18 +77,19 @@ def answer_mode_stats(answers: List[str]) -> Tuple[str, int, float]:
     """Mode answer + annotator agreement stats.
 
     Returns:
-        (mode_answer, answer_count, answer_confidence) — ``answer_count`` is
+        (mode_answer, answer_count, answer_consensus) — ``answer_count`` is
         how many of the annotators gave the mode answer (normalized,
-        case-insensitive), ``answer_confidence`` is that count divided by
+        case-insensitive), ``answer_consensus`` is that count divided by
         the total number of annotators (rounded to 4 decimals), e.g.
-        8 agreeing out of 10 -> (mode, 8, 0.8).
+        8 agreeing out of 10 -> (mode, 8, 0.8). This is annotator
+        agreement, not a model confidence score.
     """
     normalized = [a.strip().lower() for a in answers]
     if not normalized:
         return "", 0, 0.0
     mode_ans, count = Counter(normalized).most_common(1)[0]
-    confidence = round(count / len(normalized), 4)
-    return mode_ans, count, confidence
+    consensus = round(count / len(normalized), 4)
+    return mode_ans, count, consensus
 
 
 # ---------------------------------------------------------------------------
@@ -117,18 +118,30 @@ def answer_mode_stats(answers: List[str]) -> Tuple[str, int, float]:
 #
 # Deliberately conservative: ambiguous prefixes like "what is the name"
 # (could be "what is the name of this fruit" — not OCR — or "what is the
-# name on the jersey" — OCR) are left OUT to avoid over-filtering ordinary
-# visual questions.
+# name on the jersey" — OCR) are left OUT unless phrased as "name on ...".
+# Prefer intent phrases (letter/website/initials/street name/printed) over
+# bare nouns like ``sign`` so "What color is the sign?" stays visual.
 
 _OCR_QUESTION_RE = re.compile(
     r"""
     \bwhat\s+(does|do)\s+.{0,40}?\bsay\b |        # "what does the sign say"
     \bwhat\s+is\s+written\b |                     # "what is written on..."
+    \bwhat\s+is\s+printed\b |                     # "what is printed on..."
     \bwhat\s+words?\b |                           # "what word(s) are on..."
-    \bwhat\s+letters?\b |                         # "what letters are on..."
+    \bwhat\s+(are\s+the\s+)?letters?\b |          # "what letter(s)..."
+    \bwhat\s+is\s+(the\s+)?(last\s+)?letter\b |   # "what is the last letter"
+    \bthat\s+letter\s+is\b |                      # "That letter is large on..."
+    \bwhat\s+are\s+the\s+initials\b |
+    \bwhat\s+(is\s+)?(the\s+)?website\b |
+    \bwhat\s+website\b |
+    \bwhat\s+(are\s+)?(the\s+)?(two\s+)?street\s+names?\b |
+    \bwhat\s+is\s+(the\s+)?street\s+name\b |
     \blicense\s+(number|plate)\b |                # plate / registration number
     \bwhat\s+brand\b | \bwhat\s+is\s+the\s+brand\b |
-    \bwhat\s+logo\b |
+    \bwhat\s+logo\b | \bwhat\s+team'?s?\s+logo\b |
+    \bwhat\s+(is\s+the\s+)?name\s+on\b |          # name on cake/jersey
+    \bwhich\s+company\s+is\s+on\b |               # company on plane
+    \bwhat\s+hundred\s+block\b |                  # street number text
     \bwhat\s+number\s+is\s+(on|the|this|that)\b | # jersey / bus / plate number
     \bwhat\s+is\s+the\s+number\s+on\b |           # "what is the number on..."
     \bwhat\s+time\s+(is\s+it|does)\b              # clock / watch reading
@@ -824,7 +837,10 @@ def _split_right_predicate(rest: str) -> Optional[Tuple[str, str]]:
     if len(subj_tokens) >= 2 and subj_tokens[-1].lower() in _PREP_WORDS:
         return None
     # '... V-ing off/up/on' — particle belongs to the verb, not the subject NP
-    if len(subj_tokens) >= 2 and subj_tokens[-1].lower().endswith("ing"):
+    if (
+        len(subj_tokens) >= 2
+        and subj_tokens[-1].lower() in _ACTION_PARTICIPLES
+    ):
         return (
             " ".join(subj_tokens[:-1]),
             f"{subj_tokens[-1]} {tokens[-1]}",
@@ -889,28 +905,49 @@ def split_subject_predicate(rest: str) -> Tuple[str, str]:
         None,
     )
     if participle_idx is not None:
-        return (
-            " ".join(tokens[:participle_idx]),
-            " ".join(tokens[participle_idx:]),
-        )
+        # "the washing machine ..." — V-ing immediately after a determiner is
+        # usually a noun modifier, not the predicate. Accepting it yields
+        # broken captions like "The the is not washing machine door open."
+        if not (
+            participle_idx == 1
+            and det in {"the", "this", "that", "these", "those"}
+        ):
+            return (
+                " ".join(tokens[:participle_idx]),
+                " ".join(tokens[participle_idx:]),
+            )
 
     right = _split_right_predicate(rest)
     if right is not None:
         return right
 
     # Demonstrative: this/that/these/those + NOUN (+ mods) + PREDICATE
+    # Only when a confident short subject can be taken; compound NPs like
+    # "this wine glass beautiful" (3+ content tokens after det without a
+    # known predicate starter) defer to the LLM.
     if det in {"this", "that", "these", "those"}:
         if len(tokens) == 2:
             return tokens[0], tokens[1]
-        return " ".join(tokens[:2]), " ".join(tokens[2:])
+        if len(tokens) == 3:
+            return " ".join(tokens[:2]), tokens[2]
+        return "", ""
 
-    # "the X ..." — determiner + head noun as subject when short.
+    # "the X ..." — only trust determiner+single-head when short and the
+    # remainder is a simple predicate. Multi-word compound NPs without a
+    # confident splitter above defer to the LLM (precision > coverage).
     if det == "the":
-        if len(tokens) >= 3:
-            return " ".join(tokens[:2]), " ".join(tokens[2:])
+        if len(tokens) == 2:
+            return tokens[0], tokens[1]
+        if len(tokens) == 3:
+            # "the building old" / "the animals eating"
+            return " ".join(tokens[:2]), tokens[2]
+        return "", ""
+
+    # Bare pronoun + predicate
+    if det in PRONOUNS and len(tokens) >= 2:
         return tokens[0], " ".join(tokens[1:])
 
-    return tokens[0], " ".join(tokens[1:])
+    return "", ""
 
 
 def _drop_duplicate_leading_aux(pred: str, aux: str) -> str:
@@ -1329,6 +1366,13 @@ def can_generate_safe_rule_caption(
         return False
     if re.search(r"\bthe (?:in|on|at) the\b", low):
         return False
+    # Broken existential / double-article templates from over-eager rules
+    if re.match(r"^the there\b", low):
+        return False
+    if re.match(r"^the the\b", low):
+        return False
+    if re.search(r"\bmade of is\b|\bused for is\b|\bdesigned for is\b", low):
+        return False
     return True
 
 
@@ -1415,16 +1459,27 @@ def rule_who(question: str, answer: str) -> Optional[str]:
 
 
 def rule_is_there(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'Is there a/an X?' → 'There is a X.' / 'There is no X.'"""
-    m = re.match(r"^is there (?:a|an) (.+)$", question, re.I)
+    """Pattern: 'Is there (a/an) X?' → 'There is a X.' / 'There is no X.'
+
+    Also covers bare nouns ('Is there grass?') so they do not fall through
+    to ``yesno_is_are_predicate`` as 'The there is grass.'.
+    """
+    m = re.match(r"^is there (?:a|an )?(.+)$", question, re.I)
     if not m:
         return None
     obj = m.group(1).strip()
+    if not obj:
+        return None
+    # Complex clauses ('enough for...', relative clauses) → LLM
+    if re.search(r"\benough\b|\bthat\b|\bwho\b|\bwhich\b", obj, re.I):
+        return None
     if is_yes(answer):
-        return f"There is {with_article(obj)}."
+        return f"There is {smart_article(obj)}."
     if is_no(answer):
-        return f"There is no {obj}."
-    return f"There is {with_article(answer)} {obj}."
+        # Avoid "There is no a grass." — drop leading article from obj
+        bare = re.sub(r"^(?:a|an|the)\s+", "", obj, flags=re.I)
+        return f"There is no {bare}."
+    return f"There is {smart_article(answer)} {obj}."
 
 
 def rule_are_there(question: str, answer: str) -> Optional[str]:
@@ -1614,6 +1669,9 @@ def rule_yesno_modal_have(question: str, answer: str) -> Optional[str]:
     Example:
         'Could this photo be from a zoo?' + yes
             → 'This photo could be from a zoo.'
+
+    Personal / free-form subjects ('Would you want...', 'Have you ever...')
+    return None so the SLM (or subjective filter) handles them.
     """
     m = re.match(r"^(can|could|will|would|has|have|had)\s+(.+)$", question, re.I)
     if not m:
@@ -1622,13 +1680,25 @@ def rule_yesno_modal_have(question: str, answer: str) -> Optional[str]:
     rest = m.group(2).strip()
     if not rest:
         return None
+    # Second-person / ever / prefer-style → too fragile for templates
+    first = rest.split()[0].lower()
+    if first in {"you", "i", "we"} or re.search(r"\bever\b|\bprefer\b|\bwant\b|\blike\b", rest, re.I):
+        return None
 
     subj, pred = split_subject_predicate(rest)
     pred = _drop_duplicate_leading_aux(pred, aux)
     if not subj or not pred:
-        # "Has it snowed?" style — treat whole rest as after aux
-        if rest.lower().startswith(("this ", "that ", "these ", "those ", "the ")):
-            pos = f"{capitalize_first(rest)}."
+        # Keep the auxiliary when falling back — never emit
+        # "This photo be from a zoo." (missing could/can/...).
+        words = rest.split()
+        if (
+            len(words) >= 3
+            and words[0].lower() in {"this", "that", "these", "those", "the"}
+        ):
+            # "this photo be from a zoo" + could
+            # → "This photo could be from a zoo."
+            head = prefix_the(" ".join(words[:2]))
+            pos = f"{head} {aux} {' '.join(words[2:])}."
         else:
             return None
     else:
@@ -1755,6 +1825,9 @@ def rule_yesno_is_are_predicate(question: str, answer: str) -> Optional[str]:
     aux = m.group(1).lower()
     rest = m.group(2).strip()
     if not rest:
+        return None
+    # Existential 'there' must be handled by rule_is_there / rule_are_there
+    if rest.split()[0].lower() == "there":
         return None
     if rest.split()[0].lower() in {"a", "an"}:
         return None
@@ -1915,6 +1988,65 @@ def _rule_what_is_participle(rest: str, answer: str) -> Optional[str]:
     return f"{subject} is {predicate}."
 
 
+def _rule_what_is_material_purpose(rest: str, answer: str) -> Optional[str]:
+    """High-precision: made of/from, used/designed for, bare 'for'.
+
+    Examples:
+        'the building made of' + brick → 'The building is made of brick.'
+        'the middle thing used for' + praying → 'The middle thing is used for praying.'
+        'the grass for' + park → 'The grass is for a park.'
+    """
+    rest = rest.strip()
+    # Materials / purposes usually take a bare answer NP ("brick", not "a brick").
+    ans = answer.strip()
+    if not ans:
+        return None
+    if ans.lower().split()[0] not in ARTICLES:
+        # Keep multi-word answers as-is; single tokens stay bare for "made of".
+        pass
+
+    m = re.match(
+        r"^(?P<sub>.+?)\s+made\s+(?P<prep>of|from)$",
+        rest,
+        re.I,
+    )
+    if m:
+        subj = prefix_the(m.group("sub").strip())
+        return f"{subj} is made {m.group('prep').lower()} {ans}."
+
+    m = re.match(
+        r"^(?P<sub>.+?)\s+(?P<verb>used|designed)\s+for$",
+        rest,
+        re.I,
+    )
+    if m:
+        subj = prefix_the(m.group("sub").strip())
+        verb = m.group("verb").lower()
+        return f"{subj} is {verb} for {ans}."
+
+    # Short clean NP + trailing 'for' only (avoid 'reaching for', 'looking for')
+    m = re.match(r"^(?P<sub>(?:the\s+)?\w+(?:\s+\w+){0,3})\s+for$", rest, re.I)
+    if m:
+        sub = m.group("sub").strip()
+        if re.search(r"\b(reaching|looking|waiting|asking|calling|heading)\b", sub, re.I):
+            return None
+        subj = prefix_the(sub)
+        return f"{subj} is for {smart_article(ans)}."
+
+    return None
+
+
+def _what_is_has_trailing_glue(rest: str) -> bool:
+    """True when default 'The X is Y' would collapse a verb/prep into the subject."""
+    low = rest.lower().strip()
+    glue_tails = (
+        "made of", "made from", "used for", "designed for", "reaching for",
+        "sitting on", "laying on", "lying on", "standing on", "hanging on",
+        "looking at", "looking for",
+    )
+    return any(low.endswith(t) or f" {t} " in f" {low} " for t in glue_tails)
+
+
 def rule_what_is(question: str, answer: str) -> Optional[str]:
     """Pattern: 'What is ...?' — role-aware declarative with the answer.
 
@@ -1932,6 +2064,8 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
             → 'The giraffe is standing behind a tree.'
         'What is the animal eating?' + grass
             → 'The animal is eating grass.'
+        'What is the building made of?' + brick
+            → 'The building is made of brick.'
         'What is the car?' + taxi
             → 'The car is a taxi.'
 
@@ -1947,10 +2081,16 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
 
     caption: Optional[str] = None
 
+    # Material / purpose patterns before participle / default collapse.
+    material_cap = _rule_what_is_material_purpose(rest, answer)
+    if material_cap:
+        caption = material_cap
+
     # "What is SUBJECT V-ing (PREP ...)?" — keep the verb, don't collapse it.
-    participle_cap = _rule_what_is_participle(rest, answer)
-    if participle_cap:
-        caption = participle_cap
+    if caption is None:
+        participle_cap = _rule_what_is_participle(rest, answer)
+        if participle_cap:
+            caption = participle_cap
 
     # "What is printed/written/... on SURFACE?"
     if caption is None:
@@ -1988,7 +2128,10 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
                 break
 
     # "What is the X?" / "What is X?" → "The X is {answer}."
+    # Never fire when trailing glue would produce "The X made of is Y."
     if caption is None:
+        if _what_is_has_trailing_glue(rest):
+            return None
         subj_m = re.match(
             r"^(?:the\s+)?(.+?)(?:\s+(?:on|in|near|at|under|over|behind)\s+.+)?$",
             rest,
@@ -2003,6 +2146,9 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
             "in", "on", "at", "near", "behind", "under", "over",
             "among", "between", "of", "to", "for", "with", "by",
         }:
+            return None
+        # Long / multi-clause subjects are safer with the LLM
+        if len(subj.split()) > 6:
             return None
         caption = format_the_subject(
             subj,

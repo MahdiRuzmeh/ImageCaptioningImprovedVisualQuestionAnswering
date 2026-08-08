@@ -27,6 +27,11 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 from caption_rules import answer_mode_stats, generate_caption, is_ocr_question
 from llm_client import ItemOutcome, OllamaClient, run_batches_concurrent
 from llm_prompts import PROMPT_VERSION
+from question_classifier import (
+    CLASSIFIER_PROMPT_VERSION,
+    QuestionClassifier,
+    filter_non_visual_questions,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 # VQA raw data az ../dataset; caption JSON inja save mishe
@@ -203,7 +208,7 @@ def load_vqa_pairs(
             continue
 
         answers = [x["answer"] for x in ann["answers"]]
-        ans, answer_count, answer_confidence = answer_mode_stats(answers)
+        ans, answer_count, answer_consensus = answer_mode_stats(answers)
 
         dedup_key = (q["question"].strip().lower(), ans)
         seen = seen_per_image.setdefault(image_id, set())
@@ -222,7 +227,7 @@ def load_vqa_pairs(
                 "question": q["question"],
                 "answer": ans,
                 "answer_count": answer_count,
-                "answer_confidence": answer_confidence,
+                "answer_consensus": answer_consensus,
                 "caption": caption,
                 "rule": rule,
             }
@@ -359,6 +364,10 @@ def apply_llm_fallbacks(
     single_retries: int = 3,
     final_retries: int = 3,
     ocr_excluded_count: int = 0,
+    dropped_empty_count: int = 0,
+    subjective_excluded_count: int = 0,
+    classifier_ocr_excluded_count: int = 0,
+    classifier_meta: Optional[Dict[str, Any]] = None,
 ) -> Counter:
     """Row haye rule=needs_llm ro ba packed LLM caption update mikone.
 
@@ -382,6 +391,10 @@ def apply_llm_fallbacks(
         single_retries: per-item retries inside each batch
         final_retries: extra single calls for leftovers at the end
         ocr_excluded_count: forwarded to checkpoint writes (info.ocr_excluded_count)
+        dropped_empty_count: forwarded to checkpoint writes
+        subjective_excluded_count: forwarded to checkpoint writes
+        classifier_ocr_excluded_count: forwarded to checkpoint writes
+        classifier_meta: forwarded to checkpoint writes
     """
     resume_map = resume_map or {}
     restored = merge_llm_resume(rows, resume_map)
@@ -413,6 +426,22 @@ def apply_llm_fallbacks(
     done_batches = 0
     total_batches = len(batches_pairs)
 
+    def _checkpoint() -> None:
+        counts = recount_rules(rows)
+        write_output_json(
+            output_path,
+            rows,
+            counts,
+            questions_json,
+            annotations_json,
+            llm_meta=llm_meta,
+            ocr_excluded_count=ocr_excluded_count,
+            dropped_empty_count=dropped_empty_count,
+            subjective_excluded_count=subjective_excluded_count,
+            classifier_ocr_excluded_count=classifier_ocr_excluded_count,
+            classifier_meta=classifier_meta,
+        )
+
     def _on_batch(batch_i: int, outcomes: List[ItemOutcome]) -> None:
         nonlocal done_batches
         ok_n = 0
@@ -432,16 +461,7 @@ def apply_llm_fallbacks(
             f"{still} needs_llm left)"
         )
         if checkpoint_every > 0 and done_batches % checkpoint_every == 0:
-            counts = recount_rules(rows)
-            write_output_json(
-                output_path,
-                rows,
-                counts,
-                questions_json,
-                annotations_json,
-                llm_meta=llm_meta,
-                ocr_excluded_count=ocr_excluded_count,
-            )
+            _checkpoint()
             print(f"  checkpoint saved -> {output_path}")
 
     run_batches_concurrent(
@@ -507,6 +527,26 @@ def apply_llm_fallbacks(
     return recount_rules(rows)
 
 
+def drop_empty_or_short_captions(
+    rows: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Remove rows with empty, whitespace-only, or <2-word captions.
+
+    Also drops leftover ``needs_llm`` rows so they never reach a DataLoader.
+    Returns (kept_rows, dropped_count).
+    """
+    kept: List[Dict[str, Any]] = []
+    dropped = 0
+    for row in rows:
+        cap = str(row.get("caption") or "").strip()
+        rule = str(row.get("rule") or "")
+        if rule == "needs_llm" or not cap or len(cap.split()) < 2:
+            dropped += 1
+            continue
+        kept.append(row)
+    return kept, dropped
+
+
 def write_output_json(
     output_path: Path,
     rows: List[Dict[str, Any]],
@@ -515,6 +555,10 @@ def write_output_json(
     annotations_json: Path,
     llm_meta: Optional[Dict[str, Any]] = None,
     ocr_excluded_count: int = 0,
+    dropped_empty_count: int = 0,
+    subjective_excluded_count: int = 0,
+    classifier_ocr_excluded_count: int = 0,
+    classifier_meta: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Natije ro atomic be JSON file save kon (crash-safe).
 
@@ -522,6 +566,10 @@ def write_output_json(
         ocr_excluded_count: chand ta OCR-dependent Q/A pair kollan hazf shod
             ghabl az caption generation (see ``is_ocr_question``); stored
             under ``info.ocr_excluded_count`` baraye visibility.
+        dropped_empty_count: rows removed for empty/short/needs_llm captions.
+        subjective_excluded_count: non-visual questions dropped by classifier.
+        classifier_ocr_excluded_count: OCR labeled by subjective classifier stage.
+        classifier_meta: optional reproducibility info for the Qwen classifier.
     """
     info: Dict[str, Any] = {
         "description": "VQA v2 question-dependent captions (rule-based Q+A → statement)",
@@ -529,8 +577,13 @@ def write_output_json(
         "source_annotations": str(annotations_json),
         "num_samples": len(rows),
         "ocr_excluded_count": ocr_excluded_count,
+        "dropped_empty_count": dropped_empty_count,
+        "subjective_excluded_count": subjective_excluded_count,
+        "classifier_ocr_excluded_count": classifier_ocr_excluded_count,
         "rule_counts": dict(rule_counts),
     }
+    if classifier_meta:
+        info["question_classifier"] = classifier_meta
     if llm_meta:
         info["description"] = (
             "VQA v2 question-dependent captions (rules + optional LLM fallback)"
@@ -655,7 +708,7 @@ def parse_args() -> argparse.Namespace:
         "--batch-size",
         type=int,
         default=10,
-        help="Chand Q+A toye yek LLM request (default 10)",
+        help="Chand Q+A toye yek LLM request (default 10; prefer <=10)",
     )
     parser.add_argument(
         "--model",
@@ -689,6 +742,28 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Checkpoint ghabli ro ignore kon (az aval LLM)",
     )
+    parser.add_argument(
+        "--classify-questions",
+        action="store_true",
+        help=(
+            "Run two-stage subjective/OCR classifier on keyword candidates "
+            "and drop non-VISUAL questions"
+        ),
+    )
+    parser.add_argument(
+        "--classifier-model",
+        type=str,
+        default=None,
+        help="Ollama model for question classifier (default: same as --model)",
+    )
+    parser.add_argument(
+        "--drop-subjective-candidates",
+        action="store_true",
+        help=(
+            "Without calling the classifier, drop all regex subjective "
+            "candidates (offline conservative mode)"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -710,6 +785,11 @@ def main() -> None:
 
     if args.batch_size < 1:
         raise ValueError("--batch-size must be >= 1")
+    if args.batch_size > 10:
+        print(
+            f"WARNING: --batch-size={args.batch_size} > 10 increases "
+            "cross-item contamination risk; prefer <=10."
+        )
     if args.workers < 1:
         raise ValueError("--workers must be >= 1")
     if args.checkpoint_every < 1:
@@ -724,6 +804,10 @@ def main() -> None:
     rows: Optional[List[Dict[str, Any]]] = None
     rule_counts: Counter
     ocr_excluded_count = 0
+    subjective_excluded_count = 0
+    classifier_ocr_excluded_count = 0
+    classifier_meta: Optional[Dict[str, Any]] = None
+    dropped_empty_count = 0
 
     # Resume sari: age output size match bashe, dobare rule run nakon
     if args.llm and not args.no_resume:
@@ -731,9 +815,16 @@ def main() -> None:
         if rows is not None:
             rule_counts = recount_rules(rows)
             prev_payload = load_output_payload(output_path) or {}
-            ocr_excluded_count = int(
-                (prev_payload.get("info") or {}).get("ocr_excluded_count", 0)
+            prev_info = prev_payload.get("info") or {}
+            ocr_excluded_count = int(prev_info.get("ocr_excluded_count", 0))
+            subjective_excluded_count = int(
+                prev_info.get("subjective_excluded_count", 0)
             )
+            classifier_ocr_excluded_count = int(
+                prev_info.get("classifier_ocr_excluded_count", 0)
+            )
+            classifier_meta = prev_info.get("question_classifier")
+            dropped_empty_count = int(prev_info.get("dropped_empty_count", 0))
             print(
                 f"Loaded checkpoint ({len(rows)} rows) az {output_path} "
                 f"— rules skip, LLM az ja-monde edame."
@@ -745,6 +836,34 @@ def main() -> None:
             annotations_json,
             max_items=args.max_items,
         )
+
+        if args.classify_questions or args.drop_subjective_candidates:
+            clf: Optional[QuestionClassifier] = None
+            if args.classify_questions:
+                clf_model = args.classifier_model or args.model
+                clf = QuestionClassifier(
+                    host=args.ollama_host,
+                    model=clf_model,
+                )
+                classifier_meta = clf.metadata()
+                print(
+                    f"Question classifier: model={clf_model} "
+                    f"prompt={CLASSIFIER_PROMPT_VERSION}"
+                )
+            rows, subjective_excluded_count, classifier_ocr_excluded_count, lab_counts = (
+                filter_non_visual_questions(
+                    rows,
+                    clf,
+                    offline_drop_candidates=args.drop_subjective_candidates
+                    and not args.classify_questions,
+                )
+            )
+            rule_counts = recount_rules(rows)
+            print(
+                f"Subjective filter: dropped {subjective_excluded_count} "
+                f"non-visual + {classifier_ocr_excluded_count} classifier-OCR; "
+                f"label_counts={dict(lab_counts)}"
+            )
 
     llm_meta: Optional[Dict[str, Any]] = None
     failure_log: Optional[LlmFailureLogger] = None
@@ -788,6 +907,10 @@ def main() -> None:
                 resume_map=resume_map,
                 failure_log=failure_log,
                 ocr_excluded_count=ocr_excluded_count,
+                dropped_empty_count=dropped_empty_count,
+                subjective_excluded_count=subjective_excluded_count,
+                classifier_ocr_excluded_count=classifier_ocr_excluded_count,
+                classifier_meta=classifier_meta,
             )
         except KeyboardInterrupt:
             # Ctrl+C: last state ro save kon ta resume beshe
@@ -801,6 +924,10 @@ def main() -> None:
                 annotations_json,
                 llm_meta=llm_meta,
                 ocr_excluded_count=ocr_excluded_count,
+                dropped_empty_count=dropped_empty_count,
+                subjective_excluded_count=subjective_excluded_count,
+                classifier_ocr_excluded_count=classifier_ocr_excluded_count,
+                classifier_meta=classifier_meta,
             )
             still = sum(1 for r in rows if r["rule"] == "needs_llm")
             if failure_log is not None:
@@ -816,6 +943,16 @@ def main() -> None:
             if failure_log is not None:
                 failure_log.close()
 
+    # Never ship empty / needs_llm leftovers into the written dataset
+    rows, n_dropped = drop_empty_or_short_captions(rows)
+    dropped_empty_count += n_dropped
+    if n_dropped:
+        print(
+            f"Dropped {n_dropped} rows with empty/short/needs_llm captions "
+            f"(total dropped_empty_count={dropped_empty_count})."
+        )
+    rule_counts = recount_rules(rows)
+
     write_output_json(
         output_path,
         rows,
@@ -824,6 +961,10 @@ def main() -> None:
         annotations_json,
         llm_meta=llm_meta,
         ocr_excluded_count=ocr_excluded_count,
+        dropped_empty_count=dropped_empty_count,
+        subjective_excluded_count=subjective_excluded_count,
+        classifier_ocr_excluded_count=classifier_ocr_excluded_count,
+        classifier_meta=classifier_meta,
     )
     print_stats(rows, rule_counts, output_path, ocr_excluded_count=ocr_excluded_count)
     if args.llm:
