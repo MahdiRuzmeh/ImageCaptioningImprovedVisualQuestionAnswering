@@ -22,8 +22,11 @@ Pipeline:
 | `llm_prompts.py` | Packed prompt (chand Q+A toye yek request) |
 | `llm_client.py` | Ollama HTTP client + concurrent workers + output validator |
 | `question_classifier.py` | Two-stage subjective/OCR candidate filter |
-| `audit_captions.py` | Post-hoc QC audit on a captions JSON |
+| `audit_captions.py` | Post-hoc QC audit on a captions JSON (optional) |
 | `tests/` | Unit tests for Comments6 failure cases |
+
+Progress logs (flush): VQA load, rules scan, classify `i/N`, and
+`LLM batch k/N calling Ollama...` **before** each batch (so long waits are visible).
 
 ## Data (pishfarz)
 

@@ -760,6 +760,7 @@ def run_batches_concurrent(
     batches: Sequence[Sequence[Tuple[str, str]]],
     workers: int = 1,
     on_batch_done: Optional[Callable[[int, List[ItemOutcome]], None]] = None,
+    on_batch_start: Optional[Callable[[int, int], None]] = None,
     single_retries: int = 3,
 ) -> List[List[ItemOutcome]]:
     """Chand packed batch ro sequential ya ba ThreadPool mifreste.
@@ -769,6 +770,7 @@ def run_batches_concurrent(
         batches: list of Q+A batches
         workers: concurrent API request (1 = sequential, 8GB safe)
         on_batch_done: callback(batch_index, outcomes) bad az har batch
+        on_batch_start: callback(batch_index, batch_len) ghabl az har call
         single_retries: forwarded to ``captions_with_retry``
     """
     n = len(batches)
@@ -777,6 +779,8 @@ def run_batches_concurrent(
 
     if workers == 1:
         for i, batch in enumerate(batches):
+            if on_batch_start is not None:
+                on_batch_start(i, len(batch))
             caps = client.captions_with_retry(batch, single_retries=single_retries)
             out[i] = caps
             if on_batch_done is not None:
@@ -786,6 +790,8 @@ def run_batches_concurrent(
     def _job(
         idx: int, batch: Sequence[Tuple[str, str]]
     ) -> Tuple[int, List[ItemOutcome]]:
+        if on_batch_start is not None:
+            on_batch_start(idx, len(batch))
         return idx, client.captions_with_retry(batch, single_retries=single_retries)
 
     with ThreadPoolExecutor(max_workers=workers) as ex:

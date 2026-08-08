@@ -165,6 +165,29 @@ def filter_non_visual_questions(
     label_counts["CANDIDATE_KEPT"] = 0
     label_counts["NON_CANDIDATE"] = 0
 
+    # Pre-scan so we can show progress while Qwen classifies (slow path).
+    candidate_idxs = [
+        i
+        for i, row in enumerate(rows)
+        if is_subjective_candidate(str(row.get("question") or ""))
+    ]
+    n_cand = len(candidate_idxs)
+    if classifier is not None and n_cand:
+        print(
+            f"Subjective candidates: {n_cand}/{len(rows)} "
+            f"(classifying with Ollama)...",
+            flush=True,
+        )
+    elif offline_drop_candidates and n_cand:
+        print(
+            f"Subjective candidates: {n_cand}/{len(rows)} "
+            "(dropping offline, no Qwen)...",
+            flush=True,
+        )
+
+    cand_done = 0
+    progress_every = max(1, min(10, n_cand // 10)) if n_cand else 1
+
     for row in rows:
         q = str(row.get("question") or "")
         if not is_subjective_candidate(q):
@@ -180,10 +203,15 @@ def filter_non_visual_questions(
             label_counts["CANDIDATE_KEPT"] += 1
             continue
 
+        cand_done += 1
+        if cand_done == 1 or cand_done % progress_every == 0 or cand_done == n_cand:
+            print(
+                f"  classify progress: {cand_done}/{n_cand}",
+                flush=True,
+            )
         label, _detail = classifier.classify_one(q)
         if label is None:
-            # Fail-open for VISUAL safety? Prefer fail-closed on candidates:
-            # drop when classification fails so personal Qs don't leak in.
+            # Fail-closed on candidates: drop when classification fails.
             subjective_excluded += 1
             continue
         label_counts[label] = label_counts.get(label, 0) + 1

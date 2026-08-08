@@ -180,10 +180,15 @@ def load_vqa_pairs(
     brands, plates, jersey numbers, clock faces) are dropped before caption
     generation, since the downstream captioner has no way to learn them.
     """
+    print(f"Loading VQA JSON: {questions_json.name} + {annotations_json.name} ...")
     with questions_json.open("r", encoding="utf-8") as f:
         questions = json.load(f)["questions"]
     with annotations_json.open("r", encoding="utf-8") as f:
         annotations = json.load(f)["annotations"]
+    print(
+        f"Loaded {len(questions)} questions, {len(annotations)} annotations "
+        "(building rows + rules) ..."
+    )
 
     qmap = {int(x["question_id"]): x for x in questions}
     amap = {int(x["question_id"]): x for x in annotations}
@@ -196,8 +201,10 @@ def load_vqa_pairs(
     seen_per_image: Dict[int, Set[Tuple[str, str]]] = {}
     duplicates_dropped = 0
     ocr_excluded = 0
+    total_qids = len(qids)
+    progress_every = max(500, total_qids // 20) if total_qids else 500
 
-    for qid in qids:
+    for i, qid in enumerate(qids, start=1):
         q = qmap[qid]
         ann = amap[qid]
         image_id = int(q["image_id"])
@@ -232,6 +239,12 @@ def load_vqa_pairs(
                 "rule": rule,
             }
         )
+        if i % progress_every == 0 or i == total_qids:
+            print(
+                f"  rules progress: {i}/{total_qids} scanned "
+                f"({len(rows)} kept, {ocr_excluded} OCR dropped)",
+                flush=True,
+            )
 
     if ocr_excluded:
         print(
@@ -243,6 +256,11 @@ def load_vqa_pairs(
             f"Dedup: {duplicates_dropped} duplicate (image_id, question, answer) "
             "rows dropped — kept the first occurrence of each."
         )
+    print(
+        f"Rule pass done: {len(rows)} rows "
+        f"({rule_counts.get('needs_llm', 0)} needs_llm)",
+        flush=True,
+    )
 
     return rows, rule_counts, ocr_excluded
 
@@ -408,7 +426,8 @@ def apply_llm_fallbacks(
     print(
         f"LLM fallback: {len(pending_idx)} pending, {already} already done "
         f"(batch-size={batch_size}, workers={workers}, "
-        f"checkpoint-every={checkpoint_every}, num_ctx={client.num_ctx})"
+        f"checkpoint-every={checkpoint_every}, num_ctx={client.num_ctx})",
+        flush=True,
     )
 
     if not pending_idx:
@@ -425,6 +444,11 @@ def apply_llm_fallbacks(
     last_outcome: Dict[int, ItemOutcome] = {}
     done_batches = 0
     total_batches = len(batches_pairs)
+    print(
+        f"Starting LLM captioning: {total_batches} batches "
+        f"(first batch may take a while if Ollama is loading the model)...",
+        flush=True,
+    )
 
     def _checkpoint() -> None:
         counts = recount_rules(rows)
@@ -440,6 +464,13 @@ def apply_llm_fallbacks(
             subjective_excluded_count=subjective_excluded_count,
             classifier_ocr_excluded_count=classifier_ocr_excluded_count,
             classifier_meta=classifier_meta,
+        )
+
+    def _on_batch_start(batch_i: int, batch_len: int) -> None:
+        print(
+            f"  LLM batch {batch_i + 1}/{total_batches} calling Ollama "
+            f"({batch_len} Q+A)...",
+            flush=True,
         )
 
     def _on_batch(batch_i: int, outcomes: List[ItemOutcome]) -> None:
@@ -458,17 +489,19 @@ def apply_llm_fallbacks(
         print(
             f"  LLM batch {batch_i + 1}/{total_batches} done "
             f"(accepted {ok_n}/{len(outcomes)}, "
-            f"{still} needs_llm left)"
+            f"{still} needs_llm left)",
+            flush=True,
         )
         if checkpoint_every > 0 and done_batches % checkpoint_every == 0:
             _checkpoint()
-            print(f"  checkpoint saved -> {output_path}")
+            print(f"  checkpoint saved -> {output_path}", flush=True)
 
     run_batches_concurrent(
         client,
         batches_pairs,
         workers=workers,
         on_batch_done=_on_batch,
+        on_batch_start=_on_batch_start,
         single_retries=single_retries,
     )
 
@@ -476,9 +509,15 @@ def apply_llm_fallbacks(
     if leftover and final_retries > 0:
         print(
             f"Final salvage: {len(leftover)} needs_llm left — "
-            f"single-item retry x{final_retries}"
+            f"single-item retry x{final_retries}",
+            flush=True,
         )
-        for row_i in leftover:
+        for salvage_i, row_i in enumerate(leftover, start=1):
+            print(
+                f"  salvage {salvage_i}/{len(leftover)} "
+                f"(question_id={rows[row_i]['question_id']})...",
+                flush=True,
+            )
             q = rows[row_i]["question"]
             a = rows[row_i]["answer"]
             outcomes = client.captions_with_retry(
