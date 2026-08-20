@@ -10,8 +10,8 @@ Run az in folder:
 
 Output default: ./outputs/v2_question_dependent_captions_{train,val}2014.json
 
-Resume (Ctrl+C bad):
-    hamoon command ro dobare bezan — az checkpoint edame mide.
+Resume (Ctrl+C safe):
+    hamoon command ro dobare bezan — classifier + LLM az checkpoint edame mide.
 """
 
 from __future__ import annotations
@@ -25,12 +25,19 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from caption_rules import answer_mode_stats, generate_caption, is_ocr_question
-from llm_client import ItemOutcome, OllamaClient, run_batches_concurrent
+from llm_client import (
+    ItemOutcome,
+    OllamaClient,
+    run_batches_concurrent,
+    _VALIDATION_FAIL_REASONS,
+)
 from llm_prompts import PROMPT_VERSION
 from question_classifier import (
     CLASSIFIER_PROMPT_VERSION,
     QuestionClassifier,
+    delete_classifier_checkpoint,
     filter_non_visual_questions,
+    load_classifier_checkpoint,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -130,18 +137,50 @@ def count_vqa_overlap(
     return n
 
 
+def classifier_checkpoint_path(output_path: Path) -> Path:
+    """Sidecar JSON for incremental classifier resume."""
+    return output_path.with_name(output_path.stem + "_classifier_checkpoint.json")
+
+
+def resolve_post_filter_row_count(output_path: Path) -> Optional[int]:
+    """Expected annotation count after OCR/dedup/classifier filters."""
+    ckpt = load_classifier_checkpoint(classifier_checkpoint_path(output_path))
+    if ckpt:
+        info = ckpt.get("info") or {}
+        if info.get("status") == "complete":
+            pf = info.get("post_filter_count")
+            if pf is not None:
+                return int(pf)
+            kept = ckpt.get("kept")
+            if isinstance(kept, list):
+                return len(kept)
+    data = load_output_payload(output_path)
+    if not data:
+        return None
+    info = data.get("info") or {}
+    for key in ("post_filter_count", "directly_visual_count", "num_samples"):
+        val = info.get(key)
+        if val is not None:
+            return int(val)
+    rows = data.get("annotations")
+    if isinstance(rows, list) and rows:
+        return len(rows)
+    return None
+
+
 def try_load_checkpoint_rows(
     output_path: Path,
-    expected_n: int,
 ) -> Optional[List[Dict[str, Any]]]:
-    """Age checkpoint size == expected, rows ro az file bardar (resume sari)."""
+    """Load output rows when count matches post-filter expectation (resume fast-path)."""
     data = load_output_payload(output_path)
     if not data:
         return None
     rows = data.get("annotations")
-    if not isinstance(rows, list) or len(rows) != expected_n:
+    if not isinstance(rows, list) or not rows:
         return None
-    # Minimal field check
+    expected = resolve_post_filter_row_count(output_path)
+    if expected is not None and len(rows) != expected:
+        return None
     for row in rows[:3]:
         if "question_id" not in row or "rule" not in row:
             return None
@@ -157,7 +196,7 @@ def load_vqa_pairs(
     questions_json: Path,
     annotations_json: Path,
     max_items: Optional[int] = None,
-) -> Tuple[List[Dict[str, Any]], Counter, int]:
+) -> Tuple[List[Dict[str, Any]], Counter, int, int, int]:
     """Soal va javab haye VQA v2 ro load kon va ba rule caption besaz.
 
     Args:
@@ -166,19 +205,7 @@ def load_vqa_pairs(
         max_items: age set shode, faghat N sample aval (smoke test)
 
     Returns:
-        (rows, rule_counts, ocr_excluded_count) — rows + statistik rule ha +
-        chand ta item OCR-dependent bood ke kollan hazf shod (nemiyad toye
-        rows, chon SimpleImageCaptioner OCR nadare — see ``is_ocr_question``).
-
-    Skips duplicate rows: VQA v2 sometimes has two distinct question_ids for
-    the same image with the exact same question text and answer (independent
-    annotators asked the same thing) — only the first (lowest question_id)
-    occurrence per image is kept.
-
-    Skips OCR-dependent rows entirely (``is_ocr_question``): questions that
-    can only be answered by reading rendered text/digits (signs, logos,
-    brands, plates, jersey numbers, clock faces) are dropped before caption
-    generation, since the downstream captioner has no way to learn them.
+        (rows, rule_counts, ocr_excluded_count, duplicate_count, input_count)
     """
     print(f"Loading VQA JSON: {questions_json.name} + {annotations_json.name} ...")
     with questions_json.open("r", encoding="utf-8") as f:
@@ -201,6 +228,7 @@ def load_vqa_pairs(
     seen_per_image: Dict[int, Set[Tuple[str, str]]] = {}
     duplicates_dropped = 0
     ocr_excluded = 0
+    input_count = len(qids)
     total_qids = len(qids)
     progress_every = max(500, total_qids // 20) if total_qids else 500
 
@@ -262,7 +290,63 @@ def load_vqa_pairs(
         flush=True,
     )
 
-    return rows, rule_counts, ocr_excluded
+    return rows, rule_counts, ocr_excluded, duplicates_dropped, input_count
+
+
+def not_directly_visual_path(output_path: Path) -> Path:
+    """Sidecar JSON for questions dropped as NOT_DIRECTLY_VISUAL."""
+    return output_path.with_name(output_path.stem + "_not_directly_visual.json")
+
+
+def write_not_directly_visual_sidecar(
+    output_path: Path,
+    dropped_rows: List[Dict[str, Any]],
+) -> Path:
+    """Persist classifier-dropped questions for later VISUAL vs non-VISUAL analysis."""
+    side = not_directly_visual_path(output_path)
+    payload = {
+        "info": {
+            "description": (
+                "Questions dropped as NOT_DIRECTLY_VISUAL "
+                "(captioner-training filter only; do not alter raw VQA2 eval)"
+            ),
+            "source_output": str(output_path.resolve()),
+            "num_samples": len(dropped_rows),
+        },
+        "annotations": dropped_rows,
+    }
+    side.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=side.stem + "_",
+        suffix=".tmp.json",
+        dir=str(side.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, side)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    return side
+
+
+def count_validation_stats(
+    outcomes: Sequence[ItemOutcome],
+) -> Tuple[int, int]:
+    """Count validation regenerations and final validation failures."""
+    retries = 0
+    failures = 0
+    for o in outcomes:
+        retries += sum(1 for a in o.attempts if a.startswith("single#"))
+        if o.caption is None and o.reason in _VALIDATION_FAIL_REASONS:
+            failures += 1
+    return retries, failures
 
 
 def merge_llm_resume(
@@ -379,42 +463,22 @@ def apply_llm_fallbacks(
     llm_meta: Dict[str, Any],
     resume_map: Optional[Dict[int, Dict[str, Any]]] = None,
     failure_log: Optional[LlmFailureLogger] = None,
-    single_retries: int = 3,
+    single_retries: int = 1,
     final_retries: int = 1,
     ocr_excluded_count: int = 0,
     dropped_empty_count: int = 0,
-    subjective_excluded_count: int = 0,
-    classifier_ocr_excluded_count: int = 0,
+    duplicate_count: int = 0,
+    input_count: int = 0,
+    directly_visual_count: int = 0,
+    not_directly_visual_count: int = 0,
+    validation_retry_count: int = 0,
+    validation_failure_count: int = 0,
     classifier_meta: Optional[Dict[str, Any]] = None,
-) -> Counter:
+) -> Tuple[Counter, int, int]:
     """Row haye rule=needs_llm ro ba packed LLM caption update mikone.
 
-    Resume: age question_id toye resume_map bashe, LLM call nemikone.
-    Checkpoint: har N batch (default 1), JSON ro atomic save mikone.
-    Failures: written to ``failure_log`` (why LLM could not be used).
-    Final pass: leftover needs_llm rows get **batched** salvage (default 1 round),
-    not slow per-item retries.
-
-    Args:
-        rows: annotation rows (mutated in place)
-        client: Ollama client
-        batch_size: Q+A per packed prompt
-        workers: concurrent HTTP workers
-        checkpoint_every: save JSON every N batches
-        output_path: captions JSON path
-        questions_json: source questions path (metadata)
-        annotations_json: source annotations path (metadata)
-        llm_meta: stored under info.llm
-        resume_map: prior llm_fallback captions by question_id
-        failure_log: optional logger for rejected / failed items
-        single_retries: per-item retries inside each main-pass batch
-        final_retries: number of **batched** salvage rounds for leftovers
-            (default 1; each round uses packed batches with no per-item retry)
-        ocr_excluded_count: forwarded to checkpoint writes (info.ocr_excluded_count)
-        dropped_empty_count: forwarded to checkpoint writes
-        subjective_excluded_count: forwarded to checkpoint writes
-        classifier_ocr_excluded_count: forwarded to checkpoint writes
-        classifier_meta: forwarded to checkpoint writes
+    Returns:
+        (rule_counts, validation_retry_count, validation_failure_count)
     """
     resume_map = resume_map or {}
     restored = merge_llm_resume(rows, resume_map)
@@ -434,7 +498,7 @@ def apply_llm_fallbacks(
 
     if not pending_idx:
         print("Hichi pending nist — LLM pass skip.")
-        return recount_rules(rows)
+        return recount_rules(rows), validation_retry_count, validation_failure_count
 
     pairs = [(rows[i]["question"], rows[i]["answer"]) for i in pending_idx]
     indexed = list(zip(pending_idx, pairs))
@@ -463,8 +527,12 @@ def apply_llm_fallbacks(
             llm_meta=llm_meta,
             ocr_excluded_count=ocr_excluded_count,
             dropped_empty_count=dropped_empty_count,
-            subjective_excluded_count=subjective_excluded_count,
-            classifier_ocr_excluded_count=classifier_ocr_excluded_count,
+            duplicate_count=duplicate_count,
+            input_count=input_count,
+            directly_visual_count=directly_visual_count,
+            not_directly_visual_count=not_directly_visual_count,
+            validation_retry_count=validation_retry_count,
+            validation_failure_count=validation_failure_count,
             classifier_meta=classifier_meta,
         )
 
@@ -476,8 +544,11 @@ def apply_llm_fallbacks(
         )
 
     def _on_batch(batch_i: int, outcomes: List[ItemOutcome]) -> None:
-        nonlocal done_batches
+        nonlocal done_batches, validation_retry_count, validation_failure_count
         ok_n = 0
+        r, f = count_validation_stats(outcomes)
+        validation_retry_count += r
+        # failures counted at end from leftovers; retries accumulate here
         for j, outcome in enumerate(outcomes):
             row_i = batches_idx[batch_i][j][0]
             last_outcome[row_i] = outcome
@@ -509,8 +580,6 @@ def apply_llm_fallbacks(
 
     leftover = [i for i, r in enumerate(rows) if r["rule"] == "needs_llm"]
     if leftover and final_retries > 0:
-        # Batched salvage: one packed attempt per leftover batch (no slow
-        # per-item single retries). final_retries = number of salvage rounds.
         for round_i in range(1, final_retries + 1):
             leftover = [i for i, r in enumerate(rows) if r["rule"] == "needs_llm"]
             if not leftover:
@@ -546,7 +615,10 @@ def apply_llm_fallbacks(
                     )
 
                 def _done(batch_i: int, outcomes: List[ItemOutcome]) -> None:
+                    nonlocal validation_retry_count
                     ok_n = 0
+                    r, _f = count_validation_stats(outcomes)
+                    validation_retry_count += r
                     for j, outcome in enumerate(outcomes):
                         row_i = batches_idx_local[batch_i][j][0]
                         last_outcome[row_i] = outcome
@@ -572,7 +644,6 @@ def apply_llm_fallbacks(
                 workers=workers,
                 on_batch_done=s_done,
                 on_batch_start=s_start,
-                # One packed call only — no per-item single retries
                 single_retries=0,
             )
 
@@ -597,6 +668,17 @@ def apply_llm_fallbacks(
         still_logged = sum(1 for r in rows if r["rule"] == "needs_llm")
         failure_log.write_summary(still_logged)
 
+    # Final validation failure count from leftovers with validation reject reasons
+    validation_failure_count = 0
+    for row_i, row in enumerate(rows):
+        if row["rule"] != "needs_llm":
+            continue
+        outcome = last_outcome.get(row_i)
+        if outcome is not None and outcome.reason in _VALIDATION_FAIL_REASONS:
+            validation_failure_count += 1
+        elif outcome is None:
+            validation_failure_count += 1
+
     still = sum(1 for r in rows if r["rule"] == "needs_llm")
     if still:
         log_hint = (
@@ -609,7 +691,7 @@ def apply_llm_fallbacks(
     else:
         print("LLM fallback: all pending rows upgraded to llm_fallback.")
 
-    return recount_rules(rows)
+    return recount_rules(rows), validation_retry_count, validation_failure_count
 
 
 def drop_empty_or_short_captions(
@@ -641,30 +723,29 @@ def write_output_json(
     llm_meta: Optional[Dict[str, Any]] = None,
     ocr_excluded_count: int = 0,
     dropped_empty_count: int = 0,
-    subjective_excluded_count: int = 0,
-    classifier_ocr_excluded_count: int = 0,
+    duplicate_count: int = 0,
+    input_count: int = 0,
+    directly_visual_count: int = 0,
+    not_directly_visual_count: int = 0,
+    validation_retry_count: int = 0,
+    validation_failure_count: int = 0,
     classifier_meta: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Natije ro atomic be JSON file save kon (crash-safe).
-
-    Args:
-        ocr_excluded_count: chand ta OCR-dependent Q/A pair kollan hazf shod
-            ghabl az caption generation (see ``is_ocr_question``); stored
-            under ``info.ocr_excluded_count`` baraye visibility.
-        dropped_empty_count: rows removed for empty/short/needs_llm captions.
-        subjective_excluded_count: non-visual questions dropped by classifier.
-        classifier_ocr_excluded_count: OCR labeled by subjective classifier stage.
-        classifier_meta: optional reproducibility info for the Qwen classifier.
-    """
+    """Natije ro atomic be JSON file save kon (crash-safe)."""
     info: Dict[str, Any] = {
         "description": "VQA v2 question-dependent captions (rule-based Q+A → statement)",
         "source_questions": str(questions_json),
         "source_annotations": str(annotations_json),
         "num_samples": len(rows),
+        "post_filter_count": directly_visual_count or len(rows),
+        "input_count": input_count,
+        "directly_visual_count": directly_visual_count,
+        "not_directly_visual_count": not_directly_visual_count,
         "ocr_excluded_count": ocr_excluded_count,
+        "duplicate_count": duplicate_count,
         "dropped_empty_count": dropped_empty_count,
-        "subjective_excluded_count": subjective_excluded_count,
-        "classifier_ocr_excluded_count": classifier_ocr_excluded_count,
+        "validation_retry_count": validation_retry_count,
+        "validation_failure_count": validation_failure_count,
         "rule_counts": dict(rule_counts),
     }
     if classifier_meta:
@@ -681,7 +762,6 @@ def write_output_json(
     }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    # Atomic write: tmp file bad rename — file nime-kar corrupt nashe
     fd, tmp_name = tempfile.mkstemp(
         prefix=output_path.stem + "_",
         suffix=".tmp.json",
@@ -706,12 +786,20 @@ def print_stats(
     rule_counts: Counter,
     output_path: Path,
     ocr_excluded_count: int = 0,
+    duplicate_count: int = 0,
+    not_directly_visual_count: int = 0,
 ) -> None:
     """Statistik rule ha ro chap kon ta befahmim cheghadr needs_llm darim."""
     total = len(rows)
     print(f"Wrote {total} captions -> {output_path}")
     if ocr_excluded_count:
         print(f"  (excluded {ocr_excluded_count} OCR-dependent question/answer pairs)")
+    if duplicate_count:
+        print(f"  (excluded {duplicate_count} duplicate rows)")
+    if not_directly_visual_count:
+        print(
+            f"  (excluded {not_directly_visual_count} NOT_DIRECTLY_VISUAL questions)"
+        )
     for rule, count in rule_counts.most_common():
         pct = 100.0 * count / total if total else 0.0
         print(f"  {rule}: {count} ({pct:.1f}%)")
@@ -825,14 +913,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-resume",
         action="store_true",
-        help="Checkpoint ghabli ro ignore kon (az aval LLM)",
+        help="Ignore classifier + LLM checkpoints and start fresh",
+    )
+    parser.add_argument(
+        "--classifier-checkpoint-every",
+        type=int,
+        default=50,
+        help=(
+            "Save classifier progress every N classified questions "
+            "(default 50; enables resume after interrupt)"
+        ),
     )
     parser.add_argument(
         "--classify-questions",
         action="store_true",
         help=(
-            "Run two-stage subjective/OCR classifier on keyword candidates "
-            "and drop non-VISUAL questions"
+            "Run binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL classifier "
+            "on every question and drop NOT_DIRECTLY_VISUAL "
+            "(writes *_not_directly_visual.json sidecar)"
         ),
     )
     parser.add_argument(
@@ -845,7 +943,7 @@ def parse_args() -> argparse.Namespace:
         "--drop-subjective-candidates",
         action="store_true",
         help=(
-            "Without calling the classifier, drop all regex subjective "
+            "Without calling the classifier, drop regex non-visual "
             "candidates (offline conservative mode)"
         ),
     )
@@ -879,34 +977,46 @@ def main() -> None:
         raise ValueError("--workers must be >= 1")
     if args.checkpoint_every < 1:
         raise ValueError("--checkpoint-every must be >= 1")
+    if args.classifier_checkpoint_every < 1:
+        raise ValueError("--classifier-checkpoint-every must be >= 1")
 
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
-    expected_n = count_vqa_overlap(
-        questions_json, annotations_json, max_items=args.max_items
-    )
+    ckpt_path = classifier_checkpoint_path(output_path)
+    if args.no_resume:
+        delete_classifier_checkpoint(ckpt_path)
 
     rows: Optional[List[Dict[str, Any]]] = None
     rule_counts: Counter
     ocr_excluded_count = 0
-    subjective_excluded_count = 0
-    classifier_ocr_excluded_count = 0
+    duplicate_count = 0
+    input_count = 0
+    directly_visual_count = 0
+    not_directly_visual_count = 0
+    validation_retry_count = 0
+    validation_failure_count = 0
     classifier_meta: Optional[Dict[str, Any]] = None
     dropped_empty_count = 0
+    dropped_not_visual: List[Dict[str, Any]] = []
 
-    # Resume sari: age output size match bashe, dobare rule run nakon
+    # Resume fast-path: skip load/rules/classifier when output JSON matches.
     if args.llm and not args.no_resume:
-        rows = try_load_checkpoint_rows(output_path, expected_n)
+        rows = try_load_checkpoint_rows(output_path)
         if rows is not None:
             rule_counts = recount_rules(rows)
             prev_payload = load_output_payload(output_path) or {}
             prev_info = prev_payload.get("info") or {}
             ocr_excluded_count = int(prev_info.get("ocr_excluded_count", 0))
-            subjective_excluded_count = int(
-                prev_info.get("subjective_excluded_count", 0)
+            duplicate_count = int(prev_info.get("duplicate_count", 0))
+            input_count = int(prev_info.get("input_count", 0))
+            directly_visual_count = int(prev_info.get("directly_visual_count", 0))
+            not_directly_visual_count = int(
+                prev_info.get("not_directly_visual_count", 0)
+                or prev_info.get("subjective_excluded_count", 0)
             )
-            classifier_ocr_excluded_count = int(
-                prev_info.get("classifier_ocr_excluded_count", 0)
+            validation_retry_count = int(prev_info.get("validation_retry_count", 0))
+            validation_failure_count = int(
+                prev_info.get("validation_failure_count", 0)
             )
             classifier_meta = prev_info.get("question_classifier")
             dropped_empty_count = int(prev_info.get("dropped_empty_count", 0))
@@ -916,7 +1026,13 @@ def main() -> None:
             )
 
     if rows is None:
-        rows, rule_counts, ocr_excluded_count = load_vqa_pairs(
+        (
+            rows,
+            rule_counts,
+            ocr_excluded_count,
+            duplicate_count,
+            input_count,
+        ) = load_vqa_pairs(
             questions_json,
             annotations_json,
             max_items=args.max_items,
@@ -935,20 +1051,51 @@ def main() -> None:
                     f"Question classifier: model={clf_model} "
                     f"prompt={CLASSIFIER_PROMPT_VERSION}"
                 )
-            rows, subjective_excluded_count, classifier_ocr_excluded_count, lab_counts = (
-                filter_non_visual_questions(
+            try:
+                rows, dropped_not_visual, lab_counts = filter_non_visual_questions(
                     rows,
                     clf,
                     offline_drop_candidates=args.drop_subjective_candidates
                     and not args.classify_questions,
+                    checkpoint_path=ckpt_path if args.classify_questions else None,
+                    checkpoint_every=args.classifier_checkpoint_every,
+                    resume=not args.no_resume,
+                    classifier_meta=classifier_meta,
+                    input_count=input_count,
                 )
-            )
+            except KeyboardInterrupt:
+                ckpt = load_classifier_checkpoint(ckpt_path)
+                done = 0
+                total = len(rows)
+                if ckpt:
+                    info = ckpt.get("info") or {}
+                    done = int(info.get("classified_count", 0))
+                    total = int(info.get("total_to_classify", total))
+                print(
+                    f"\nInterrupted during classification — "
+                    f"checkpoint saved -> {ckpt_path} "
+                    f"({done}/{total} done). Rerun the same command to continue."
+                )
+                raise SystemExit(130) from None
+            not_directly_visual_count = len(dropped_not_visual)
+            directly_visual_count = len(rows)
             rule_counts = recount_rules(rows)
+            if classifier_meta is None:
+                classifier_meta = {
+                    "prompt_version": CLASSIFIER_PROMPT_VERSION,
+                    "mode": "offline_candidates",
+                }
+            classifier_meta = dict(classifier_meta)
+            classifier_meta["label_counts"] = dict(lab_counts)
+            side = write_not_directly_visual_sidecar(output_path, dropped_not_visual)
             print(
-                f"Subjective filter: dropped {subjective_excluded_count} "
-                f"non-visual + {classifier_ocr_excluded_count} classifier-OCR; "
-                f"label_counts={dict(lab_counts)}"
+                f"Classifier filter: kept {directly_visual_count} DIRECTLY_VISUAL, "
+                f"dropped {not_directly_visual_count} NOT_DIRECTLY_VISUAL; "
+                f"sidecar -> {side}; label_counts={dict(lab_counts)}"
             )
+        else:
+            directly_visual_count = len(rows)
+            not_directly_visual_count = 0
 
     llm_meta: Optional[Dict[str, Any]] = None
     failure_log: Optional[LlmFailureLogger] = None
@@ -964,9 +1111,11 @@ def main() -> None:
             "prompt_version": PROMPT_VERSION,
             "num_ctx": 4096,
             "failure_log": str(log_path.resolve()),
+            "validation": {
+                "single_retries": 1,
+                "tier": "lexical+semantic_judge",
+            },
         }
-        # Merge llm_fallback az file (age rules-rebuild shode bashe).
-        # Age rows mostaghim az checkpoint load shode, merge no-op safe hast.
         if args.no_resume:
             print("--no-resume: checkpoint llm_fallback merge nemishe")
             resume_map: Dict[int, Dict[str, Any]] = {}
@@ -979,26 +1128,32 @@ def main() -> None:
             num_ctx=4096,
         )
         try:
-            rule_counts = apply_llm_fallbacks(
-                rows,
-                client=client,
-                batch_size=args.batch_size,
-                workers=args.workers,
-                checkpoint_every=args.checkpoint_every,
-                output_path=output_path,
-                questions_json=questions_json,
-                annotations_json=annotations_json,
-                llm_meta=llm_meta,
-                resume_map=resume_map,
-                failure_log=failure_log,
-                ocr_excluded_count=ocr_excluded_count,
-                dropped_empty_count=dropped_empty_count,
-                subjective_excluded_count=subjective_excluded_count,
-                classifier_ocr_excluded_count=classifier_ocr_excluded_count,
-                classifier_meta=classifier_meta,
+            rule_counts, validation_retry_count, validation_failure_count = (
+                apply_llm_fallbacks(
+                    rows,
+                    client=client,
+                    batch_size=args.batch_size,
+                    workers=args.workers,
+                    checkpoint_every=args.checkpoint_every,
+                    output_path=output_path,
+                    questions_json=questions_json,
+                    annotations_json=annotations_json,
+                    llm_meta=llm_meta,
+                    resume_map=resume_map,
+                    failure_log=failure_log,
+                    single_retries=1,
+                    ocr_excluded_count=ocr_excluded_count,
+                    dropped_empty_count=dropped_empty_count,
+                    duplicate_count=duplicate_count,
+                    input_count=input_count,
+                    directly_visual_count=directly_visual_count,
+                    not_directly_visual_count=not_directly_visual_count,
+                    validation_retry_count=validation_retry_count,
+                    validation_failure_count=validation_failure_count,
+                    classifier_meta=classifier_meta,
+                )
             )
         except KeyboardInterrupt:
-            # Ctrl+C: last state ro save kon ta resume beshe
             print("\nInterrupted — saving checkpoint...")
             rule_counts = recount_rules(rows)
             write_output_json(
@@ -1010,13 +1165,16 @@ def main() -> None:
                 llm_meta=llm_meta,
                 ocr_excluded_count=ocr_excluded_count,
                 dropped_empty_count=dropped_empty_count,
-                subjective_excluded_count=subjective_excluded_count,
-                classifier_ocr_excluded_count=classifier_ocr_excluded_count,
+                duplicate_count=duplicate_count,
+                input_count=input_count,
+                directly_visual_count=directly_visual_count,
+                not_directly_visual_count=not_directly_visual_count,
+                validation_retry_count=validation_retry_count,
+                validation_failure_count=validation_failure_count,
                 classifier_meta=classifier_meta,
             )
             still = sum(1 for r in rows if r["rule"] == "needs_llm")
             if failure_log is not None:
-                # Log whatever we know so far (outcomes may be partial)
                 failure_log.write_summary(still)
                 failure_log.close()
             print(
@@ -1028,13 +1186,18 @@ def main() -> None:
             if failure_log is not None:
                 failure_log.close()
 
-    # Never ship empty / needs_llm leftovers into the written dataset
+    # Never ship empty / needs_llm leftovers into the written dataset.
+    # Keep validation_failure_count separate from dropped_empty_count so
+    # accounting does not double-count.
     rows, n_dropped = drop_empty_or_short_captions(rows)
-    dropped_empty_count += n_dropped
+    other_empty = max(0, n_dropped - validation_failure_count)
+    dropped_empty_count += other_empty
     if n_dropped:
         print(
             f"Dropped {n_dropped} rows with empty/short/needs_llm captions "
-            f"(total dropped_empty_count={dropped_empty_count})."
+            f"(validation_failure={validation_failure_count}, "
+            f"other_empty={other_empty}; "
+            f"total dropped_empty_count={dropped_empty_count})."
         )
     rule_counts = recount_rules(rows)
 
@@ -1047,11 +1210,23 @@ def main() -> None:
         llm_meta=llm_meta,
         ocr_excluded_count=ocr_excluded_count,
         dropped_empty_count=dropped_empty_count,
-        subjective_excluded_count=subjective_excluded_count,
-        classifier_ocr_excluded_count=classifier_ocr_excluded_count,
+        duplicate_count=duplicate_count,
+        input_count=input_count,
+        directly_visual_count=directly_visual_count,
+        not_directly_visual_count=not_directly_visual_count,
+        validation_retry_count=validation_retry_count,
+        validation_failure_count=validation_failure_count,
         classifier_meta=classifier_meta,
     )
-    print_stats(rows, rule_counts, output_path, ocr_excluded_count=ocr_excluded_count)
+    delete_classifier_checkpoint(ckpt_path)
+    print_stats(
+        rows,
+        rule_counts,
+        output_path,
+        ocr_excluded_count=ocr_excluded_count,
+        duplicate_count=duplicate_count,
+        not_directly_visual_count=not_directly_visual_count,
+    )
     if args.llm:
         still = sum(1 for r in rows if r["rule"] == "needs_llm")
         if still:

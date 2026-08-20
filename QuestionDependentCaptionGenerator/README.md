@@ -6,12 +6,13 @@ Har sample: `(soal, javab)` → caption mesl `"The car is red."`
 
 Pipeline:
 
-1. VQA questions + annotations ro load mikone
+1. VQA questions + annotations ro load mikone (`input_count`)
 2. OCR-dependent Q/A pair ha (`is_ocr_question`) — soal hayi ke javab-eshun faghat az ru-ye reading-e text/adad-e ru-ye tasvir mishe fahmid (sign, logo, brand, plate, jersey number, clock) — kollan hazf mishan, chon `SimpleImageCaptioner` OCR nadare va nemitune in target ha ro yad begire; count-esh dar `info.ocr_excluded_count` save mishe
-3. Duplicate `(image_id, question, answer)` rows (az annotator haye mokhtalef ke soal-e eyni neveshtan) drop mishan, faghat avalin occurrence mimoone
-4. Rule engine try mikone (`caption_rules.py`) — faghat pattern haye daghigh va motmaen (color, how-many-e sade, is/are-e narrow, ...)
-5. Age hich rule match nakone, row `rule="needs_llm"` va `caption=""` mishe (hich template-e sakhtegi sakhte nemishe)
-6. Age `--llm` on bashe → Ollama/Mistral ba **packed batch** captioning-e in row ha ro anjam mide, ba format validator + retry
+3. Duplicate `(image_id, question, answer)` rows drop mishan (`info.duplicate_count`)
+4. Optional `--classify-questions`: binary `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. A **regex fast-path** (`_ALWAYS_VISUAL_RE`) auto-accepts obviously visual patterns (color, count, spatial, sport/game, material, which, doing, animal, visible expression, etc.) without calling the LLM — typically ~60-70% of questions. Only ambiguous questions go through Qwen (prompt `v4_sport_action_material`). Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad)
+5. Rule engine try mikone (`caption_rules.py`) — faghat pattern haye daghigh va motmaen
+6. Age hich rule match nakone, row `rule="needs_llm"` va `caption=""` mishe
+7. Age `--llm` on bashe → Ollama ba packed batch + **two-tier validator** (lexical → optional Qwen PASS/FAIL) + **1 regenerate** then drop
 
 ## Files
 
@@ -20,10 +21,9 @@ Pipeline:
 | `caption_rules.py` | Rule engine + helper ha |
 | `generate.py` | CLI: rules + optional LLM fallback |
 | `llm_prompts.py` | Packed prompt (chand Q+A toye yek request) |
-| `llm_client.py` | Ollama HTTP client + concurrent workers + output validator |
-| `question_classifier.py` | Two-stage subjective/OCR candidate filter |
-| `audit_captions.py` | Post-hoc QC audit on a captions JSON (optional) |
-| `tests/` | Unit tests for Comments6 failure cases |
+| `llm_client.py` | Ollama HTTP client + concurrent workers + two-tier validator |
+| `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (regex fast-path + LLM) |
+| `audit/audit_captions.py` | Post-hoc QC audit on a captions JSON (optional) |
 
 Progress logs (flush): VQA load, rules scan, classify `i/N`, and
 `LLM batch k/N calling Ollama...` **before** each batch (so long waits are visible).
@@ -57,6 +57,7 @@ Be jaye ye rule-e omoomi, chand sub-rule-e narrow darim — har kodoom faghat ba
 | Rule | Pattern | Mesal |
 |------|---------|-------|
 | `yesno_is_anyone` | `Is/Are anyone ...?` | "Is anyone wearing wrist protection?" + yes → "Someone is wearing wrist protection." |
+| `yesno_is_everyone` | `Is/Are everyone/everybody ...?` | "Is everyone wearing a hat?" + no → "Not everyone is wearing a hat." |
 | `yesno_are_any` | `Are any of ...?` | "Are any of the animals eating?" + yes → "At least one of the animals is eating." |
 | `yesno_are_all` | `Is/Are all ...?` | "Are all the flowers white?" + no → "Not all the flowers are white." |
 | `yesno_are_both` | `Are both ...?` | "Are both giraffes standing?" + no → "Not both giraffes are standing." |
@@ -65,7 +66,8 @@ Be jaye ye rule-e omoomi, chand sub-rule-e narrow darim — har kodoom faghat ba
 | `yesno_is_this_a` | `Is/Are this/that a/an/the X?` | "Is this a horse?" + no → "This is not a horse." |
 | `yesno_is_are_possessive` | `Is/Are the X's Y ...?` | "Is the zebra's tail up?" + no → "The zebra's tail is not up." |
 | `yesno_is_are_coordinated` | `Is/Are the X and Y ...?` | "Are the clock and owl made ...?" + no → "The clock and owl are not made ..." |
-| `yesno_is_are_predicate` | Simple `Is/Are` + subject + predicate | "Are the animals eating?" + yes → "The animals are eating." (complex → LLM) |
+| `yesno_is_are_predicate` | Simple `Is/Are` + subject + predicate | "Are the animals eating?" + yes → "The animals are eating." (complex / everyone/anyone → LLM or dedicated rule) |
+| `is_there` | `Is there (a/an/any) X?` | "Is there any window in the room?" + no → "There is no window in the room." (`any` as whole word — no `ny` bug) |
 
 A subject led by an indefinite article (`"a"`/`"an"`, e.g. `"Is a military person in the picture?"`) can't be split into a head noun without POS tagging, so those rules return `None` and defer to the SLM instead of guessing.
 
@@ -132,35 +134,56 @@ python generate.py --split train --llm --batch-size 10 --workers 1 \
 | `--model` | `mistral` | Esm model Ollama |
 | `--workers` | `1` | Concurrent API request (hamoon yek model) |
 | `--ollama-host` | `http://localhost:11434` | Base URL Ollama |
-| `--checkpoint-every` | `1` | Har N batch JSON save (`1`, `50`, `100`, …) |
-| `--no-resume` | off | Checkpoint ghabli ro ignore kon |
+| `--checkpoint-every` | `1` | Har N LLM batch JSON save (`1`, `50`, `100`, …) |
+| `--classifier-checkpoint-every` | `50` | Har N classified question classifier checkpoint save |
+| `--no-resume` | off | Ignore classifier + LLM checkpoints (fresh start) |
 | `--output` | `outputs/...` | Override path output JSON |
 
-### Output validator + retry
+### Output validator + retry (two-tier)
 
-Har caption-e LLM, ghabl az accept shodan, 2 check migzarune:
+Har caption-e LLM, ghabl az accept:
 
-1. **Format** (`caption_format_is_valid` toye `llm_client.py`): ye jomle-ye ساده-ye declarative bashe — na khali, na soal (`?`), na bracket (`[]`/`{}`), na quotation mark, na do ta "." ro ham ("..") , na chand jomle (mesal-e rad-shode: `"This is a home. It is not a restaurant."`), na "the answer is"/"the answer" (meta-phrase-e ghalat).
-2. **Content**: javab bayad toye caption bashe (`answer_in_caption`) va caption nabayad ye negation-e ghalat ezafe kone (`has_spurious_negation`). `answer_in_caption` chand relaxation dare:
-   - digit/word adad ha moadel ham hastan (`"2"` va `"two"` yeki hesab mishan).
-   - inflection-e sade (light stem, na real lemmatizer) — `"stands"` va `"standing"` yeki hesab mishan, `"dogs"` va `"dog"` ham (suffix `-ing`/`-ed`/`-es`/`-s` pak mishe age >=3 harf bemune).
-   - lazem nist hame token-e javab ain-e caption bashan — **>=50%** token-e javab (whole-word/stem match) kafi'e (mesal: answer `"holding it"` + caption `"He is holding the dog."` → `"holding"` match, `"it"` na, 1/2=50% → accepted).
+**Tier 1 — lexical / cheap**
 
-Age har kodoom fail beshe, hamun item ta **3 bar** (`single_retries=3`) dobare az LLM darkhast mishe (batch attempt + per-item retries), ghabl az inke `needs_llm` bemune.
+1. **Format** (`caption_format_is_valid`): ye jomle-ye declarative — na khali, na `?`, na bracket/quote, na chand jomle, na "the answer".
+2. **Polarity / spurious negation**
+3. **Relation preserve**: content-word-haye asli-e soal (≤4 stem → hame) bayad toye caption bashan (shade≠free range, wall≠hill).
+4. **Answer grounding**: proper noun / number / color / short answer → **verbatim** (Loon≠Loom); digar answers ≥50% token.
+5. **Unsupported facts**: caption nabayad content-word-e jadid-e ghalabe ezafe kone.
+6. **Batch contamination**
 
-**Final salvage:** leftover-haye `needs_llm` **batched** retry mishan (hamoon `--batch-size`), default **1 round**, bedoon per-item single retry — chon single salvage kheili slow bud.
+**Tier 2 — Qwen semantic judge** (faghat sample-haye mashkuk):
+
+> Given QUESTION, ANSWER and CAPTION, return PASS only if the caption correctly expresses the answer to the question and adds no unsupported factual information. Otherwise return FAIL.
+
+**Retry policy:** FAIL → **1** regenerate (`single_retries=1`) → FAIL dobare → drop. Counts: `info.validation_retry_count`, `info.validation_failure_count`.
+
+**Final salvage:** leftover `needs_llm` **batched** (default 1 round, no per-item retry).
+
+Low `answer_consensus` rows are **kept** (for later down-weight experiments).
 
 ### Resume / checkpoint
 
+**Classifier (`--classify-questions`):**
+
+- Progress saved every `--classifier-checkpoint-every N` classifications (default 50) to `{output_stem}_classifier_checkpoint.json`.
+- `Ctrl+C` during classification → checkpoint saved; rerun same command to continue.
+- When classification completes, checkpoint is marked `complete` and removed after final output write.
+
+**LLM (`--llm`):**
+
 - `--checkpoint-every N` → har N LLM batch output save (atomic write).
 - `Ctrl+C` → hatman yek checkpoint save, bad exit.
-- Dobare **hamoon command** → az ja-monde edame (`llm_fallback` skip).
-- Redo az aval: file toye `outputs/` ro pak kon.
+- Dobare **hamoon command** → az ja-monde edame (`llm_fallback` skip + classifier checkpoint if needed).
+- Full fast-resume skips reload/classifier when output JSON row count matches `post_filter_count` / `directly_visual_count`.
+
+**Start fresh:** delete output + sidecar files, or pass `--no-resume`.
 
 ```bash
-# start / continue (same command + same --checkpoint-every optional)
-python generate.py --split val --llm --batch-size 10 --workers 1 \
-  --model qwen2.5:3b-instruct-q4_K_M --checkpoint-every 50
+# start / continue (same command)
+python generate.py --split train --llm --classify-questions \
+  --model qwen2.5:3b-instruct-q4_K_M --batch-size 10 \
+  --checkpoint-every 100 --classifier-checkpoint-every 50
 ```
 
 ### LLM failure log
@@ -184,6 +207,9 @@ Typical reasons:
 | `contains_answer_phrase` | Caption literally says "the answer"/"the answer is" instead of a natural sentence |
 | `multiple_sentences` / `double_period` | More than one sentence, or a stray ".." |
 | `too_short` / `empty_caption` | Caption has fewer than 2 words, or is empty |
+| `relation_mismatch` | Subject/relation words from the question missing in caption |
+| `unsupported_facts` | Caption invents content not in Q+A |
+| `semantic_fail` | Tier-2 Qwen judge returned FAIL |
 | `empty_response` / `timeout` | Model returned nothing / timed out |
 
 If `--llm` finishes with any `needs_llm` left, the process exits with code `1` and prints the log path. Fix the top reason and re-run the same command.
@@ -214,65 +240,60 @@ If `--llm` finishes with any `needs_llm` left, the process exits with code `1` a
 
 `answer_count` = chand ta az 10 annotator dagigan hamun mode answer ro dadan; `answer_consensus` = `answer_count / total_annotators` (rounded). In annotator agreement ast, na model confidence — ba'dan mitune baraye loss weighting estefade beshe.
 
-`info.llm` (age `--llm`): `model`, `batch_size`, `workers`, `host`, `prompt_version`.
+`info.llm` (age `--llm`): `model`, `batch_size`, `workers`, `host`, `prompt_version`, `validation`.
 
-`info.ocr_excluded_count`: chand ta OCR-dependent Q/A pair kollan hazf shod ghabl az caption generation (see [OCR filter](#ocr-filter-is_ocr_question)).
+Accounting fields (bayad jam beshan):
 
-`info.dropped_empty_count`: rows ba caption khali / needs_llm ke az output hazf shodan.
+| Field | Meaning |
+|-------|---------|
+| `input_count` | Q/A ids scanned at load |
+| `ocr_excluded_count` | Regex OCR prefilter |
+| `duplicate_count` | Dedup drops |
+| `post_filter_count` | Rows kept after OCR/dedup/classifier (for resume matching) |
+| `directly_visual_count` | Classifier kept (ya hame rows age classify off) |
+| `not_directly_visual_count` | Classifier dropped |
+| `dropped_empty_count` | Empty/short (excluding counted validation failures) |
+| `validation_retry_count` | Per-item regenerations |
+| `validation_failure_count` | Final validation drops |
+| `num_samples` | Final annotations length |
 
-`info.subjective_excluded_count` / `classifier_ocr_excluded_count`: ba `--classify-questions` (ya `--drop-subjective-candidates`).
+Identity: `input ≈ ocr + duplicate + not_directly_visual + num_samples + dropped_empty + validation_failure` (va `directly_visual ≈ num_samples + dropped_empty + validation_failure`).
 
 ## QC validators (LLM)
 
-Beyond format checks, accepted LLM captions must pass:
+Beyond format checks, accepted LLM captions must pass Tier-1 relation / verbatim / unsupported-facts checks and, when suspicious, Tier-2 PASS/FAIL. Prefer `--batch-size` ≤ 10.
 
-1. **Yes polarity** — `answer=yes` + clear negation in caption → reject (unless the question itself embeds negation).
-2. **Question grounding** — yes/no captions must share content words with the question (stops batch swaps).
-3. **Batch contamination** — caption near-duplicate of another batch item, or better match to another Q+A → reject + retry.
-4. Prefer `--batch-size` ≤ 10.
+## DIRECTLY_VISUAL filter
 
-End of pipeline drops empty / `needs_llm` leftovers so they never reach a DataLoader.
+**Off by default.** Bedoon flag, `question_classifier.py` call nemishe.
 
-## Subjective / personal filter
-
-**Off by default.** Bedoon flag, `question_classifier.py` aslan call nemishe — hame soal-ha (bad az OCR filter) miran be Rule/LLM.
+`DIRECTLY_VISUAL` = javab mostaghim az zaher-e tasvir-e sabet, **bedoon OCR**, **bedoon knowledge-e biruni**, **bedoon nazar-e shakhsi**. Visible sport/game/activity identity, material, which+attribute, doing, animal, and visible expression are DIRECTLY_VISUAL; sport **rules** / professionalism are NOT. Prompt version: `v4_sport_action_material`.
 
 ### Flags
 
 | Flag | Chi mikone |
 |------|------------|
-| `--classify-questions` | Do-marhale: (1) regex candidate, (2) Qwen faghat rooye candidate-ha classify mikone → `VISUAL` / `SUBJECTIVE_PERSONAL` / `COMMONSENSE` / `OCR`. Gheyr-e `VISUAL` drop mishan. |
-| `--drop-subjective-candidates` | Offline / bedoon Ollama: hame regex candidate-ha ro drop mikone (mohtat). Qwen call nemishe. |
-| `--classifier-model` | (ekhtiari) model-e Ollama baraye classifier; default = hamoon `--model` |
-
-Age har do `--classify-questions` va `--drop-subjective-candidates` bashan, classify (Qwen) olaviat dare.
-
-### Do-marhale — na rooye hame Q/A
-
-1. **Har soal** ba regex-e arzan check mishe (`have you ever`, `would you prefer/like/want`, `do you like/think`, `safe` / `healthy` / `nutritious` / `beautiful` / …).
-2. **Faghat candidate-ha** be Qwen miran. Soal-haye gheyr-candidate bedoon LLM call VISUAL farz mishan va mimunan.
-
-Pas rooye ~443k train, Qwen faghat ye subset-e kuchik (candidate-ha) ro mibine — na har `(question, answer)`.
+| `--classify-questions` | Har soal → regex fast-path ya Qwen binary `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. Drop + write sidecar. Resume via `*_classifier_checkpoint.json`. |
+| `--classifier-checkpoint-every` | `50` | Save classifier progress every N questions |
+| `--drop-subjective-candidates` | Offline: regex candidates drop (bedoon Qwen). |
+| `--classifier-model` | Model Ollama baraye classifier; default = `--model` |
 
 ```bash
-# ba Qwen classifier (pishnahadi)
 python generate.py --split train --llm --classify-questions \
   --model qwen2.5:3b-instruct-q4_K_M --batch-size 10
-
-# offline: candidate-ha ro bedoon Qwen drop kon
-python generate.py --split train --drop-subjective-candidates
 ```
 
-Counts: `info.subjective_excluded_count`, `info.classifier_ocr_excluded_count`, va (age classify) `info.question_classifier`.
+Sidecar: `outputs/v2_question_dependent_captions_{split}2014_not_directly_visual.json` — baraye tahlil-e ba'di. In filter **faghat** baraye dataset-e train-e Captioner ast; VQA2 asli baraye eval dastkhord nashavad.
+
+Counts: `info.directly_visual_count`, `info.not_directly_visual_count`, `info.question_classifier.label_counts` (includes `FAST_PATH_VISUAL` count).
 
 ## Tests + audit
 
-`audit_captions.py` **ekhtiari** hast — `generate.py` import-esh nemikone. Faghat baraye QC-e ba'd az generate (shomaresh-e `The there`, `made of is`, empty caption, …). Mituni pak-esh koni; pipeline baz kar mikone.
+`audit/audit_captions.py` **ekhtiari** hast.
 
 ```bash
 cd QuestionDependentCaptionGenerator
-python -m unittest tests.test_qc_fixes -v
-python audit_captions.py outputs/v2_question_dependent_captions_train2014.json
+python audit/audit_captions.py outputs/v2_question_dependent_captions_train2014.json
 ```
 
 ## Re-pilot (before full 443k)
@@ -281,13 +302,14 @@ python audit_captions.py outputs/v2_question_dependent_captions_train2014.json
 python generate.py --split train --llm --max-items 25000 --batch-size 10 \
   --classify-questions --model qwen2.5:3b-instruct-q4_K_M \
   --checkpoint-every 50 --output outputs/pilot_25k.json
-python audit_captions.py outputs/pilot_25k.json
+python audit/audit_captions.py outputs/pilot_25k.json
 ```
 
 ## Notes
 
 - Javab = mode answer (10 annotator) — hamoon logic `SimpleVQA/train.py`
 - `rule_counts` to `info` baraye statistik
-- OCR-e-mahvar soal ha (`is_ocr_question`) kollan az `rows` hazf mishan ghabl az dedup/rule — count-eshoon `info.ocr_excluded_count` va stdout
-- Duplicate `(image_id, question, answer)` rows (mesal: do ta annotator-e mokhtalef literally hamun soal ro neveshtan) dar `load_vqa_pairs` drop mishan — count-esh toye stdout print mishe
-- Baraye train captioner: dataset loader `(image_id, question, caption)` lazem hast — faghat rows-e `caption` gheyr-khali (pipeline empty ha ro drop mikone)
+- OCR-e-mahvar soal ha (`is_ocr_question`) kollan az `rows` hazf mishan — `info.ocr_excluded_count`
+- Duplicate rows — `info.duplicate_count`
+- Low-consensus samples **hazf nemishan**; `answer_consensus` negah dashte mishe
+- Baraye train captioner: faghat rows-e `caption` gheyr-khali

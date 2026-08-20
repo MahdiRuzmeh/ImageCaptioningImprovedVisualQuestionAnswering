@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import List, Sequence, Tuple
 
 # Version string baraye metadata toye output JSON
-PROMPT_VERSION = "v6_no_question_echo_no_answer_phrase"
+PROMPT_VERSION = "v7_verbatim_answers_no_extra_facts"
 
 SYSTEM_PROMPT = """\
 You generate image captions from visual question-answer pairs.
@@ -37,7 +37,9 @@ Rules:
 - The answer is the fact that must appear in the caption.
 - Do not change the meaning.
 - Do not reverse relationships.
+- Do not reverse or replace the question's subject or relation words (e.g. do not change "shade" to "free range", or "wall" to "hill").
 - Do not add opposite meaning words such as "not", "no", "never" unless the answer itself indicates absence or negation.
+- Preserve proper nouns, numbers, and colors exactly (spelling must match the answer, e.g. "Loon Mountain" must not become "Loom Mountain").
 
 3. No hallucination
 - Do not invent objects, actions, locations, times, brands, numbers, colors, or attributes.

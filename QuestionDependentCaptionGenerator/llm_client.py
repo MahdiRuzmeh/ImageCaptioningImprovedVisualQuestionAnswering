@@ -256,6 +256,134 @@ def _content_words(text: str) -> Set[str]:
     return out
 
 
+_COLOR_WORDS = {
+    "red", "blue", "green", "yellow", "orange", "purple", "pink", "brown",
+    "black", "white", "gray", "grey", "gold", "golden", "silver", "beige",
+    "tan", "cream", "maroon", "navy", "teal", "cyan", "magenta", "violet",
+    "blond", "blonde", "brunette",
+}
+
+
+def _normalize_phrase(text: str) -> str:
+    """Light normalize: lowercase, strip punctuation, collapse spaces."""
+    t = text.strip().lower()
+    t = re.sub(r"[^\w\s]", " ", t)
+    return " ".join(t.split())
+
+
+def answer_requires_verbatim(answer: str) -> bool:
+    """True for proper nouns, numbers, colors, or short non-yes/no answers."""
+    a = answer.strip()
+    if not a:
+        return False
+    low = a.lower()
+    if low in _YES or low in _NO:
+        return False
+    tokens = [t for t in re.split(r"\W+", a) if t]
+    if not tokens:
+        return False
+    if len(tokens) <= 3:
+        return True
+    if any(t.isdigit() or t in _WORD_TO_DIGIT or t in DIGIT_TO_WORD for t in tokens):
+        return True
+    if any(t.lower() in _COLOR_WORDS for t in tokens):
+        return True
+    # Capitalized multi-word name (Loon Mountain)
+    caps = sum(1 for t in a.split() if t[:1].isupper())
+    if caps >= 2:
+        return True
+    return False
+
+
+def answer_verbatim_in_caption(answer: str, caption: str) -> bool:
+    """Require answer phrase (light-normalized) to appear in the caption."""
+    a_norm = _normalize_phrase(answer)
+    c_norm = _normalize_phrase(caption)
+    if not a_norm or not c_norm:
+        return False
+    if a_norm in c_norm:
+        return True
+    # Number digit <-> word equivalence for single-token numeric answers
+    tokens = a_norm.split()
+    if len(tokens) == 1:
+        for eq in _numeric_equivalents(tokens[0]):
+            if re.search(rf"\b{re.escape(eq)}\b", c_norm):
+                return True
+    # All non-stop tokens must be present (100%)
+    content_tokens = [t for t in tokens if t not in _STOPWORDS]
+    if not content_tokens:
+        content_tokens = tokens
+    return all(_token_present(t, c_norm) for t in content_tokens)
+
+
+def question_relation_preserved(question: str, caption: str) -> Tuple[bool, float]:
+    """Check that main question content words appear in the caption.
+
+    Returns (ok, overlap_ratio). For short questions (≤4 content stems),
+    **all** must appear — catches shade→free-range and wall→hill swaps that
+    still share a subject noun. Longer questions need ≥50% overlap.
+    """
+    q_words = _content_words(question)
+    if not q_words:
+        return True, 1.0
+    c_words = _content_words(caption)
+    if not c_words:
+        return False, 0.0
+    overlap = len(q_words & c_words)
+    ratio = overlap / len(q_words)
+    if len(q_words) <= 4:
+        min_hits = len(q_words)
+    else:
+        min_hits = max(2, int(round(0.5 * len(q_words))))
+    ok = overlap >= min_hits
+    return ok, ratio
+
+
+def has_unsupported_facts(question: str, answer: str, caption: str) -> bool:
+    """True if caption introduces many content words absent from Q+A.
+
+    Conservative: only reject when a clear majority of caption content is new
+    (avoids false rejects on light paraphrases).
+    """
+    allowed = _content_words(f"{question} {answer}")
+    cap = _content_words(caption)
+    if not cap:
+        return False
+    extra = cap - allowed
+    if not extra:
+        return False
+    # Hard fail when >2 novel stems and they dominate the caption
+    if len(extra) >= 3 and len(extra) / len(cap) >= 0.4:
+        return True
+    if len(extra) >= 4:
+        return True
+    return False
+
+
+def is_semantically_suspicious(
+    question: str,
+    answer: str,
+    caption: str,
+    *,
+    relation_ratio: float,
+) -> bool:
+    """Borderline cases that should be escalated to the LLM PASS/FAIL judge."""
+    a = answer.strip().lower()
+    if a in _YES or a in _NO:
+        if relation_ratio < 0.75:
+            return True
+    else:
+        if relation_ratio < 0.65:
+            return True
+    allowed = _content_words(f"{question} {answer}")
+    extra = _content_words(caption) - allowed
+    if len(extra) >= 2:
+        return True
+    if answer_requires_verbatim(answer):
+        return True
+    return False
+
+
 def caption_format_is_valid(caption: str) -> Tuple[bool, str]:
     """Structural check for one clean declarative sentence.
 
@@ -300,15 +428,11 @@ def answer_in_caption(
 ) -> bool:
     """Check mikone javab toye caption hast; yes/no joda handle mishe.
 
-    Two relaxations vs. a strict substring check:
-      - digit/word number forms are treated as equivalent ('2' matches 'two'),
-        via ``_token_present``.
-      - not every answer token has to appear — matching >=50% of the answer's
-        tokens is enough (e.g. answer 'holding it' is satisfied by a caption
-        that only reflects 'holding', since 'it' is a placeholder pronoun).
-
-    For yes/no answers, require at least one content-word overlap with the
-    question (when provided) instead of accepting any short declarative.
+    Strictness:
+      - proper nouns / numbers / colors / short answers → verbatim (100%)
+      - other answers → >=50% token match (digit/word + light stem)
+      - yes/no → majority question-content overlap (see relation check in
+        ``caption_is_valid``); here we still require some overlap.
     """
     a = answer.strip().lower()
     c = caption.strip().lower()
@@ -319,11 +443,10 @@ def answer_in_caption(
             return False
         if not question.strip():
             return True
-        q_words = _content_words(question)
-        c_words = _content_words(caption)
-        if not q_words:
-            return True
-        return bool(q_words & c_words)
+        ok, _ratio = question_relation_preserved(question, caption)
+        return ok
+    if answer_requires_verbatim(answer):
+        return answer_verbatim_in_caption(answer, caption)
     if a in c:
         return True
     tokens = [t for t in re.split(r"\W+", a) if t]
@@ -425,10 +548,11 @@ def caption_is_valid(
     batch_captions: Optional[Sequence[Optional[str]]] = None,
     self_index: int = -1,
 ) -> Tuple[bool, str]:
-    """Combined acceptance check: format, polarity, grounding, contamination.
+    """Tier-1 acceptance: format, polarity, grounding, relation, extra facts.
 
     Returns:
-        (ok, reason) — reason is 'ok' or a machine-readable reject code.
+        (ok, reason) — reason is 'ok', 'needs_semantic_review', or a reject code.
+        Callers should escalate ``needs_semantic_review`` to the LLM judge.
     """
     fmt_ok, fmt_reason = caption_format_is_valid(caption)
     if not fmt_ok:
@@ -437,8 +561,16 @@ def caption_is_valid(
         return False, "polarity_mismatch"
     if has_spurious_negation(answer, caption):
         return False, "spurious_negation"
+    if question.strip():
+        rel_ok, rel_ratio = question_relation_preserved(question, caption)
+        if not rel_ok:
+            return False, "relation_mismatch"
+    else:
+        rel_ratio = 1.0
     if not answer_in_caption(answer, caption, question):
         return False, "answer_mismatch"
+    if has_unsupported_facts(question, answer, caption):
+        return False, "unsupported_facts"
     if (
         batch_pairs is not None
         and batch_captions is not None
@@ -448,6 +580,10 @@ def caption_is_valid(
         )
     ):
         return False, "batch_contamination"
+    if is_semantically_suspicious(
+        question, answer, caption, relation_ratio=rel_ratio
+    ):
+        return True, "needs_semantic_review"
     return True, "ok"
 
 
@@ -491,6 +627,33 @@ def batch_contamination_detail(caption: str) -> str:
     )
 
 
+def relation_mismatch_detail(question: str, caption: str) -> str:
+    """Human-readable why subject/relation overlap failed."""
+    ok, ratio = question_relation_preserved(question, caption)
+    return (
+        f"question content not preserved in caption={caption!r} "
+        f"(Q={question!r}, overlap_ratio={ratio:.2f}, ok={ok})"
+    )
+
+
+def unsupported_facts_detail(question: str, answer: str, caption: str) -> str:
+    """Human-readable why caption added unsupported facts."""
+    allowed = _content_words(f"{question} {answer}")
+    extra = sorted(_content_words(caption) - allowed)
+    return (
+        f"caption={caption!r} adds unsupported content words {extra} "
+        f"not in Q+A"
+    )
+
+
+def semantic_fail_detail(question: str, answer: str, caption: str) -> str:
+    """Human-readable why the LLM semantic judge returned FAIL."""
+    return (
+        f"semantic judge FAIL for Q={question!r} A={answer!r} "
+        f"caption={caption!r}"
+    )
+
+
 def format_invalid_detail(reason: str, caption: str) -> str:
     """Human-readable why ``caption_format_is_valid`` rejected a caption."""
     return f"caption={caption!r} failed format check: {reason}"
@@ -506,6 +669,16 @@ _FORMAT_REASONS = {
     "contains_answer_phrase",
     "multiple_sentences",
 }
+
+_VALIDATION_FAIL_REASONS = {
+    "answer_mismatch",
+    "polarity_mismatch",
+    "spurious_negation",
+    "batch_contamination",
+    "relation_mismatch",
+    "unsupported_facts",
+    "semantic_fail",
+} | _FORMAT_REASONS
 
 
 def rejection_detail(
@@ -523,6 +696,12 @@ def rejection_detail(
         return polarity_mismatch_detail(answer, caption, question)
     if reason == "batch_contamination":
         return batch_contamination_detail(caption)
+    if reason == "relation_mismatch":
+        return relation_mismatch_detail(question, caption)
+    if reason == "unsupported_facts":
+        return unsupported_facts_detail(question, answer, caption)
+    if reason == "semantic_fail":
+        return semantic_fail_detail(question, answer, caption)
     return answer_mismatch_detail(answer, caption)
 
 
@@ -643,22 +822,108 @@ class OllamaClient:
             return ChatResult(reason=parsed.reason, detail=parsed.detail)
         return ChatResult(captions=parsed.captions, reason="ok", detail="")
 
+    def semantic_judge(
+        self,
+        question: str,
+        answer: str,
+        caption: str,
+    ) -> Tuple[bool, str]:
+        """Tier-2 LLM judge: PASS only if caption matches Q+A with no extras.
+
+        Returns:
+            (pass, detail) — pass True iff model returns PASS.
+        """
+        system = (
+            "You are a strict caption validator. Reply with only PASS or FAIL."
+        )
+        user = (
+            "Given QUESTION, ANSWER and CAPTION, return PASS only if the "
+            "caption correctly expresses the answer to the question and "
+            "adds no unsupported factual information. Otherwise return FAIL.\n\n"
+            f"QUESTION: {question}\n"
+            f"ANSWER: {answer}\n"
+            f"CAPTION: {caption}\n"
+        )
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "stream": False,
+            "options": {
+                "temperature": 0.0,
+                "num_ctx": min(self.num_ctx, 2048),
+                "num_predict": 8,
+            },
+        }
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.host}/api/chat",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                raw = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            # Fail-closed on judge errors
+            return False, f"semantic_judge_error:{exc}"
+
+        content = ""
+        msg = raw.get("message") or {}
+        if isinstance(msg, dict):
+            content = str(msg.get("content") or "")
+        text = content.strip().upper()
+        if text.startswith("PASS") or re.search(r"\bPASS\b", text):
+            return True, "semantic_pass"
+        return False, f"semantic_fail:{_preview(content, 120)}"
+
+    def _accept_or_escalate(
+        self,
+        question: str,
+        answer: str,
+        caption: str,
+        *,
+        batch_pairs: Optional[Sequence[Tuple[str, str]]] = None,
+        batch_captions: Optional[Sequence[Optional[str]]] = None,
+        self_index: int = -1,
+    ) -> Tuple[bool, str]:
+        """Run Tier-1 then optional Tier-2 semantic judge."""
+        ok, reason = caption_is_valid(
+            answer,
+            caption,
+            question,
+            batch_pairs=batch_pairs,
+            batch_captions=batch_captions,
+            self_index=self_index,
+        )
+        if not ok:
+            return False, reason
+        if reason != "needs_semantic_review":
+            return True, "ok"
+        passed, detail = self.semantic_judge(question, answer, caption)
+        if passed:
+            return True, "ok"
+        return False, "semantic_fail"
+
     def captions_with_retry(
         self,
         pairs: Sequence[Tuple[str, str]],
         *,
-        single_retries: int = 3,
+        single_retries: int = 1,
     ) -> List[ItemOutcome]:
         """Batch try, then per-item single retries with reasons.
 
-        A rejection can be a content problem (answer not grounded, polarity
-        flip, batch contamination, spurious negation) or a format problem
-        (``caption_format_is_valid``); either one triggers the same retry path.
+        Validation policy (Comments7): Tier-1 lexical checks, escalate
+        suspicious items to Tier-2 Qwen PASS/FAIL. On FAIL, regenerate once
+        (``single_retries`` default 1); if still FAIL, leave as unresolved.
 
         Args:
             pairs: (question, answer) batch
             single_retries: extra single-item calls after batch miss
-                (default 3, per-item, on any rejection reason)
+                (default 1 — one regenerate then drop)
 
         Returns:
             one ``ItemOutcome`` per input pair
@@ -672,12 +937,10 @@ class OllamaClient:
         batch = self.chat_captions(pairs_list)
         batch_caps: List[Optional[str]] = [None] * n
         if batch.captions is not None:
-            # First pass: format / polarity / grounding without contamination
-            # (need all captions before cross-item checks).
             tentative: List[Optional[str]] = [None] * n
             for i, cap in enumerate(batch.captions):
                 q, a = pairs_list[i]
-                ok, reason = caption_is_valid(a, cap, q)
+                ok, reason = self._accept_or_escalate(q, a, cap)
                 if ok:
                     tentative[i] = cap
                 else:
@@ -686,15 +949,14 @@ class OllamaClient:
                         detail=rejection_detail(reason, a, cap, q),
                         attempts=[f"batch:{reason}"],
                     )
-            # Second pass: contamination against other batch captions
             for i, cap in enumerate(tentative):
                 if cap is None:
                     continue
                 q, a = pairs_list[i]
-                ok, reason = caption_is_valid(
+                ok, reason = self._accept_or_escalate(
+                    q,
                     a,
                     cap,
-                    q,
                     batch_pairs=pairs_list,
                     batch_captions=tentative,
                     self_index=i,
@@ -724,7 +986,6 @@ class OllamaClient:
         if all(o.caption is not None for o in out):
             return out
 
-        # Per-item retries for anything still missing (no batch contamination)
         for i, (q, a) in enumerate(pairs_list):
             if out[i].caption is not None:
                 continue
@@ -738,7 +999,7 @@ class OllamaClient:
                     last.detail = single.detail
                     continue
                 cap = single.captions[0]
-                ok, reason = caption_is_valid(a, cap, q)
+                ok, reason = self._accept_or_escalate(q, a, cap)
                 if ok:
                     out[i] = ItemOutcome(
                         caption=cap,
@@ -761,7 +1022,7 @@ def run_batches_concurrent(
     workers: int = 1,
     on_batch_done: Optional[Callable[[int, List[ItemOutcome]], None]] = None,
     on_batch_start: Optional[Callable[[int, int], None]] = None,
-    single_retries: int = 3,
+    single_retries: int = 1,
 ) -> List[List[ItemOutcome]]:
     """Chand packed batch ro sequential ya ba ThreadPool mifreste.
 
@@ -771,7 +1032,7 @@ def run_batches_concurrent(
         workers: concurrent API request (1 = sequential, 8GB safe)
         on_batch_done: callback(batch_index, outcomes) bad az har batch
         on_batch_start: callback(batch_index, batch_len) ghabl az har call
-        single_retries: forwarded to ``captions_with_retry``
+        single_retries: forwarded to ``captions_with_retry`` (default 1)
     """
     n = len(batches)
     out: List[List[ItemOutcome]] = [[] for _ in range(n)]

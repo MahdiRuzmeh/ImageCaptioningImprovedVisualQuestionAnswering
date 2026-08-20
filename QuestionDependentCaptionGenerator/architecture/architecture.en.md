@@ -69,11 +69,11 @@ QuestionDependentCaptionGenerator/
 ├── caption_rules.py         # OCR filter + rule engine + routing
 ├── llm_prompts.py           # Packed batch prompt + few-shots
 ├── llm_client.py            # Ollama client + validators + retry
-├── question_classifier.py   # Subjective/OCR 4-way classifier
-├── audit_captions.py        # Post-hoc QC on output JSON
+├── question_classifier.py   # Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL
+├── audit/audit_captions.py  # Post-hoc QC on output JSON
 ├── tests/                   # Unit tests for known failure cases
 ├── architecture/            # This documentation
-└── outputs/                 # Generated caption JSON (+ failure logs)
+└── outputs/                 # Generated caption JSON (+ failure logs + sidecar)
 ```
 
 | Module | Responsibility |
@@ -81,9 +81,9 @@ QuestionDependentCaptionGenerator/
 | `generate.py` | Load VQA, run filters/rules/LLM, drop empties, write JSON, resume/checkpoints |
 | `caption_rules.py` | `is_ocr_question`, narrow rewrite rules, `generate_caption`, safety gates |
 | `llm_prompts.py` | System prompt, few-shots, packed user prompt (`PROMPT_VERSION`) |
-| `llm_client.py` | HTTP chat, parse JSON captions, polarity/grounding/contamination checks |
-| `question_classifier.py` | Regex candidates → Qwen label: VISUAL / SUBJECTIVE_PERSONAL / COMMONSENSE / OCR |
-| `audit_captions.py` | Count residual bugs (`The there`, `made of is`, empty captions, …) |
+| `llm_client.py` | HTTP chat, parse JSON captions, Tier-1 lexical + Tier-2 semantic judge |
+| `question_classifier.py` | Regex fast-path + LLM → `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL` (fast-path skips sport/action/material/which/doing + ~60-70% of LLM calls; prompt `v4_sport_action_material`) |
+| `audit/audit_captions.py` | Count residual bugs (`The there`, `made of is`, empty captions, …) |
 
 ---
 
@@ -95,36 +95,44 @@ flowchart TD
   mode --> ocr[OCR filter is_ocr_question]
   ocr -->|drop| ocrDrop[ocr_excluded_count]
   ocr --> dedup[Dedup image_id + question + answer]
+  dedup -->|drop| dupDrop[duplicate_count]
   dedup --> subjOpt{--classify-questions?}
-  subjOpt -->|yes| cand[Regex subjective candidates]
-  cand --> clf[Qwen 4-way classify]
-  clf -->|non-VISUAL| subjDrop[subjective / classifier-OCR excluded]
-  clf -->|VISUAL| rules
+  subjOpt -->|yes| fastPath{Regex fast-path?}
+  fastPath -->|visual pattern| rules
+  fastPath -->|ambiguous| clf[Qwen binary classify]
+  clf -->|periodic save| clfCkpt[classifier_checkpoint.json]
+  clfCkpt -->|resume| clf
+  clf -->|NOT_DIRECTLY_VISUAL| side[Write sidecar JSON]
+  clf -->|DIRECTLY_VISUAL| rules
   subjOpt -->|no| rules[Rule engine generate_caption]
   rules -->|safe match| row[Caption row]
   rules -->|uncertain| needs[needs_llm empty caption]
   needs --> llmOpt{--llm?}
   llmOpt -->|yes| batch[Packed Ollama batches size ≤ 10]
-  batch --> val[Post-gen validators]
-  val -->|fail| retry[Per-item regenerate]
-  val -->|pass| llmRow[rule = llm_fallback]
-  retry -->|still fail| needs
+  batch --> tier1[Tier1 lexical validators]
+  tier1 -->|suspect| tier2[Tier2 Qwen PASS/FAIL]
+  tier1 -->|fail| retry[Regenerate once]
+  tier2 -->|FAIL| retry
+  tier1 -->|pass| llmRow[rule = llm_fallback]
+  tier2 -->|PASS| llmRow
+  retry -->|still fail| dropVal[validation_failure_count]
   llmOpt -->|no| keepEmpty[Leave needs_llm]
   row --> drop
   llmRow --> drop
   keepEmpty --> drop[Drop empty / short / needs_llm]
-  drop --> out[Write outputs/*.json + metadata]
+  dropVal --> drop
+  drop --> out[Write outputs/*.json + full info accounting]
 ```
 
 ### Stages (ordered)
 
-1. **Load & mode answer** — Majority of 10 annotators. Store `answer_count` and `answer_consensus` (= count / 10). Consensus is annotator agreement, not model confidence.
-2. **OCR exclusion** — Heuristic regex + selected `question_type` prefixes. Removed from rows entirely.
-3. **Dedup** — Keep first `(image_id, question, answer)`.
-4. **Optional question classifier** — Keyword candidates only; keep `VISUAL`.
-5. **Rule engine** — First safe match wins; else `needs_llm`.
-6. **Optional LLM fallback** — Packed batches; validate; retry; leftovers stay `needs_llm`.
-7. **Hard drop** — Empty / short / `needs_llm` rows never enter the written set (`dropped_empty_count`).
+1. **Load & mode answer** — Majority of 10 annotators. Store `answer_count` and `answer_consensus`. Low-consensus rows are **kept**.
+2. **OCR exclusion** — Heuristic regex + selected `question_type` prefixes.
+3. **Dedup** — Keep first `(image_id, question, answer)`; store `duplicate_count`.
+4. **Optional binary classifier** — Regex fast-path auto-accepts obviously visual patterns (color, count, spatial, sport/game, material, which, doing, animal, visible expression) without an LLM call (~60-70% of questions). Ambiguous questions go to Qwen (`v4_sport_action_material`: visible sport identity ≠ sport rules). Incremental checkpoint (`*_classifier_checkpoint.json`) every `--classifier-checkpoint-every N` enables resume after interrupt. Dropped `NOT_DIRECTLY_VISUAL` rows go to `*_not_directly_visual.json` (captioner-training filter only).
+5. **Rule engine** — First safe match wins; else `needs_llm`. Includes `yesno_is_everyone` and fixed `is_there`/`any`.
+6. **Optional LLM fallback** — Packed batches; Tier-1 then Tier-2; **1** regenerate; leftovers become validation failures then dropped.
+7. **Hard drop** — Empty / short / `needs_llm` rows never enter the written set.
 
 ---
 
@@ -203,11 +211,14 @@ flowchart TD
 |-------|---------|
 | Format | Empty, &lt;2 words, `?`, brackets/quotes, multi-sentence, “the answer” |
 | Yes polarity | `answer=yes` but clear negation (unless question embeds negation) |
-| Grounding | Missing answer tokens; yes/no must overlap question content words |
+| Relation | Question content stems missing (shade≠free range, wall≠hill) |
+| Grounding | Missing answer; proper nouns/numbers/colors must be **verbatim** |
+| Unsupported facts | Caption invents content absent from Q+A |
 | Spurious negation | Non-yes/no answer but caption invents `no`/`not`/… |
 | Contamination | Near-duplicate of another batch caption or better match to another Q+A |
+| Semantic judge | Suspicious items → Qwen PASS/FAIL; FAIL → 1 regenerate then drop |
 
-**Default batch size is 10** (larger batches raise cross-item contamination risk).
+**Default batch size is 10.** `single_retries` default is **1**.
 
 ---
 
@@ -216,9 +227,9 @@ flowchart TD
 ```mermaid
 flowchart LR
   inQ[VQA Q+A] --> g1[OCR filter]
-  g1 --> g2[Subjective classifier]
+  g1 --> g2[Binary DIRECTLY_VISUAL classifier]
   g2 --> g3[Rule safety]
-  g3 --> g4[LLM validators]
+  g3 --> g4[Two-tier LLM validators]
   g4 --> g5[Empty drop]
   g5 --> clean[Clean caption set]
 ```
@@ -226,9 +237,9 @@ flowchart LR
 | Gate | When | Outcome |
 |------|------|---------|
 | OCR regex / `question_type` | Always | Remove text-reading questions |
-| Subjective classifier | `--classify-questions` | Remove personal / subjective / classifier-OCR |
+| Binary classifier | `--classify-questions` | Regex fast-path + LLM; keep DIRECTLY_VISUAL; sidecar for NOT_DIRECTLY_VISUAL |
 | Rule safety | Always | Bad templates → LLM or skip |
-| LLM validators | `--llm` | Reject / regenerate bad captions |
+| Two-tier LLM validators | `--llm` | Reject / regenerate once / drop |
 | Empty drop | Always at write | No empty/`needs_llm` in final annotations |
 
 ---
@@ -240,20 +251,25 @@ flowchart LR
   "info": {
     "description": "...",
     "num_samples": 1205,
+    "input_count": 4000,
+    "directly_visual_count": 3500,
+    "not_directly_visual_count": 200,
     "ocr_excluded_count": 75,
-    "dropped_empty_count": 676,
-    "subjective_excluded_count": 43,
-    "classifier_ocr_excluded_count": 0,
-    "rule_counts": { "what_color": 181, "llm_fallback": 0 },
+    "duplicate_count": 20,
+    "dropped_empty_count": 100,
+    "validation_retry_count": 40,
+    "validation_failure_count": 15,
+    "rule_counts": { "what_color": 181, "llm_fallback": 900 },
     "llm": {
       "model": "qwen2.5:3b-instruct-q4_K_M",
       "batch_size": 10,
-      "prompt_version": "...",
+      "prompt_version": "v7_verbatim_answers_no_extra_facts",
       "failure_log": "..."
     },
     "question_classifier": {
       "model": "...",
-      "prompt_version": "v1_four_way_visual_filter"
+      "prompt_version": "v4_sport_action_material",
+      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 2800 }
     }
   },
   "annotations": [
@@ -271,6 +287,8 @@ flowchart LR
 }
 ```
 
+Sidecar: `{stem}_not_directly_visual.json` holds dropped questions for later analysis.
+
 `rule` is a rule name, `llm_fallback`, or (transiently before drop) `needs_llm`.
 
 ---
@@ -279,12 +297,13 @@ flowchart LR
 
 | Topic | Behavior |
 |-------|----------|
-| Resume | Same `--llm` command continues from prior `llm_fallback` captions |
+| Resume | Same command continues: classifier checkpoint + LLM `llm_fallback` merge; full skip when output JSON matches `post_filter_count` |
+| Classifier checkpoint | `{stem}_classifier_checkpoint.json`; saved every `--classifier-checkpoint-every N`; Ctrl+C safe |
 | Checkpoint | Atomic JSON write every N batches; Ctrl+C saves then exits |
 | Failure log | `*.json.llm_failures.log` with reason codes |
 | Reproducibility | Store model, host, `prompt_version`, batch size, classifier metadata |
-| QC audit | `python audit_captions.py outputs/....json` |
-| Tests | `python -m unittest tests.test_qc_fixes -v` |
+| QC audit | `python audit/audit_captions.py outputs/....json` |
+| Eval hygiene | DIRECTLY_VISUAL filter applies only to captioner supervision, not raw VQA2 eval |
 
 ### Recommended pilot before full train (~443k)
 
@@ -292,7 +311,7 @@ flowchart LR
 python generate.py --split train --llm --max-items 25000 --batch-size 10 \
   --classify-questions --model qwen2.5:3b-instruct-q4_K_M \
   --checkpoint-every 50 --output outputs/pilot_25k.json
-python audit_captions.py outputs/pilot_25k.json
+python audit/audit_captions.py outputs/pilot_25k.json
 ```
 
 Freeze the generator only after manual spot-checks of rule vs LLM samples.
@@ -302,7 +321,7 @@ Freeze the generator only after manual spot-checks of rule vs LLM samples.
 ## 9. Design rationale (summary)
 
 1. **Rules for certainty, LLM for ambiguity** — avoids systematic grammatical errors from over-eager parsers.
-2. **Filters before supervision** — OCR and subjective questions would poison a non-OCR captioner.
-3. **Validators after LLM** — prompt restrictions alone do not prevent polarity flips or batch swaps.
+2. **Filters before supervision** — OCR and non-directly-visual questions would poison a non-OCR captioner.
+3. **Two-tier validators after LLM** — lexical relation/verbatim checks plus semantic PASS/FAIL.
 4. **Never ship empty targets** — leftover `needs_llm` rows are dropped, not silently trained on.
-5. **Metadata for science** — agreement (`answer_consensus`), exclusion counts, and generation settings stay with the dataset for thesis reproducibility.
+5. **Metadata for science** — agreement (`answer_consensus`), full exclusion accounting, and generation settings stay with the dataset.

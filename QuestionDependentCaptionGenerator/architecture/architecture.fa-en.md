@@ -71,7 +71,7 @@ QuestionDependentCaptionGenerator/
 ├── caption_rules.py         # filter-e OCR + motor-e Rule
 ├── llm_prompts.py           # packed prompt + few-shot
 ├── llm_client.py            # Ollama client + validator + retry
-├── question_classifier.py   # filter-e soal-haye subjective / OCR
+├── question_classifier.py   # filter-e binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL
 ├── audit_captions.py        # audit-e keyfiat rooye JSON
 ├── tests/                   # unit test rooye bug-haye shenakhte-shode
 ├── architecture/            # hamin docs
@@ -83,9 +83,9 @@ QuestionDependentCaptionGenerator/
 | `generate.py` | Load-e VQA, filter-ha, Rule, LLM, drop-e empty, save-e JSON |
 | `caption_rules.py` | `is_ocr_question`, ghavanin-e rewrite, `generate_caption` |
 | `llm_prompts.py` | System prompt-e version-dar (`PROMPT_VERSION`) |
-| `llm_client.py` | Chat API, parse, polarity / grounding / contamination |
-| `question_classifier.py` | Candidate-e regex → label-e Qwen-e 4-class |
-| `audit_captions.py` | Shomaresh-e bug-haye baghimande bad az generate |
+| `llm_client.py` | Chat API, parse, Tier-1 lexical + Tier-2 semantic judge |
+| `question_classifier.py` | Regex fast-path + LLM → DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL (fast-path: sport/action/material/which/doing; ~60-70% soal-ha bedoon LLM; prompt `v4_sport_action_material`) |
+| `audit/audit_captions.py` | Shomaresh-e bug-haye baghimande bad az generate |
 
 ---
 
@@ -97,36 +97,44 @@ flowchart TD
   mode --> ocr[OCR filter]
   ocr -->|drop| ocrDrop[ocr_excluded_count]
   ocr --> dedup[Drop duplicate rows]
+  dedup -->|drop| dupDrop[duplicate_count]
   dedup --> subjOpt{--classify-questions?}
-  subjOpt -->|yes| cand[Subjective candidates regex]
-  cand --> clf[Qwen 4-way classify]
-  clf -->|non-VISUAL| subjDrop[Drop subjective / OCR]
-  clf -->|VISUAL| rules
+  subjOpt -->|yes| fastPath{Regex fast-path?}
+  fastPath -->|visual pattern| rules
+  fastPath -->|mobham| clf[Qwen binary classify]
+  clf -->|save| clfCkpt[classifier_checkpoint.json]
+  clfCkpt -->|resume| clf
+  clf -->|NOT_DIRECTLY_VISUAL| side[Sidecar JSON]
+  clf -->|DIRECTLY_VISUAL| rules
   subjOpt -->|no| rules[Rule engine]
   rules -->|safe match| row[Row ba caption]
   rules -->|na-motmaen| needs[needs_llm + caption khali]
   needs --> llmOpt{--llm?}
   llmOpt -->|yes| batch[Ollama batch max 10]
-  batch --> val[Post-gen validators]
-  val -->|reject| retry[Single-item retry]
-  val -->|accept| llmRow[llm_fallback]
-  retry -->|fail| needs
+  batch --> tier1[Tier1 lexical]
+  tier1 -->|suspect| tier2[Tier2 PASS/FAIL]
+  tier1 -->|fail| retry[1 regenerate]
+  tier2 -->|FAIL| retry
+  tier1 -->|pass| llmRow[llm_fallback]
+  tier2 -->|PASS| llmRow
+  retry -->|fail| dropVal[validation_failure]
   llmOpt -->|no| keepEmpty[needs_llm mimone]
   row --> drop
   llmRow --> drop
   keepEmpty --> drop[Drop empty / needs_llm]
+  dropVal --> drop
   drop --> out[Write outputs/*.json]
 ```
 
 ### Marhale-ha be tartib / Stages
 
-1. **Mode answer** — Az 10 annotator, javab-e aksariat; save-e `answer_count` va `answer_consensus` (= count/10). In **tavaghof-e annotator** hast, na confidence-e model.
-2. **Hazf-e OCR** — Ba regex + chand `question_type`. In sample-ha aslan vared-e rows nemishan.
-3. **Dedup** — Faghat avalin `(image_id, question, answer)`.
-4. **Ekhtiari: classifier-e soal** — Faghat rooye candidate-haye keyword; negah-dashtan-e `VISUAL`.
-5. **Motor-e Rule** — Avalin ghanun-e daghigh; vagarna `needs_llm`.
-6. **Ekhtiari: LLM** — batch + validate + retry.
-7. **Hazf-e sakht** — Caption-e khali / kheili kootah / `needs_llm` toye file-e nahayi neveshte nemishe.
+1. **Mode answer** — Az 10 annotator; `answer_consensus` negah dashte mishe (low-consensus hazf nemishe).
+2. **Hazf-e OCR** — Ba regex + chand `question_type`.
+3. **Dedup** — Faghat avalin `(image_id, question, answer)`; `duplicate_count`.
+4. **Ekhtiari: classifier-e binary** — Regex fast-path soal-haye visual (rang, tedad, sport/game, material, which, doing, animal, expression) ro bedoon LLM accept mikone. Soal-haye mobham be Qwen miran (`v4_sport_action_material`: shenasayi-e sport ≠ ghavanin-e sport). Checkpoint-e incremental (`*_classifier_checkpoint.json`) har `--classifier-checkpoint-every N` — resume ba'd az Ctrl+C. Drop-ha → sidecar.
+5. **Motor-e Rule** — Shamel `yesno_is_everyone` va `is_there` ba `any`-e dorost.
+6. **Ekhtiari: LLM** — Tier-1 + Tier-2; 1 regenerate; ba'd drop.
+7. **Hazf-e sakht** — Caption-e khali / `needs_llm` toye file-e nahayi neveshte nemishe.
 
 ---
 
@@ -155,9 +163,9 @@ Ghavanin-e khastar-tar aval ejra mishan (rang, tedad, type, who, vojud-i, yes/no
 | Family | Mesal | Note |
 |--------|-------|------|
 | Attribute | `what_color`, `what_kind_type` | Faghat pattern-e ghat'i |
-| Existential | `is_there`, `are_there` | Shamel-e esm bedoon article (`Is there grass?`) |
-| Yes/No takhasosi | anyone / any / all / both / this_a / … | Shape-e narrow |
-| Yes/No omoomi | `yesno_is_are_predicate` | NP-haye morakab-e na-motmaen → LLM |
+| Existential | `is_there`, `are_there` | `a`/`an`/`any` as whole words (`Is there any window?`) |
+| Yes/No takhasosi | anyone / everyone / any / all / both / this_a / … | Shape-e narrow |
+| Yes/No omoomi | `yesno_is_are_predicate` | everyone/anyone → rule-e joda ya LLM |
 | Wh- | `what_is`, `who` | Aval `made of` / `used for` |
 | Hamishe LLM | Does/Do/Did, Is/Are-e pichide | Az `caption_generation_strategy` |
 
@@ -210,12 +218,15 @@ flowchart TD
 | Check | Chi rad mishe |
 |-------|---------------|
 | Format | Khali, kootah, soal, chand-jomle, bracket |
-| Yes polarity | Javab yes vali caption manfi-ye vazeh (magar khod-e soal manfi bashe) |
-| Grounding | Naboodan-e token-haye javab; baraye yes/no overlap ba kalame-haye soal |
+| Yes polarity | Javab yes vali caption manfi-ye vazeh |
+| Relation | Stem-haye asli-e soal toye caption nabashan (shade≠free range) |
+| Grounding | Proper noun / adad / rang **verbatim**; digar ≥50% |
+| Unsupported facts | Vaghe'iyat-e ezafi ke toye Q+A nist |
 | Spurious negation | Javab gheyr-e yes/no vali caption manfi-ye sakhtagi |
 | Contamination | Jabeja shodan-e caption beyn-e item-haye yek batch |
+| Semantic judge | Mashkuk → Qwen PASS/FAIL; FAIL → 1 regenerate ba'd drop |
 
-**Batch size-e pishfarz 10 hast** ta khatar-e gati shodan-e sample-ha kam bemone.
+**Batch size-e pishfarz 10.** `single_retries` pishfarz **1**.
 
 ---
 
@@ -224,9 +235,9 @@ flowchart TD
 ```mermaid
 flowchart LR
   inQ[VQA Q+A] --> g1[OCR filter]
-  g1 --> g2[Subjective classifier]
+  g1 --> g2[Binary DIRECTLY_VISUAL classifier]
   g2 --> g3[Rule safety]
-  g3 --> g4[LLM validators]
+  g3 --> g4[Two-tier LLM validators]
   g4 --> g5[Empty drop]
   g5 --> clean[Clean caption set]
 ```
@@ -234,9 +245,9 @@ flowchart LR
 | Gate | Zaman | Natije |
 |------|-------|--------|
 | OCR | Hamishe | Hazf-e soal-haye text-reading |
-| Subjective classifier | Ba `--classify-questions` | Hazf-e shakhsi / zehni / OCR-e classifier |
+| Binary classifier | Ba `--classify-questions` | Regex fast-path + LLM; keep DIRECTLY_VISUAL; sidecar baraye NOT_DIRECTLY_VISUAL |
 | Rule safety | Hamishe | Template-e kharab → LLM |
-| LLM validators | Ba `--llm` | Rad / regenerate |
+| Two-tier validators | Ba `--llm` | Rad / 1 regenerate / drop |
 | Empty drop | Hengam-e neveshtan | Hich target-e khali vared-e train nemishe |
 
 ---
@@ -247,29 +258,28 @@ flowchart LR
 {
   "info": {
     "num_samples": 1205,
+    "input_count": 4000,
+    "directly_visual_count": 3500,
+    "not_directly_visual_count": 200,
     "ocr_excluded_count": 75,
-    "dropped_empty_count": 676,
-    "subjective_excluded_count": 43,
+    "duplicate_count": 20,
+    "dropped_empty_count": 100,
+    "validation_retry_count": 40,
+    "validation_failure_count": 15,
     "rule_counts": { "...": "..." },
-    "llm": { "model": "...", "batch_size": 10, "prompt_version": "..." },
-    "question_classifier": { "model": "...", "prompt_version": "..." }
-  },
-  "annotations": [
-    {
-      "question_id": 9001,
-      "image_id": 9,
-      "question": "What color are the dishes?",
-      "answer": "pink and yellow",
-      "answer_count": 3,
-      "answer_consensus": 0.3,
-      "caption": "The dishes are pink and yellow.",
-      "rule": "what_color"
+    "llm": { "model": "...", "batch_size": 10, "prompt_version": "v7_..." },
+    "question_classifier": {
+      "prompt_version": "v4_sport_action_material",
+      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 2800 }
     }
-  ]
+  },
+  "annotations": [ { "...": "..." } ]
 }
 ```
 
-`answer_consensus` = tavaghof-e annotator-ha (mesalan 3 az 10 → `0.3`). Ba'dan mitune baraye vazn-dehi-e loss estefade beshe.
+Sidecar: `{stem}_not_directly_visual.json`. Filter faghat baraye train-e Captioner; VQA2 eval dast nakhord.
+
+`answer_consensus` = tavaghof-e annotator-ha; sample-haye consensus-e payin **hazf nemishan**.
 
 ---
 
@@ -277,11 +287,11 @@ flowchart LR
 
 | Mozu | Raftar |
 |------|--------|
-| Resume | Hamoon dastur-e `--llm` az checkpoint edame mide |
+| Resume | Hamoon dastur edame mide: classifier checkpoint + LLM merge; full skip vaghti output ba `post_filter_count` match kone |
+| Classifier checkpoint | `{stem}_classifier_checkpoint.json`; har `--classifier-checkpoint-every N`; Ctrl+C safe |
 | Checkpoint | Save-e atomic har N batch; Ctrl+C ham save mikone |
 | Failure log | `*.json.llm_failures.log` ba dalil-e khata |
-| Audit | `python audit_captions.py outputs/....json` |
-| Tests | `python -m unittest tests.test_qc_fixes -v` |
+| Audit | `python audit/audit_captions.py outputs/....json` |
 
 ### Pilot-e pishnahadi ghabl az kol-e train (~443 hezar)
 
@@ -289,7 +299,7 @@ flowchart LR
 python generate.py --split train --llm --max-items 25000 --batch-size 10 \
   --classify-questions --model qwen2.5:3b-instruct-q4_K_M \
   --checkpoint-every 50 --output outputs/pilot_25k.json
-python audit_captions.py outputs/pilot_25k.json
+python audit/audit_captions.py outputs/pilot_25k.json
 ```
 
 Bad az barresi-ye dasti-ye sample-haye Rule va LLM, version-e generator ro freeze konid.

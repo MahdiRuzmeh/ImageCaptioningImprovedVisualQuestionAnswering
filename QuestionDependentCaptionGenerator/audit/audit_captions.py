@@ -80,7 +80,15 @@ def main() -> None:
     report = audit(rows)
     report["info_ocr_excluded"] = info.get("ocr_excluded_count")
     report["info_dropped_empty"] = info.get("dropped_empty_count")
-    report["info_subjective_excluded"] = info.get("subjective_excluded_count")
+    report["info_duplicate_count"] = info.get("duplicate_count")
+    report["info_directly_visual"] = info.get("directly_visual_count")
+    report["info_not_directly_visual"] = info.get(
+        "not_directly_visual_count",
+        info.get("subjective_excluded_count"),
+    )
+    report["info_validation_retry"] = info.get("validation_retry_count")
+    report["info_validation_failure"] = info.get("validation_failure_count")
+    report["info_input_count"] = info.get("input_count")
     print(json.dumps(report, indent=2))
 
     bad = (

@@ -42,7 +42,8 @@ PRONOUNS = {"he", "she", "it", "they", "we", "you", "i", "who"}
 # don't prefix them with "The" either (bug: "The one is of the giraffes...").
 _QUANTIFIER_LEAD = {
     "one", "some", "any", "each", "all", "both", "most", "many", "few",
-    "several", "none",
+    "several", "none", "everyone", "everybody", "anyone", "anybody",
+    "someone", "somebody", "noone", "nobody",
 }
 
 # Mass / uncountable nouns commonly seen as VQA answers — never prefix these
@@ -1459,12 +1460,16 @@ def rule_who(question: str, answer: str) -> Optional[str]:
 
 
 def rule_is_there(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'Is there (a/an) X?' → 'There is a X.' / 'There is no X.'
+    """Pattern: 'Is there (a/an/any) X?' → 'There is a X.' / 'There is no X.'
 
     Also covers bare nouns ('Is there grass?') so they do not fall through
     to ``yesno_is_are_predicate`` as 'The there is grass.'.
+
+    Important: ``a``/``an``/``any`` are matched as whole words. The older
+    pattern ``(?:a|an )?`` ate the leading ``a`` of ``any`` and produced
+    bugs like 'Is there any window?' + no → 'There is no ny window.'.
     """
-    m = re.match(r"^is there (?:a|an )?(.+)$", question, re.I)
+    m = re.match(r"^is there (?:(?:a|an|any)\s+)?(.+)$", question, re.I)
     if not m:
         return None
     obj = m.group(1).strip()
@@ -1476,22 +1481,23 @@ def rule_is_there(question: str, answer: str) -> Optional[str]:
     if is_yes(answer):
         return f"There is {smart_article(obj)}."
     if is_no(answer):
-        # Avoid "There is no a grass." — drop leading article from obj
-        bare = re.sub(r"^(?:a|an|the)\s+", "", obj, flags=re.I)
+        # Avoid "There is no a grass." / leftover "any" — drop leading determiner
+        bare = re.sub(r"^(?:a|an|the|any)\s+", "", obj, flags=re.I)
         return f"There is no {bare}."
     return f"There is {smart_article(answer)} {obj}."
 
 
 def rule_are_there(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'Are there (any) X?' → 'There are X.' / 'There are no X.'"""
-    m = re.match(r"^are there (?:any )?(.+)$", question, re.I)
+    """Pattern: 'Are there (a/an/any) X?' → 'There are X.' / 'There are no X.'"""
+    m = re.match(r"^are there (?:(?:a|an|any)\s+)?(.+)$", question, re.I)
     if not m:
         return None
     obj = m.group(1).strip()
     if is_yes(answer):
         return f"There are {obj}."
     if is_no(answer):
-        return f"There are no {obj}."
+        bare = re.sub(r"^(?:a|an|the|any)\s+", "", obj, flags=re.I)
+        return f"There are no {bare}."
     return f"There are {answer} {obj}."
 
 
@@ -1524,6 +1530,31 @@ def rule_yesno_is_anyone(question: str, answer: str) -> Optional[str]:
         return f"Someone is {pred}."
     if is_no(answer):
         return f"No one is {pred}."
+    return None
+
+
+def rule_yesno_is_everyone(question: str, answer: str) -> Optional[str]:
+    """Pattern: 'Is/Are everyone/everybody ...?' → 'Everyone is {pred}.' /
+
+    'Not everyone is {pred}.'
+
+    Example:
+        'Is everyone wearing a hat?' + yes → 'Everyone is wearing a hat.'
+        'Is everyone wearing a hat?' + no  → 'Not everyone is wearing a hat.'
+
+    Dedicated rule so ``yesno_is_are_predicate`` does not emit
+    'The everyone is not wearing a hat.'
+    """
+    m = re.match(r"^(?:is|are)\s+(?:everyone|everybody)\s+(.+)$", question, re.I)
+    if not m:
+        return None
+    pred = m.group(1).strip()
+    if not pred:
+        return None
+    if is_yes(answer):
+        return f"Everyone is {pred}."
+    if is_no(answer):
+        return f"Not everyone is {pred}."
     return None
 
 
@@ -1827,9 +1858,17 @@ def rule_yesno_is_are_predicate(question: str, answer: str) -> Optional[str]:
     if not rest:
         return None
     # Existential 'there' must be handled by rule_is_there / rule_are_there
-    if rest.split()[0].lower() == "there":
+    first = rest.split()[0].lower()
+    if first == "there":
         return None
-    if rest.split()[0].lower() in {"a", "an"}:
+    if first in {"a", "an"}:
+        return None
+    # Indefinite pronouns have dedicated rules (anyone/everyone) or need LLM;
+    # never invent "The everyone ..." via prefix_the.
+    if first in {
+        "everyone", "everybody", "anyone", "anybody",
+        "someone", "somebody", "nobody", "noone",
+    }:
         return None
 
     be = {"is": "is", "was": "was", "are": "are", "were": "were"}[aux]
@@ -2179,6 +2218,7 @@ RULES: List[Tuple[str, RuleFn]] = [
     ("is_there", rule_is_there),
     ("are_there", rule_are_there),
     ("yesno_is_anyone", rule_yesno_is_anyone),
+    ("yesno_is_everyone", rule_yesno_is_everyone),
     ("yesno_are_any", rule_yesno_are_any),
     ("yesno_are_all", rule_yesno_are_all),
     ("yesno_are_both", rule_yesno_are_both),
