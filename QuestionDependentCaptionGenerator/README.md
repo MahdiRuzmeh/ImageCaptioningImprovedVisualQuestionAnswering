@@ -136,6 +136,7 @@ python generate.py --split train --llm --batch-size 10 --workers 1 \
 | `--ollama-host` | `http://localhost:11434` | Base URL Ollama |
 | `--checkpoint-every` | `1` | Har N LLM batch JSON save (`1`, `50`, `100`, …) |
 | `--classifier-checkpoint-every` | `50` | Har N classified question classifier checkpoint save |
+| `--min-consensus` | `0.0` (off) | Drop Q/A pair-hayi ke `answer_consensus` kamtar az in dare |
 | `--no-resume` | off | Ignore classifier + LLM checkpoints (fresh start) |
 | `--output` | `outputs/...` | Override path output JSON |
 
@@ -146,8 +147,17 @@ Har caption-e LLM, ghabl az accept:
 **Tier 1 — lexical / cheap**
 
 1. **Format** (`caption_format_is_valid`): ye jomle-ye declarative — na khali, na `?`, na bracket/quote, na chand jomle, na "the answer".
-2. **Polarity / spurious negation**
-3. **Relation preserve**: content-word-haye asli-e soal (≤4 stem → hame) bayad toye caption bashan (shade≠free range, wall≠hill).
+2. **Polarity / spurious negation**: `yes` + caption-e negative → reject; `no` + caption-e positive (bedoon hich negation) → reject (`Are the cows in the shade?` + no → `The cows are free range.`). Har do check skip mishan age khod-e soal negation dashte bashe (`Isn't it...?`).
+3. **Relation preserve** (`RELATION_MIN_RATIO = 0.5`): **≥50%** az stem-haye *required*-e soal bayad toye caption bashan. `required` = content stem-ha **menha-ye** do goruh ke javab jaye-shun ro migire:
+   - **wh-category NP** — javab *jaye* esm-e daste ro migire, pas kalame-ye daste ejbari nist:
+     - `What **animal** is this?` + dog → `This is a dog.`
+     - `What **season** is it?` + summer → `It is summer outside.`
+     - `What **sport** is shown here?` + skateboarding → `A skateboarding competition can be seen.`
+     - `What **mode of transportation** is pictured?` + car → `A car is pictured.`
+     Faghat shekl-e mostaghim-e `what/which/whose <NP>`; age ba'd az wh-word fe'l biyad (`What **is** on the table?`) hich chi hazf nemishe, pas table→chair hanooz reject mishe. Fe'l-haye depiction (`shown`/`pictured`/`seen`) stopword hastan ta synonym-e "shown" vs "seen" caption-e dorost ro drop nakone.
+   - **either/or alternatives** — `Is the sun to the right **or** left of this flower?` hich vaght nemitune har do ro dashte bashe. Entekhab-e branch-e ghalat ba `answer_in_caption` gir mikhore.
+   
+   Ghablan baraye soal-haye ≤4 stem **100%** lazem bud, ke ~95% caption-haye **dorost** ro drop mikard (`What are the animals doing?` → `The animals are eating.` = 0.50). Case-haye band-e 0.5–0.75 be Tier-2 escalate mishan, pas blind accept nist.
 4. **Answer grounding**: proper noun / number / color / short answer → **verbatim** (Loon≠Loom); digar answers ≥50% token.
 5. **Unsupported facts**: caption nabayad content-word-e jadid-e ghalabe ezafe kone.
 6. **Batch contamination**
@@ -160,7 +170,22 @@ Har caption-e LLM, ghabl az accept:
 
 **Final salvage:** leftover `needs_llm` **batched** (default 1 round, no per-item retry).
 
-Low `answer_consensus` rows are **kept** (for later down-weight experiments).
+### Answer-consensus filter (`--min-consensus`)
+
+**Off by default** (`0.0`) — low `answer_consensus` rows are kept for later down-weight experiments.
+
+Ba `--min-consensus 0.4` har pair-i ke mode answer-esh kamtar az 40% annotator agreement dare drop mishe: vaghti khod-e adam-ha roye yek javab tavafogh nadaran, oon caption target-e ghabel-e etemadi baraye train nist. Tartib-e filter-ha sabet ast: **OCR → consensus → dedup** (consensus ghabl az dedup, ta pair-e drop-shode jaye dedup ro nagire).
+
+Drop-ha kamel toye sidecar save mishan: `outputs/..._low_consensus.json` (ba `info.min_consensus`). Count → `info.low_consensus_excluded_count`, threshold → `info.min_consensus`.
+
+Ru VQA v2 train ~11% pair-ha zir-e 0.4 hastan va **hame-shun** non-yes/no hastan (javab-e binary ba 10 annotator riyazi-yan nemitune zir-e 0.5 bere), pas in filter sahm-e yes/no ro dar dataset bala mibare — in trade-off ro dar nazar begir.
+
+```bash
+python generate.py --split train --llm --min-consensus 0.4 \
+  --model qwen2.5:3b-instruct-q4_K_M --batch-size 10
+```
+
+Resume: age `--min-consensus` ba run-e ghabli fargh dashte bashe, checkpoint qabool nemishe va rows az no sakhte mishan (payam-e `Ignoring checkpoint: it was built with --min-consensus ...`).
 
 ### Resume / checkpoint
 
@@ -207,7 +232,8 @@ Typical reasons:
 | `contains_answer_phrase` | Caption literally says "the answer"/"the answer is" instead of a natural sentence |
 | `multiple_sentences` / `double_period` | More than one sentence, or a stray ".." |
 | `too_short` / `empty_caption` | Caption has fewer than 2 words, or is empty |
-| `relation_mismatch` | Subject/relation words from the question missing in caption |
+| `relation_mismatch` | Less than 50% of the question's *required* stems survived in the caption (wh-category NP like animal/season/sport/mode-of-transportation, and either/or alternatives, are not required) |
+| `polarity_mismatch` | `yes` answer with a negated caption, or `no` answer with a positive caption |
 | `unsupported_facts` | Caption invents content not in Q+A |
 | `semantic_fail` | Tier-2 Qwen judge returned FAIL |
 | `empty_response` / `timeout` | Model returned nothing / timed out |
@@ -248,6 +274,8 @@ Accounting fields (bayad jam beshan):
 |-------|---------|
 | `input_count` | Q/A ids scanned at load |
 | `ocr_excluded_count` | Regex OCR prefilter |
+| `low_consensus_excluded_count` | `--min-consensus` drops (`0` when off) |
+| `min_consensus` | Threshold used for this run |
 | `duplicate_count` | Dedup drops |
 | `post_filter_count` | Rows kept after OCR/dedup/classifier (for resume matching) |
 | `directly_visual_count` | Classifier kept (ya hame rows age classify off) |
@@ -257,7 +285,9 @@ Accounting fields (bayad jam beshan):
 | `validation_failure_count` | Final validation drops |
 | `num_samples` | Final annotations length |
 
-Identity: `input ≈ ocr + duplicate + not_directly_visual + num_samples + dropped_empty + validation_failure` (va `directly_visual ≈ num_samples + dropped_empty + validation_failure`).
+Identity: `input ≈ ocr + low_consensus + duplicate + not_directly_visual + num_samples + dropped_empty + validation_failure` (va `directly_visual ≈ num_samples + dropped_empty + validation_failure`).
+
+`info.llm.validation` = `{single_retries, tier, validator_version, relation_min_ratio}` — `validator_version` har bar ke ghavanin-e accept/reject-e Tier-1 avaz beshan bump mishe, pas har output JSON mige ba kodum validator sakhte shode.
 
 ## QC validators (LLM)
 
@@ -317,5 +347,5 @@ python audit/audit_captions.py outputs/pilot_25k.json
 - `rule_counts` to `info` baraye statistik
 - OCR-e-mahvar soal ha (`is_ocr_question`) kollan az `rows` hazf mishan — `info.ocr_excluded_count`
 - Duplicate rows — `info.duplicate_count`
-- Low-consensus samples **hazf nemishan**; `answer_consensus` negah dashte mishe
+- Low-consensus samples default **hazf nemishan**; ba `--min-consensus T` drop mishan → `info.low_consensus_excluded_count` + sidecar `*_low_consensus.json`
 - Baraye train captioner: faghat rows-e `caption` gheyr-khali

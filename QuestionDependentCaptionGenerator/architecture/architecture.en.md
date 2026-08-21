@@ -94,7 +94,9 @@ flowchart TD
   load[Load VQA questions ∩ annotations] --> mode[Mode answer + answer_consensus]
   mode --> ocr[OCR filter is_ocr_question]
   ocr -->|drop| ocrDrop[ocr_excluded_count]
-  ocr --> dedup[Dedup image_id + question + answer]
+  ocr --> cons{answer_consensus ≥ --min-consensus?}
+  cons -->|no| consDrop[low_consensus_excluded_count + sidecar]
+  cons -->|yes / filter off| dedup[Dedup image_id + question + answer]
   dedup -->|drop| dupDrop[duplicate_count]
   dedup --> subjOpt{--classify-questions?}
   subjOpt -->|yes| suspect{OCR / personal / knowledge marker?}
@@ -126,13 +128,14 @@ flowchart TD
 
 ### Stages (ordered)
 
-1. **Load & mode answer** — Majority of 10 annotators. Store `answer_count` and `answer_consensus`. Low-consensus rows are **kept**.
+1. **Load & mode answer** — Majority of 10 annotators. Store `answer_count` and `answer_consensus`. Low-consensus rows are **kept** unless `--min-consensus` is set.
 2. **OCR exclusion** — Heuristic regex + selected `question_type` prefixes.
-3. **Dedup** — Keep first `(image_id, question, answer)`; store `duplicate_count`.
-4. **Optional binary classifier** — **Visual by default**: a question is kept as `DIRECTLY_VISUAL` with no LLM call unless `_NON_VISUAL_SUSPECT_RE` matches an OCR, personal-opinion, or outside-knowledge marker (~7% of VQA v2 train). Suspects go to Qwen (`v5_image_answerable`, which also instructs "when unsure, answer DIRECTLY_VISUAL"). Incremental checkpoint (`*_classifier_checkpoint.json`) every `--classifier-checkpoint-every N` enables resume after interrupt. Dropped `NOT_DIRECTLY_VISUAL` rows go to `*_not_directly_visual.json` (captioner-training filter only).
-5. **Rule engine** — First safe match wins; else `needs_llm`. Includes `yesno_is_everyone` and fixed `is_there`/`any`.
-6. **Optional LLM fallback** — Packed batches; Tier-1 then Tier-2; **1** regenerate; leftovers become validation failures then dropped.
-7. **Hard drop** — Empty / short / `needs_llm` rows never enter the written set.
+3. **Optional consensus filter** — `--min-consensus T` (default `0.0` = off) drops pairs whose mode answer got less than `T` annotator agreement: if humans cannot agree, the caption is not a trustworthy training target. Runs **before** dedup so a dropped pair does not occupy the dedup slot. Drops go to `*_low_consensus.json`; count in `info.low_consensus_excluded_count`. On VQA v2 train ~11% of pairs sit below `0.4` and all of them are non-yes/no (a binary answer over 10 annotators cannot fall below `0.5`), so the filter raises the yes/no share of the dataset.
+4. **Dedup** — Keep first `(image_id, question, answer)`; store `duplicate_count`.
+5. **Optional binary classifier** — **Visual by default**: a question is kept as `DIRECTLY_VISUAL` with no LLM call unless `_NON_VISUAL_SUSPECT_RE` matches an OCR, personal-opinion, or outside-knowledge marker (~7% of VQA v2 train). Suspects go to Qwen (`v5_image_answerable`, which also instructs "when unsure, answer DIRECTLY_VISUAL"). Incremental checkpoint (`*_classifier_checkpoint.json`) every `--classifier-checkpoint-every N` enables resume after interrupt. Dropped `NOT_DIRECTLY_VISUAL` rows go to `*_not_directly_visual.json` (captioner-training filter only).
+6. **Rule engine** — First safe match wins; else `needs_llm`. Includes `yesno_is_everyone` and fixed `is_there`/`any`.
+7. **Optional LLM fallback** — Packed batches; Tier-1 then Tier-2; **1** regenerate; leftovers become validation failures then dropped.
+8. **Hard drop** — Empty / short / `needs_llm` rows never enter the written set.
 
 ---
 
@@ -211,7 +214,8 @@ flowchart TD
 |-------|---------|
 | Format | Empty, &lt;2 words, `?`, brackets/quotes, multi-sentence, “the answer” |
 | Yes polarity | `answer=yes` but clear negation (unless question embeds negation) |
-| Relation | Question content stems missing (shade≠free range, wall≠hill) |
+| No polarity | `answer=no` but the caption asserts it positively, with no negation at all (`Are the cows in the shade?` + no → `The cows are free range.`) |
+| Relation | Fewer than **50%** (`RELATION_MIN_RATIO`) of the question's *required* stems survive in the caption. Required = content stems minus the wh-category noun phrase — the answer *replaces* the category word, so these keep: `What **animal** is this?` → `This is a dog.`; `What **season** is it?` → `It is summer outside.`; `What **sport** is shown here?` → `A skateboarding competition can be seen.`; `What **mode of transportation** is pictured?` → `A car is pictured.` — and minus either/or alternatives (`right **or** left` can only yield one). A verb straight after the wh-word means nothing is exempt, so `What is on the table?` → `The cat is on the chair.` is still rejected. Depiction verbs (`shown`/`pictured`/`seen`) are stopwords so synonym choice does not fail a correct caption |
 | Grounding | Missing answer; proper nouns/numbers/colors must be **verbatim** |
 | Unsupported facts | Caption invents content absent from Q+A |
 | Spurious negation | Non-yes/no answer but caption invents `no`/`not`/… |
@@ -227,7 +231,8 @@ flowchart TD
 ```mermaid
 flowchart LR
   inQ[VQA Q+A] --> g1[OCR filter]
-  g1 --> g2[Binary DIRECTLY_VISUAL classifier]
+  g1 --> gC[Answer-consensus filter]
+  gC --> g2[Binary DIRECTLY_VISUAL classifier]
   g2 --> g3[Rule safety]
   g3 --> g4[Two-tier LLM validators]
   g4 --> g5[Empty drop]
@@ -237,6 +242,7 @@ flowchart LR
 | Gate | When | Outcome |
 |------|------|---------|
 | OCR regex / `question_type` | Always | Remove text-reading questions |
+| Answer consensus | `--min-consensus T` (off at `0.0`) | Drop pairs humans disagreed on; sidecar for dropped pairs |
 | Binary classifier | `--classify-questions` | Visual by default, LLM only for suspects; keep DIRECTLY_VISUAL; sidecar for NOT_DIRECTLY_VISUAL |
 | Rule safety | Always | Bad templates → LLM or skip |
 | Two-tier LLM validators | `--llm` | Reject / regenerate once / drop |
@@ -255,6 +261,8 @@ flowchart LR
     "directly_visual_count": 3500,
     "not_directly_visual_count": 200,
     "ocr_excluded_count": 75,
+    "min_consensus": 0.4,
+    "low_consensus_excluded_count": 430,
     "duplicate_count": 20,
     "dropped_empty_count": 100,
     "validation_retry_count": 40,
@@ -264,6 +272,12 @@ flowchart LR
       "model": "qwen2.5:3b-instruct-q4_K_M",
       "batch_size": 10,
       "prompt_version": "v7_verbatim_answers_no_extra_facts",
+      "validation": {
+        "single_retries": 1,
+        "tier": "lexical+semantic_judge",
+        "validator_version": "v2_flat_relation_0.5_wh_category_or_aware",
+        "relation_min_ratio": 0.5
+      },
       "failure_log": "..."
     },
     "question_classifier": {
@@ -287,7 +301,7 @@ flowchart LR
 }
 ```
 
-Sidecar: `{stem}_not_directly_visual.json` holds dropped questions for later analysis.
+Sidecars: `{stem}_not_directly_visual.json` (classifier drops) and `{stem}_low_consensus.json` (`--min-consensus` drops) keep dropped questions for later analysis.
 
 `rule` is a rule name, `llm_fallback`, or (transiently before drop) `needs_llm`.
 

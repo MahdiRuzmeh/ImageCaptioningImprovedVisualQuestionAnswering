@@ -17,6 +17,10 @@ from typing import Callable, List, Optional, Sequence, Set, Tuple
 from caption_rules import DIGIT_TO_WORD
 from llm_prompts import chat_messages
 
+# Bumped whenever the Tier-1 accept/reject rules change, so a captions JSON
+# records which validator produced it.
+VALIDATOR_VERSION = "v2_flat_relation_0.5_wh_category_or_aware"
+
 _WORD_TO_DIGIT = {word: digit for digit, word in DIGIT_TO_WORD.items()}
 
 
@@ -39,10 +43,18 @@ _INFLECTION_SUFFIXES = ("ing", "edly", "ed", "es", "s")
 
 
 def _stem(word: str) -> str:
-    """Strip a common inflection suffix, but only if >=3 letters remain."""
+    """Strip a common inflection suffix, but only if >=3 letters remain.
+
+    A trailing silent 'e' is dropped last so singular/plural pairs collapse to
+    the same stem: without it 'planes' -> 'plan' but 'plane' -> 'plane', and a
+    word would fail to match itself ('picture' vs 'pictured' likewise).
+    """
     for suf in _INFLECTION_SUFFIXES:
         if word.endswith(suf) and len(word) - len(suf) >= 3:
-            return word[: -len(suf)]
+            word = word[: -len(suf)]
+            break
+    if len(word) > 3 and word.endswith("e"):
+        word = word[:-1]
     return word
 
 
@@ -206,15 +218,16 @@ _NO = {"no", "none", "0", "zero", "n/a", "not", "nothing"}
 # -> LLM outputs 'No cock was made by Rolex.' — wrong, but 'rolex' still
 # passes a naive substring check).
 _NEGATION_RE = re.compile(
-    r"\b(no|not|n't|never|none|nobody|nothing|neither|without|cannot|can't|"
-    r"no one|nowhere)\b",
+    r"(\b(?:no|not|never|none|nobody|nothing|neither|without|cannot|"
+    r"no one|nowhere)\b|\w*n't\b)",
     re.I,
 )
 
 # Question embeds its own negation — a negative caption for answer=yes can be OK
 # (e.g. "Is there a light that is not turned on?" + yes → "... is not turned on.").
 _QUESTION_NEGATION_RE = re.compile(
-    r"\b(not|n't|never|no|none|nobody|nothing|neither|without|cannot|can't)\b",
+    r"(\b(?:not|never|no|none|nobody|nothing|neither|without|cannot)\b"
+    r"|\w*n't\b)",
     re.I,
 )
 
@@ -223,7 +236,7 @@ _STOPWORDS = {
     "to", "of", "in", "on", "at", "for", "with", "and", "or", "this", "that",
     "these", "those", "there", "here", "it", "its", "do", "does", "did",
     "can", "could", "will", "would", "have", "has", "had", "you", "your",
-    "what", "which", "who", "where", "when", "how", "many", "much", "any",
+    "what", "which", "who", "where", "when", "why", "how", "many", "much", "any",
     "some", "from", "by", "as", "if", "than", "then", "so", "too", "very",
     "just", "about", "into", "over", "after", "before", "between", "out",
     "up", "down", "off", "again", "further", "once", "all", "both", "each",
@@ -233,6 +246,45 @@ _STOPWORDS = {
     # Negation / weak tokens — do not count as grounding overlap
     "no", "not", "nor", "never", "none", "nobody", "nothing", "neither",
     "without", "cannot", "one", "least", "also", "than", "enough",
+    # Depiction scaffolding: these refer to the photo itself, not to anything
+    # visible in it, and question/caption pick different ones freely
+    # ("What sport is shown here?" → "... can be seen."). Counting them as
+    # content punished correct captions for a synonym choice.
+    "show", "shows", "showed", "shown", "showing",
+    "see", "sees", "seen", "seeing", "visible", "view", "viewed",
+    "picture", "pictures", "pictured", "pic", "pics", "photo", "photos",
+    "photograph", "photographed", "image", "images",
+    "display", "displayed", "depict", "depicted", "appear", "appears",
+}
+
+# Minimum share of required question stems that must survive into the caption.
+RELATION_MIN_RATIO = 0.5
+
+# A verb here ends the wh-category noun phrase ("What animal **is** this?").
+_AUX_VERBS = {
+    "is", "are", "was", "were", "be", "being", "been", "am",
+    "do", "does", "did", "can", "could", "have", "has", "had",
+    "will", "would", "should", "may", "might", "must",
+}
+
+_WH_CATEGORY_HEADS = {"what", "which", "whose"}
+
+# The category phrase ends here too: 'of' keeps it going ("mode of transport"),
+# any other preposition/particle starts a new phrase that must be preserved
+# ("What's the odd color **out in** terms of shorts?").
+_NP_STOP = {
+    "in", "on", "at", "for", "with", "to", "from", "out", "about", "near",
+    "under", "over", "behind", "beside", "between", "inside", "outside",
+    "above", "below", "next", "by",
+}
+
+# Bound on how much of the question the category phrase may absorb.
+_MAX_CATEGORY_STEMS = 3
+
+# Tokens that close an "A or B" alternation span.
+_ALT_BOUNDARY = {
+    "of", "in", "on", "at", "for", "with", "to", "from", "that", "and",
+    "the", "a", "an",
 }
 
 # Structural sanity check: brackets/labels and stray quotation marks mean the
@@ -245,15 +297,24 @@ _QUOTE_CHARS = "\"\u201c\u201d"
 _ANSWER_PHRASE_RE = re.compile(r"\bthe answer\b", re.I)
 
 
+def _words(text: str) -> List[str]:
+    """Lowercase word tokens with clitics folded away.
+
+    ``man's`` -> ``man`` and ``what's`` -> ``what`` so a possessive does not
+    look like a different word than its bare form; ``isn't`` -> ``is`` so
+    contractions land on the stopword list instead of contributing 'isn'.
+    """
+    out: List[str] = []
+    for w in re.findall(r"[a-z']+", text.lower()):
+        w = w.replace("n't", "").split("'")[0]
+        if w:
+            out.append(w)
+    return out
+
+
 def _content_words(text: str) -> Set[str]:
     """Content tokens (stemmed) after dropping stopwords / short tokens."""
-    words = re.findall(r"[a-z']+", text.lower())
-    out: Set[str] = set()
-    for w in words:
-        if w in _STOPWORDS or len(w) < 3:
-            continue
-        out.add(_stem(w))
-    return out
+    return {_stem(w) for w in _words(text) if _is_content(w)}
 
 
 _COLOR_WORDS = {
@@ -316,14 +377,82 @@ def answer_verbatim_in_caption(answer: str, caption: str) -> bool:
     return all(_token_present(t, c_norm) for t in content_tokens)
 
 
-def question_relation_preserved(question: str, caption: str) -> Tuple[bool, float]:
-    """Check that main question content words appear in the caption.
+def _is_content(word: str) -> bool:
+    """True for tokens that carry visual content (not stopwords / too short)."""
+    return word not in _STOPWORDS and len(word) >= 3
 
-    Returns (ok, overlap_ratio). For short questions (≤4 content stems),
-    **all** must appear — catches shade→free-range and wall→hill swaps that
-    still share a subject noun. Longer questions need ≥50% overlap.
+
+def _wh_category_stems(words: Sequence[str]) -> Set[str]:
+    """Stems of the category noun phrase that the answer replaces.
+
+    'What **animal** is this?' + dog → 'This is a dog.';
+    'What **season** is it?' + summer → 'It is summer outside.';
+    'What **sport** is shown here?' + skateboarding → '... skateboarding ...';
+    'What **mode of transportation** is pictured?' + car → 'A car is pictured.'
+    The caption names the instance, so requiring the category word punishes a
+    correct answer. Only the direct ``what/which/whose <NP>`` shape counts; a
+    verb right after the wh-word means there is no category NP, so 'What is on
+    the table?' keeps 'table' required and a chair/table swap is still caught.
     """
-    q_words = _content_words(question)
+    if not words or words[0] not in _WH_CATEGORY_HEADS:
+        return set()
+    out: Set[str] = set()
+    for w in words[1:]:
+        if w in _AUX_VERBS or w in _NP_STOP:
+            break
+        if _is_content(w):
+            out.add(_stem(w))
+            if len(out) >= _MAX_CATEGORY_STEMS:
+                break
+    return out
+
+
+def _alternative_stems(words: Sequence[str]) -> Set[str]:
+    """Stems of an 'A or B' alternation, which the answer can only half-echo.
+
+    'Is the sun to the right or left of this flower?' + left can never contain
+    both alternatives, so requiring all question content is unsatisfiable.
+    Picking the wrong branch is still caught by ``answer_in_caption``.
+    """
+    if "or" not in words:
+        return set()
+    i = words.index("or")
+    out: Set[str] = set()
+    for w in reversed(words[:i]):
+        if _is_content(w):
+            out.add(_stem(w))
+            break
+    for w in words[i + 1:]:
+        if w in _ALT_BOUNDARY or w in _AUX_VERBS:
+            break
+        if _is_content(w):
+            out.add(_stem(w))
+    return out
+
+
+def required_question_stems(question: str) -> Set[str]:
+    """Question stems a faithful caption must still contain.
+
+    Content stems minus the two groups the answer is expected to consume: the
+    wh-category noun phrase and either/or alternatives.
+    """
+    words = _words(question)
+    stems = {_stem(w) for w in words if _is_content(w)}
+    return stems - _wh_category_stems(words) - _alternative_stems(words)
+
+
+def question_relation_preserved(question: str, caption: str) -> Tuple[bool, float]:
+    """Check that required question content words appear in the caption.
+
+    Returns (ok, overlap_ratio). A flat ≥50% overlap is required. The previous
+    rule demanded 100% for questions with ≤4 content stems, which rejected
+    ~95% correct captions ('What are the animals doing?' → 'The animals are
+    eating.' scored 0.50) because short questions are the norm in VQA. Cases in
+    the 0.5-0.75 band are still escalated to the Tier-2 judge by
+    ``is_semantically_suspicious``, so borderline items are ruled on by Qwen
+    rather than accepted blindly.
+    """
+    q_words = required_question_stems(question)
     if not q_words:
         return True, 1.0
     c_words = _content_words(caption)
@@ -331,12 +460,7 @@ def question_relation_preserved(question: str, caption: str) -> Tuple[bool, floa
         return False, 0.0
     overlap = len(q_words & c_words)
     ratio = overlap / len(q_words)
-    if len(q_words) <= 4:
-        min_hits = len(q_words)
-    else:
-        min_hits = max(2, int(round(0.5 * len(q_words))))
-    ok = overlap >= min_hits
-    return ok, ratio
+    return ratio >= RELATION_MIN_RATIO, ratio
 
 
 def has_unsupported_facts(question: str, answer: str, caption: str) -> bool:
@@ -491,6 +615,25 @@ def has_yes_polarity_mismatch(answer: str, caption: str, question: str = "") -> 
     return True
 
 
+def has_no_polarity_mismatch(answer: str, caption: str, question: str = "") -> bool:
+    """True when answer=no but the caption asserts something positive.
+
+    Mirror of :func:`has_yes_polarity_mismatch`, and the only guard against
+    'Are the cows in the shade?' + no → 'The cows are free range.', which the
+    relation check used to catch only as a side effect of demanding 100%
+    overlap. Restricted to the literal answer 'no': other negative-ish answers
+    ('0', 'zero', 'nothing') are content words that ``answer_in_caption``
+    already grounds.
+    """
+    if answer.strip().lower() != "no":
+        return False
+    if _NEGATION_RE.search(caption):
+        return False
+    if question and _QUESTION_NEGATION_RE.search(question):
+        return False
+    return True
+
+
 def is_batch_contamination(
     question: str,
     answer: str,
@@ -559,6 +702,8 @@ def caption_is_valid(
         return False, fmt_reason
     if has_yes_polarity_mismatch(answer, caption, question):
         return False, "polarity_mismatch"
+    if has_no_polarity_mismatch(answer, caption, question):
+        return False, "polarity_mismatch"
     if has_spurious_negation(answer, caption):
         return False, "spurious_negation"
     if question.strip():
@@ -611,7 +756,12 @@ def spurious_negation_detail(answer: str, caption: str) -> str:
 
 
 def polarity_mismatch_detail(answer: str, caption: str, question: str = "") -> str:
-    """Human-readable why yes-answer polarity check failed."""
+    """Human-readable why the yes/no polarity check failed."""
+    if answer.strip().lower() == "no":
+        return (
+            f"answer={answer!r} is negative but caption={caption!r} "
+            f"asserts it positively (no negation found) (Q={question!r})"
+        )
     hits = _NEGATION_RE.findall(caption)
     return (
         f"answer={answer!r} is yes-like but caption={caption!r} "

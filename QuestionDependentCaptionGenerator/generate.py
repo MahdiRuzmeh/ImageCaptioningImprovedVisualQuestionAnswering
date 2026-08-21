@@ -28,6 +28,8 @@ from caption_rules import answer_mode_stats, generate_caption, is_ocr_question
 from llm_client import (
     ItemOutcome,
     OllamaClient,
+    RELATION_MIN_RATIO,
+    VALIDATOR_VERSION,
     run_batches_concurrent,
     _VALIDATION_FAIL_REASONS,
 )
@@ -1236,6 +1238,8 @@ def main() -> None:
             "validation": {
                 "single_retries": 1,
                 "tier": "lexical+semantic_judge",
+                "validator_version": VALIDATOR_VERSION,
+                "relation_min_ratio": RELATION_MIN_RATIO,
             },
         }
         if args.no_resume:

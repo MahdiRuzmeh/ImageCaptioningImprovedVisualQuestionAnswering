@@ -96,7 +96,9 @@ flowchart TD
   load[Load questions ∩ annotations] --> mode[Mode answer + answer_consensus]
   mode --> ocr[OCR filter]
   ocr -->|drop| ocrDrop[ocr_excluded_count]
-  ocr --> dedup[Drop duplicate rows]
+  ocr --> cons{answer_consensus ≥ --min-consensus?}
+  cons -->|na| consDrop[low_consensus_excluded_count + sidecar]
+  cons -->|bale / filter off| dedup[Drop duplicate rows]
   dedup -->|drop| dupDrop[duplicate_count]
   dedup --> subjOpt{--classify-questions?}
   subjOpt -->|yes| suspect{Marker-e OCR / shakhsi / knowledge?}
@@ -128,13 +130,14 @@ flowchart TD
 
 ### Marhale-ha be tartib / Stages
 
-1. **Mode answer** — Az 10 annotator; `answer_consensus` negah dashte mishe (low-consensus hazf nemishe).
+1. **Mode answer** — Az 10 annotator; `answer_consensus` negah dashte mishe (low-consensus default hazf nemishe).
 2. **Hazf-e OCR** — Ba regex + chand `question_type`.
-3. **Dedup** — Faghat avalin `(image_id, question, answer)`; `duplicate_count`.
-4. **Ekhtiari: classifier-e binary** — **Default visual**: har soal `DIRECTLY_VISUAL` mimune bedoon LLM call, magar `_NON_VISUAL_SUSPECT_RE` match kone (marker-e OCR / nazar-e shakhsi / knowledge-e biruni — ~7% VQA v2 train). Suspect-ha be Qwen miran (`v5_image_answerable`: "vaghti motmaen nisti, DIRECTLY_VISUAL bede"). Checkpoint-e incremental (`*_classifier_checkpoint.json`) har `--classifier-checkpoint-every N` — resume ba'd az Ctrl+C. Drop-ha → sidecar.
-5. **Motor-e Rule** — Shamel `yesno_is_everyone` va `is_there` ba `any`-e dorost.
-6. **Ekhtiari: LLM** — Tier-1 + Tier-2; 1 regenerate; ba'd drop.
-7. **Hazf-e sakht** — Caption-e khali / `needs_llm` toye file-e nahayi neveshte nemishe.
+3. **Ekhtiari: filter-e consensus** — `--min-consensus T` (default `0.0` = khamush) pair-hayi ke mode answer-eshun kamtar az `T` tavafogh-e annotator dare drop mikone: vaghti adam-ha tavafogh nadaran, oon caption target-e ghabel-e etemad nist. **Ghabl az dedup** ejra mishe ta pair-e drop-shode jaye dedup ro nagire. Drop-ha → `*_low_consensus.json` + `info.low_consensus_excluded_count`. Ru VQA v2 train ~11% zir-e `0.4` hastan va hame non-yes/no (javab-e binary ba 10 annotator nemitune zir-e `0.5` beshe), pas sahm-e yes/no dar dataset bala miravad.
+4. **Dedup** — Faghat avalin `(image_id, question, answer)`; `duplicate_count`.
+5. **Ekhtiari: classifier-e binary** — **Default visual**: har soal `DIRECTLY_VISUAL` mimune bedoon LLM call, magar `_NON_VISUAL_SUSPECT_RE` match kone (marker-e OCR / nazar-e shakhsi / knowledge-e biruni — ~7% VQA v2 train). Suspect-ha be Qwen miran (`v5_image_answerable`: "vaghti motmaen nisti, DIRECTLY_VISUAL bede"). Checkpoint-e incremental (`*_classifier_checkpoint.json`) har `--classifier-checkpoint-every N` — resume ba'd az Ctrl+C. Drop-ha → sidecar.
+6. **Motor-e Rule** — Shamel `yesno_is_everyone` va `is_there` ba `any`-e dorost.
+7. **Ekhtiari: LLM** — Tier-1 + Tier-2; 1 regenerate; ba'd drop.
+8. **Hazf-e sakht** — Caption-e khali / `needs_llm` toye file-e nahayi neveshte nemishe.
 
 ---
 
@@ -219,7 +222,8 @@ flowchart TD
 |-------|---------------|
 | Format | Khali, kootah, soal, chand-jomle, bracket |
 | Yes polarity | Javab yes vali caption manfi-ye vazeh |
-| Relation | Stem-haye asli-e soal toye caption nabashan (shade≠free range) |
+| No polarity | Javab `no` vali caption mosbat va bedoon hich negation (`Are the cows in the shade?` + no → `The cows are free range.`) |
+| Relation | Kamtar az **50%** (`RELATION_MIN_RATIO`) az stem-haye *required*-e soal toye caption bashe. required = content stem-ha menha-ye wh-category NP — javab *jaye* esm-e daste ro migire, pas in-ha keep mishan: `What **animal** is this?` → `This is a dog.`; `What **season** is it?` → `It is summer outside.`; `What **sport** is shown here?` → `A skateboarding competition can be seen.`; `What **mode of transportation** is pictured?` → `A car is pictured.` — va menha-ye either/or alternatives (`right **or** left` faghat yeki mishe). Age ba'd az wh-word fe'l biyad hich chi hazf nemishe, pas `What is on the table?` → `The cat is on the chair.` hanooz reject mishe. Fe'l-haye depiction (`shown`/`pictured`/`seen`) stopword hastan |
 | Grounding | Proper noun / adad / rang **verbatim**; digar ≥50% |
 | Unsupported facts | Vaghe'iyat-e ezafi ke toye Q+A nist |
 | Spurious negation | Javab gheyr-e yes/no vali caption manfi-ye sakhtagi |
@@ -262,12 +266,24 @@ flowchart LR
     "directly_visual_count": 3500,
     "not_directly_visual_count": 200,
     "ocr_excluded_count": 75,
+    "min_consensus": 0.4,
+    "low_consensus_excluded_count": 430,
     "duplicate_count": 20,
     "dropped_empty_count": 100,
     "validation_retry_count": 40,
     "validation_failure_count": 15,
     "rule_counts": { "...": "..." },
-    "llm": { "model": "...", "batch_size": 10, "prompt_version": "v7_..." },
+    "llm": {
+      "model": "...",
+      "batch_size": 10,
+      "prompt_version": "v7_...",
+      "validation": {
+        "single_retries": 1,
+        "tier": "lexical+semantic_judge",
+        "validator_version": "v2_flat_relation_0.5_wh_category_or_aware",
+        "relation_min_ratio": 0.5
+      }
+    },
     "question_classifier": {
       "prompt_version": "v5_image_answerable",
       "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 3430 }
@@ -277,9 +293,9 @@ flowchart LR
 }
 ```
 
-Sidecar: `{stem}_not_directly_visual.json`. Filter faghat baraye train-e Captioner; VQA2 eval dast nakhord.
+Sidecar-ha: `{stem}_not_directly_visual.json` va `{stem}_low_consensus.json`. Filter-ha faghat baraye train-e Captioner; VQA2 eval dast nakhord.
 
-`answer_consensus` = tavaghof-e annotator-ha; sample-haye consensus-e payin **hazf nemishan**.
+`answer_consensus` = tavaghof-e annotator-ha; sample-haye consensus-e payin default **hazf nemishan** (faghat ba `--min-consensus T`).
 
 ---
 
