@@ -196,16 +196,23 @@ def load_vqa_pairs(
     questions_json: Path,
     annotations_json: Path,
     max_items: Optional[int] = None,
-) -> Tuple[List[Dict[str, Any]], Counter, int, int, int]:
+    min_consensus: float = 0.0,
+) -> Tuple[List[Dict[str, Any]], Counter, int, int, int, List[Dict[str, Any]]]:
     """Soal va javab haye VQA v2 ro load kon va ba rule caption besaz.
+
+    Filter order is fixed: OCR → answer consensus → dedup. Consensus runs
+    before dedup so a dropped low-consensus pair never claims a dedup slot.
 
     Args:
         questions_json: path be v2_OpenEnded_*_questions.json
         annotations_json: path be v2_mscoco_*_annotations.json
         max_items: age set shode, faghat N sample aval (smoke test)
+        min_consensus: drop pairs whose ``answer_consensus`` is below this
+            (0.0 = off). Annotator agreement, not model confidence.
 
     Returns:
-        (rows, rule_counts, ocr_excluded_count, duplicate_count, input_count)
+        (rows, rule_counts, ocr_excluded_count, duplicate_count, input_count,
+        low_consensus_rows)
     """
     print(f"Loading VQA JSON: {questions_json.name} + {annotations_json.name} ...")
     with questions_json.open("r", encoding="utf-8") as f:
@@ -226,6 +233,7 @@ def load_vqa_pairs(
     rows: List[Dict[str, Any]] = []
     rule_counts: Counter = Counter()
     seen_per_image: Dict[int, Set[Tuple[str, str]]] = {}
+    low_consensus_rows: List[Dict[str, Any]] = []
     duplicates_dropped = 0
     ocr_excluded = 0
     input_count = len(qids)
@@ -244,6 +252,20 @@ def load_vqa_pairs(
 
         answers = [x["answer"] for x in ann["answers"]]
         ans, answer_count, answer_consensus = answer_mode_stats(answers)
+
+        if min_consensus > 0.0 and answer_consensus < min_consensus:
+            low_consensus_rows.append(
+                {
+                    "question_id": qid,
+                    "image_id": image_id,
+                    "question": q["question"],
+                    "answer": ans,
+                    "answer_count": answer_count,
+                    "answer_consensus": answer_consensus,
+                    "detail": f"consensus<{min_consensus}",
+                }
+            )
+            continue
 
         dedup_key = (q["question"].strip().lower(), ans)
         seen = seen_per_image.setdefault(image_id, set())
@@ -279,6 +301,12 @@ def load_vqa_pairs(
             f"OCR filter: {ocr_excluded} OCR-dependent question/answer pairs "
             "excluded (is_ocr_question) — captioner cannot read rendered text."
         )
+    if low_consensus_rows:
+        print(
+            f"Consensus filter: {len(low_consensus_rows)} pairs dropped with "
+            f"answer_consensus < {min_consensus} — annotators disagreed, so the "
+            "caption target is unreliable."
+        )
     if duplicates_dropped:
         print(
             f"Dedup: {duplicates_dropped} duplicate (image_id, question, answer) "
@@ -290,7 +318,14 @@ def load_vqa_pairs(
         flush=True,
     )
 
-    return rows, rule_counts, ocr_excluded, duplicates_dropped, input_count
+    return (
+        rows,
+        rule_counts,
+        ocr_excluded,
+        duplicates_dropped,
+        input_count,
+        low_consensus_rows,
+    )
 
 
 def not_directly_visual_path(output_path: Path) -> Path:
@@ -298,23 +333,27 @@ def not_directly_visual_path(output_path: Path) -> Path:
     return output_path.with_name(output_path.stem + "_not_directly_visual.json")
 
 
-def write_not_directly_visual_sidecar(
+def low_consensus_path(output_path: Path) -> Path:
+    """Sidecar JSON for pairs dropped by the answer-consensus threshold."""
+    return output_path.with_name(output_path.stem + "_low_consensus.json")
+
+
+def _write_sidecar(
+    side: Path,
     output_path: Path,
+    description: str,
     dropped_rows: List[Dict[str, Any]],
+    extra_info: Optional[Dict[str, Any]] = None,
 ) -> Path:
-    """Persist classifier-dropped questions for later VISUAL vs non-VISUAL analysis."""
-    side = not_directly_visual_path(output_path)
-    payload = {
-        "info": {
-            "description": (
-                "Questions dropped as NOT_DIRECTLY_VISUAL "
-                "(captioner-training filter only; do not alter raw VQA2 eval)"
-            ),
-            "source_output": str(output_path.resolve()),
-            "num_samples": len(dropped_rows),
-        },
-        "annotations": dropped_rows,
+    """Atomically write a dropped-rows sidecar next to the captions JSON."""
+    info: Dict[str, Any] = {
+        "description": description,
+        "source_output": str(output_path.resolve()),
+        "num_samples": len(dropped_rows),
     }
+    if extra_info:
+        info.update(extra_info)
+    payload = {"info": info, "annotations": dropped_rows}
     side.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
         prefix=side.stem + "_",
@@ -334,6 +373,37 @@ def write_not_directly_visual_sidecar(
             pass
         raise
     return side
+
+
+def write_not_directly_visual_sidecar(
+    output_path: Path,
+    dropped_rows: List[Dict[str, Any]],
+) -> Path:
+    """Persist classifier-dropped questions for later VISUAL vs non-VISUAL analysis."""
+    return _write_sidecar(
+        not_directly_visual_path(output_path),
+        output_path,
+        "Questions dropped as NOT_DIRECTLY_VISUAL "
+        "(captioner-training filter only; do not alter raw VQA2 eval)",
+        dropped_rows,
+    )
+
+
+def write_low_consensus_sidecar(
+    output_path: Path,
+    dropped_rows: List[Dict[str, Any]],
+    min_consensus: float,
+) -> Path:
+    """Persist pairs dropped below the answer-consensus threshold."""
+    return _write_sidecar(
+        low_consensus_path(output_path),
+        output_path,
+        "Question/answer pairs dropped because annotator agreement was below "
+        "--min-consensus (captioner-training filter only; "
+        "do not alter raw VQA2 eval)",
+        dropped_rows,
+        extra_info={"min_consensus": min_consensus},
+    )
 
 
 def count_validation_stats(
@@ -474,6 +544,8 @@ def apply_llm_fallbacks(
     validation_retry_count: int = 0,
     validation_failure_count: int = 0,
     classifier_meta: Optional[Dict[str, Any]] = None,
+    low_consensus_excluded_count: int = 0,
+    min_consensus: float = 0.0,
 ) -> Tuple[Counter, int, int]:
     """Row haye rule=needs_llm ro ba packed LLM caption update mikone.
 
@@ -534,6 +606,8 @@ def apply_llm_fallbacks(
             validation_retry_count=validation_retry_count,
             validation_failure_count=validation_failure_count,
             classifier_meta=classifier_meta,
+            low_consensus_excluded_count=low_consensus_excluded_count,
+            min_consensus=min_consensus,
         )
 
     def _on_batch_start(batch_i: int, batch_len: int) -> None:
@@ -730,6 +804,8 @@ def write_output_json(
     validation_retry_count: int = 0,
     validation_failure_count: int = 0,
     classifier_meta: Optional[Dict[str, Any]] = None,
+    low_consensus_excluded_count: int = 0,
+    min_consensus: float = 0.0,
 ) -> None:
     """Natije ro atomic be JSON file save kon (crash-safe)."""
     info: Dict[str, Any] = {
@@ -743,6 +819,8 @@ def write_output_json(
         "not_directly_visual_count": not_directly_visual_count,
         "ocr_excluded_count": ocr_excluded_count,
         "duplicate_count": duplicate_count,
+        "min_consensus": min_consensus,
+        "low_consensus_excluded_count": low_consensus_excluded_count,
         "dropped_empty_count": dropped_empty_count,
         "validation_retry_count": validation_retry_count,
         "validation_failure_count": validation_failure_count,
@@ -788,12 +866,19 @@ def print_stats(
     ocr_excluded_count: int = 0,
     duplicate_count: int = 0,
     not_directly_visual_count: int = 0,
+    low_consensus_excluded_count: int = 0,
+    min_consensus: float = 0.0,
 ) -> None:
     """Statistik rule ha ro chap kon ta befahmim cheghadr needs_llm darim."""
     total = len(rows)
     print(f"Wrote {total} captions -> {output_path}")
     if ocr_excluded_count:
         print(f"  (excluded {ocr_excluded_count} OCR-dependent question/answer pairs)")
+    if low_consensus_excluded_count:
+        print(
+            f"  (excluded {low_consensus_excluded_count} pairs with "
+            f"answer_consensus < {min_consensus})"
+        )
     if duplicate_count:
         print(f"  (excluded {duplicate_count} duplicate rows)")
     if not_directly_visual_count:
@@ -871,6 +956,17 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Faghat N sample aval (baraye smoke test)",
+    )
+    parser.add_argument(
+        "--min-consensus",
+        type=float,
+        default=0.0,
+        help=(
+            "Drop Q/A pairs whose answer_consensus (share of the 10 VQA "
+            "annotators giving the mode answer) is below this, e.g. 0.4. "
+            "Default 0.0 = keep everything. Dropped pairs go to "
+            "*_low_consensus.json"
+        ),
     )
     parser.add_argument(
         "--llm",
@@ -979,6 +1075,8 @@ def main() -> None:
         raise ValueError("--checkpoint-every must be >= 1")
     if args.classifier_checkpoint_every < 1:
         raise ValueError("--classifier-checkpoint-every must be >= 1")
+    if not 0.0 <= args.min_consensus <= 1.0:
+        raise ValueError("--min-consensus must be between 0.0 and 1.0")
 
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -998,14 +1096,28 @@ def main() -> None:
     classifier_meta: Optional[Dict[str, Any]] = None
     dropped_empty_count = 0
     dropped_not_visual: List[Dict[str, Any]] = []
+    low_consensus_excluded_count = 0
 
     # Resume fast-path: skip load/rules/classifier when output JSON matches.
+    # A different --min-consensus means the previous rows were filtered with
+    # another threshold, so they must be rebuilt instead of reused.
     if args.llm and not args.no_resume:
         rows = try_load_checkpoint_rows(output_path)
+        prev_payload = load_output_payload(output_path) or {}
+        prev_min = float((prev_payload.get("info") or {}).get("min_consensus", 0.0))
+        if rows is not None and prev_min != args.min_consensus:
+            print(
+                f"Ignoring checkpoint: it was built with "
+                f"--min-consensus {prev_min}, this run uses "
+                f"{args.min_consensus} — rebuilding rows."
+            )
+            rows = None
         if rows is not None:
             rule_counts = recount_rules(rows)
-            prev_payload = load_output_payload(output_path) or {}
             prev_info = prev_payload.get("info") or {}
+            low_consensus_excluded_count = int(
+                prev_info.get("low_consensus_excluded_count", 0)
+            )
             ocr_excluded_count = int(prev_info.get("ocr_excluded_count", 0))
             duplicate_count = int(prev_info.get("duplicate_count", 0))
             input_count = int(prev_info.get("input_count", 0))
@@ -1032,11 +1144,21 @@ def main() -> None:
             ocr_excluded_count,
             duplicate_count,
             input_count,
+            low_consensus_rows,
         ) = load_vqa_pairs(
             questions_json,
             annotations_json,
             max_items=args.max_items,
+            min_consensus=args.min_consensus,
         )
+        low_consensus_excluded_count = len(low_consensus_rows)
+        if low_consensus_rows:
+            side = write_low_consensus_sidecar(
+                output_path,
+                low_consensus_rows,
+                args.min_consensus,
+            )
+            print(f"Low-consensus sidecar -> {side}")
 
         if args.classify_questions or args.drop_subjective_candidates:
             clf: Optional[QuestionClassifier] = None
@@ -1151,6 +1273,8 @@ def main() -> None:
                     validation_retry_count=validation_retry_count,
                     validation_failure_count=validation_failure_count,
                     classifier_meta=classifier_meta,
+                    low_consensus_excluded_count=low_consensus_excluded_count,
+                    min_consensus=args.min_consensus,
                 )
             )
         except KeyboardInterrupt:
@@ -1172,6 +1296,8 @@ def main() -> None:
                 validation_retry_count=validation_retry_count,
                 validation_failure_count=validation_failure_count,
                 classifier_meta=classifier_meta,
+                low_consensus_excluded_count=low_consensus_excluded_count,
+                min_consensus=args.min_consensus,
             )
             still = sum(1 for r in rows if r["rule"] == "needs_llm")
             if failure_log is not None:
@@ -1217,6 +1343,8 @@ def main() -> None:
         validation_retry_count=validation_retry_count,
         validation_failure_count=validation_failure_count,
         classifier_meta=classifier_meta,
+        low_consensus_excluded_count=low_consensus_excluded_count,
+        min_consensus=args.min_consensus,
     )
     delete_classifier_checkpoint(ckpt_path)
     print_stats(
@@ -1226,6 +1354,8 @@ def main() -> None:
         ocr_excluded_count=ocr_excluded_count,
         duplicate_count=duplicate_count,
         not_directly_visual_count=not_directly_visual_count,
+        low_consensus_excluded_count=low_consensus_excluded_count,
+        min_consensus=args.min_consensus,
     )
     if args.llm:
         still = sum(1 for r in rows if r["rule"] == "needs_llm")

@@ -9,7 +9,7 @@ Pipeline:
 1. VQA questions + annotations ro load mikone (`input_count`)
 2. OCR-dependent Q/A pair ha (`is_ocr_question`) — soal hayi ke javab-eshun faghat az ru-ye reading-e text/adad-e ru-ye tasvir mishe fahmid (sign, logo, brand, plate, jersey number, clock) — kollan hazf mishan, chon `SimpleImageCaptioner` OCR nadare va nemitune in target ha ro yad begire; count-esh dar `info.ocr_excluded_count` save mishe
 3. Duplicate `(image_id, question, answer)` rows drop mishan (`info.duplicate_count`)
-4. Optional `--classify-questions`: binary `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. A **regex fast-path** (`_ALWAYS_VISUAL_RE`) auto-accepts obviously visual patterns (color, count, spatial, sport/game, material, which, doing, animal, visible expression, etc.) without calling the LLM — typically ~60-70% of questions. Only ambiguous questions go through Qwen (prompt `v4_sport_action_material`). Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad)
+4. Optional `--classify-questions`: binary `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. The gate is **visual by default** — a question is kept without any LLM call unless it matches `_NON_VISUAL_SUSPECT_RE` (OCR / personal opinion / outside-world knowledge markers). Only those suspects (~7% of VQA v2 train) go through Qwen (prompt `v5_image_answerable`). Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad)
 5. Rule engine try mikone (`caption_rules.py`) — faghat pattern haye daghigh va motmaen
 6. Age hich rule match nakone, row `rule="needs_llm"` va `caption=""` mishe
 7. Age `--llm` on bashe → Ollama ba packed batch + **two-tier validator** (lexical → optional Qwen PASS/FAIL) + **1 regenerate** then drop
@@ -22,7 +22,7 @@ Pipeline:
 | `generate.py` | CLI: rules + optional LLM fallback |
 | `llm_prompts.py` | Packed prompt (chand Q+A toye yek request) |
 | `llm_client.py` | Ollama HTTP client + concurrent workers + two-tier validator |
-| `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (regex fast-path + LLM) |
+| `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (visual by default; LLM only for suspects) |
 | `audit/audit_captions.py` | Post-hoc QC audit on a captions JSON (optional) |
 
 Progress logs (flush): VQA load, rules scan, classify `i/N`, and
@@ -267,13 +267,17 @@ Beyond format checks, accepted LLM captions must pass Tier-1 relation / verbatim
 
 **Off by default.** Bedoon flag, `question_classifier.py` call nemishe.
 
-`DIRECTLY_VISUAL` = javab mostaghim az zaher-e tasvir-e sabet, **bedoon OCR**, **bedoon knowledge-e biruni**, **bedoon nazar-e shakhsi**. Visible sport/game/activity identity, material, which+attribute, doing, animal, and visible expression are DIRECTLY_VISUAL; sport **rules** / professionalism are NOT. Prompt version: `v4_sport_action_material`.
+`DIRECTLY_VISUAL` = soal ba negah kardan be tasvir javab dade mishe (object, rang, tedad, position, action, material, room/scene, sport/activity, weather, sen-e taghribi, expression) — **default hamin hast**.
+
+`NOT_DIRECTLY_VISUAL` faghat vaghti ke javab yeki az in se ta ro lazem dare: **reading-e text-e ru-ye tasvir (OCR)**, **nazar/salighe-ye shakhsi**, ya **knowledge-e biruni** (ghavanin-e sport, legality, species facts, sazande/brand, gheymat, seda-ye heyvan).
+
+Yani jaye whitelist kardan-e shapes-e visual (ke hich vaght kamel nemishe: `Number of animals?`, `What room is this?`, `Are all the flowers white?`), faghat suspect-ha (`_NON_VISUAL_SUSPECT_RE`) be LLM miran. Ru VQA v2 train ~7% soal-ha suspect hastand, pas classify kheyli sari'-tar shode. `made of` suspect **nist** (material-e visible) vali `who made` hast (maker/brand knowledge). Prompt version: `v5_image_answerable` ("when unsure, answer DIRECTLY_VISUAL").
 
 ### Flags
 
 | Flag | Chi mikone |
 |------|------------|
-| `--classify-questions` | Har soal → regex fast-path ya Qwen binary `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. Drop + write sidecar. Resume via `*_classifier_checkpoint.json`. |
+| `--classify-questions` | Har soal `DIRECTLY_VISUAL` hast magar `_NON_VISUAL_SUSPECT_RE` match kone → oon vaght Qwen binary label mide. Drop + write sidecar. Resume via `*_classifier_checkpoint.json`. |
 | `--classifier-checkpoint-every` | `50` | Save classifier progress every N questions |
 | `--drop-subjective-candidates` | Offline: regex candidates drop (bedoon Qwen). |
 | `--classifier-model` | Model Ollama baraye classifier; default = `--model` |
@@ -285,7 +289,9 @@ python generate.py --split train --llm --classify-questions \
 
 Sidecar: `outputs/v2_question_dependent_captions_{split}2014_not_directly_visual.json` — baraye tahlil-e ba'di. In filter **faghat** baraye dataset-e train-e Captioner ast; VQA2 asli baraye eval dastkhord nashavad.
 
-Counts: `info.directly_visual_count`, `info.not_directly_visual_count`, `info.question_classifier.label_counts` (includes `FAST_PATH_VISUAL` count).
+Counts: `info.directly_visual_count`, `info.not_directly_visual_count`, `info.question_classifier.label_counts` (`FAST_PATH_VISUAL` = tedad-e soal-hayi ke bedoon LLM call visual mund).
+
+Note: `prompt_version` avaz shode, pas checkpoint-e ghadimi (`*_classifier_checkpoint.json`) roye resume invalid hast — pak-esh kon ya `--no-resume` bede ta row-haye ghablan drop-shode dobare label bekhoran.
 
 ## Tests + audit
 

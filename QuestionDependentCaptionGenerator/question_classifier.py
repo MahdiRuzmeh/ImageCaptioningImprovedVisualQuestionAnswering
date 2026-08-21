@@ -4,14 +4,14 @@ When ``--classify-questions`` is on, questions are labeled:
 
     DIRECTLY_VISUAL | NOT_DIRECTLY_VISUAL
 
-A **regex fast-path** (``_ALWAYS_VISUAL_RE``) auto-accepts question patterns
-that are definitionally visual (color, count, spatial, sport/game,
-material, which, doing, animal, visible expression, etc.) without calling
-the LLM — typically ~60-70 % of VQA v2 questions.  Only ambiguous
-questions go through Qwen (Ollama).
+The gate is **visual by default**: a question is DIRECTLY_VISUAL unless it
+matches ``_NON_VISUAL_SUSPECT_RE`` (OCR / personal opinion / outside-world
+knowledge markers).  Only those suspects go through Qwen (Ollama), so the
+vast majority of VQA v2 questions are labeled with no HTTP round-trip.
 
-``DIRECTLY_VISUAL`` means the answer can be extracted from the appearance of
-a static image without OCR, outside knowledge, or personal opinion/preference.
+``DIRECTLY_VISUAL`` means the question can be answered by looking at the
+image.  ``NOT_DIRECTLY_VISUAL`` means answering needs rendered text (OCR),
+personal opinion/preference, or knowledge from outside the picture.
 
 Offline ``--drop-subjective-candidates`` still uses a cheap regex candidate
 gate (no LLM) and drops matching rows as NOT_DIRECTLY_VISUAL.
@@ -28,7 +28,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-CLASSIFIER_PROMPT_VERSION = "v4_sport_action_material"
+CLASSIFIER_PROMPT_VERSION = "v5_image_answerable"
 
 QUESTION_LABELS = (
     "DIRECTLY_VISUAL",
@@ -57,124 +57,145 @@ _CANDIDATE_RE = re.compile(
 
 _SYSTEM_PROMPT = (
     "Classify each VQA question as DIRECTLY_VISUAL or NOT_DIRECTLY_VISUAL.\n"
-    "DIRECTLY_VISUAL: the answer must be directly extractable from the "
-    "appearance of a static image, without OCR (reading text/numbers on "
-    "signs, logos, names, plates), without outside knowledge, and without "
-    "personal opinion or preference.\n"
-    "Questions about visible properties (color, shape, count, clothing, "
-    "posture, spatial position, weather, approximate age, visible actions, "
-    "visible similarity, visible material/made-of, visible animals, "
-    "visible expression) are DIRECTLY_VISUAL even if they require simple "
-    "visual inference.\n"
-    "Identifying a visible sport, game, or activity from appearance "
-    "(tennis, skateboarding, polo, etc.) is DIRECTLY_VISUAL. "
-    "Rules of a sport, professionalism, legality, or personal preference "
-    "about a sport are NOT_DIRECTLY_VISUAL.\n"
-    "'Which X has <visible attribute>?' is DIRECTLY_VISUAL.\n"
-    "NOT_DIRECTLY_VISUAL: anything else (subjective, OCR, commonsense, "
-    "sport rules / professionalism, mechanical function not visible, "
-    "etc.).\n"
+    "DIRECTLY_VISUAL (the default): the question can be answered simply by "
+    "looking at the image. This covers objects, colors, counts, spatial "
+    "positions, actions, materials, room or scene type, sport or activity, "
+    "weather, approximate age, and facial expressions — even when simple "
+    "visual inference is needed.\n"
+    "NOT_DIRECTLY_VISUAL: only when answering requires one of three things "
+    "that are not in the pixels:\n"
+    "  1. reading rendered text (names on signs, logos, brands, plates, "
+    "written words, clock time),\n"
+    "  2. personal opinion, taste, or preference,\n"
+    "  3. outside-world knowledge (sport rules, legality, species facts, "
+    "who manufactured something, prices, animal sounds).\n"
+    "When unsure, answer DIRECTLY_VISUAL.\n"
     "Return only the category label."
 )
 
 _USER_PROMPT_TEMPLATE = (
     "Classify the following VQA question as DIRECTLY_VISUAL or "
     "NOT_DIRECTLY_VISUAL.\n"
-    "DIRECTLY_VISUAL means the answer is directly extractable from a static "
-    "image without OCR, outside knowledge, or personal opinion.\n"
-    "Identifying a visible sport/game/activity is DIRECTLY_VISUAL; "
-    "sport rules or professionalism are NOT.\n"
+    "DIRECTLY_VISUAL means the question can be answered just by looking at "
+    "the image.\n"
+    "NOT_DIRECTLY_VISUAL means answering needs reading text (OCR), personal "
+    "opinion, or outside-world knowledge.\n"
+    "When unsure, answer DIRECTLY_VISUAL.\n"
     "Return only the category label.\n\n"
     "Examples:\n"
     "Q: What color is the bus?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: How many people are sitting?\n"
+    "Q: Are all the flowers white?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: Is the man wearing a hat?\n"
+    "Q: Number of animals?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: What is in front of the giraffes?\n"
+    "Q: Is a military person in the picture?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: Is it a cloudy day?\n"
+    "Q: What is watching the TV?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: Are they playing polo?\n"
+    "Q: What room is this?\n"
+    "DIRECTLY_VISUAL\n"
+    "Q: Could this photo be from a zoo?\n"
+    "DIRECTLY_VISUAL\n"
+    "Q: What fruits are here?\n"
+    "DIRECTLY_VISUAL\n"
+    "Q: Where is the lighthouse located?\n"
+    "DIRECTLY_VISUAL\n"
+    "Q: Do the animals have ear tags?\n"
     "DIRECTLY_VISUAL\n"
     "Q: What sport are they playing?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: What game is being played?\n"
-    "DIRECTLY_VISUAL\n"
     "Q: What is the wall made of?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: What are the people doing?\n"
-    "DIRECTLY_VISUAL\n"
-    "Q: Which player has a white hat?\n"
-    "DIRECTLY_VISUAL\n"
-    "Q: Does this woman look excited?\n"
-    "DIRECTLY_VISUAL\n"
-    "Q: What animal does he have?\n"
-    "DIRECTLY_VISUAL\n"
-    "Q: Do these ski boards have personality?\n"
+    "Q: What is the name of the hotel?\n"
     "NOT_DIRECTLY_VISUAL\n"
-    "Q: Are they endangered?\n"
+    "Q: What beer is advertised on the window?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: What language is on the signs?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: What sound does this animal make?\n"
     "NOT_DIRECTLY_VISUAL\n"
     "Q: Are you allowed to use your foot in ultimate?\n"
     "NOT_DIRECTLY_VISUAL\n"
+    "Q: Which toilet would you prefer to use?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: Is this pizza nutritious enough for a full dinner?\n"
+    "NOT_DIRECTLY_VISUAL\n"
     "Q: Does this train work?\n"
-    "NOT_DIRECTLY_VISUAL\n"
-    "Q: What is the name of the hotel?\n"
-    "NOT_DIRECTLY_VISUAL\n"
-    "Q: Is this a professional game?\n"
     "NOT_DIRECTLY_VISUAL\n\n"
     "Question: {question}"
 )
 
 
-# Fast-path: question patterns that are definitionally DIRECTLY_VISUAL.
-# Matching questions skip the LLM call entirely, saving ~60-70% of HTTP
-# round-trips on typical VQA v2 data.  The gate is conservative: if a
-# question also matches _CANDIDATE_RE (subjective / OCR words) it still
-# goes through the LLM for a proper ruling.
-_ALWAYS_VISUAL_RE = re.compile(
+# Suspect gate: questions that MIGHT need something beyond the pixels.
+#
+# The default is DIRECTLY_VISUAL — enumerating every visual phrasing is
+# impossible ("Number of animals?", "What room is this?", "Are all the
+# flowers white?" all describe visible facts), so only the three genuine
+# exception families are listed here:
+#
+#   1. personal opinion / preference        ("Would you prefer...")
+#   2. OCR / reading rendered text          ("What is the name of the hotel?")
+#   3. outside-world knowledge / causation  ("What sound does this animal make?")
+#
+# Matching questions go to Qwen for a ruling; everything else is kept as
+# DIRECTLY_VISUAL with no HTTP round-trip.
+#
+# Note: ``made of`` is intentionally NOT a suspect (visible material) while
+# ``who made`` is (maker/brand knowledge).
+_NON_VISUAL_SUSPECT_RE = re.compile(
     r"""
-    ^what\s+colou?rs?\s+ |                          # What color ...?
-    ^how\s+many\s+ |                                 # How many ...?
-    ^what\s+(?:sport|game|activity)\s+ |             # What sport/game/activity ...?
-    ^which\s+ |                                      # Which ...?
-    ^what\s+is\s+(?:the\s+)?\S+(?:\s+\S+){0,3}\s+made\s+of\b |  # What is X made of?
-    ^what\s+(?:is|are)\s+.+\s+doing\b |              # What is/are ... doing?
-    ^what\s+(?:animal|animals|bird|birds)\s+ |       # What animal/bird ...?
-    ^what\s+is\s+(?:the\s+)?(?:painting|picture|photo|image|drawing|poster)\b |  # What is the painting ...?
-    ^does\s+(?:this|that|the|he|she|it)\s+.+\s+look\s+ |  # Does X look ...?
-    ^this\s+is\s+\w+ |                               # This is tennis?
-    ^what\s+(?:do|does)\s+.+\shave\s+in\s+common\b | # What do X have in common?
-    ^what\s+(?:kind|type)\s+of\s+ |                  # What kind/type of ...?
-    ^is\s+there\s+ |                                 # Is there ...?
-    ^are\s+there\s+ |                                # Are there ...?
-    ^(?:is|are|was|were)\s+
-        (?:the|this|that|these|those|he|she|it|they)\s+ |  # Is/Are the/this/... X?
-    ^what\s+is\s+(?:in\s+front\s+of|next\s+to|on\s+top\s+of
-        |in|on|at|near|behind|under|over|above|below
-        |beside|between|inside|outside)\s+ |         # What is PREP ...?
-    ^what\s+is\s+(?:the\s+)?\w+\s+
-        (?:wearing|holding|carrying|eating|drinking
-        |riding|sitting|standing|playing)\b |         # What is X V-ing?
-    ^who\s+(?:is|are)\s+                              # Who is/are ...?
+    # --- personal / opinion / preference ---
+    \b(?:do|would|did|have|can|could)\s+you\b |
+    \bdo\s+we\b | \bwould\s+one\b | \byour\b | \bprefer\b | \bfavorite\b |
+    \b(?:safe|healthy|nutritious|tasty|delicious|beautiful|ugly|attractive|
+       comfortable|dangerous|expensive|valuable|cheap|personality|
+       professional|romantic)\b |
+
+    # --- OCR / reading rendered text ---
+    \bsays?\b | \bsaying\b | \bwritten\b | \bprinted\b | \bspelled\b |
+    \b(?:word|words|letter|letters|initials|caption|slogan)\b |
+    \bname\s+(?:of|on)\b | \bnamed\b | \bbrand\b | \blogo\b |
+    \bcompany\b | \badvertis\w*\b | \bmentioned\b | \blanguage\b |
+    \bwhat\s+time\b | \b(?:month|year|date)\b | \blicense\b |
+    \bphone\s+number\b | \bwebsite\b | \bscore\b |
+
+    # --- outside-world knowledge / rules / causation ---
+    \ballowed\b | \blegal\b | \brules?\b | \bendangered\b |
+    \b(?:breed|species)\b | \bsound\s+does\b |
+    \bwho\s+(?:made|makes|built|owns|invented)\b | \bmanufactur\w*\b |
+    \bwhy\b | \bpurpose\b | \bused\s+for\b | \bmeant\s+for\b | \bfor\?\s*$ |
+    \bcost\b | \bprice\b |
+    \bwork(?:s|ing)?\s*\?*\s*$ | \bfunction\b | \bpopular\b | \bfamous\b |
+    \bwhat\s+will\s+happen\b | \bgoing\s+to\s+happen\b
     """,
     re.I | re.X,
 )
 
 
-def is_always_visual(question: str) -> bool:
-    """True when the question pattern is definitionally DIRECTLY_VISUAL.
+# Frequent phrasings that trip a suspect marker while describing something
+# plainly visible ("can you see" is perception, not preference; "time of day"
+# is daylight, not a clock face).  Removed before the suspect test so they
+# only exempt themselves — "Do you see a brand name?" still stays suspect.
+_SUSPECT_EXEMPT_RE = re.compile(
+    r"""
+    \b(?:can|could|do|did|would)\s+you\s+see\b |
+    \bwhat\s+time\s+of\s+(?:day|year)\b
+    """,
+    re.I | re.X,
+)
 
-    Returns False if the question also contains subjective / OCR markers
-    (``_CANDIDATE_RE``), so ambiguous cases still go to the LLM.
+
+def is_non_visual_suspect(question: str) -> bool:
+    """True when a question needs an LLM ruling (OCR / personal / knowledge).
+
+    False means "answerable by looking at the image" — the default — and the
+    row is kept as DIRECTLY_VISUAL without calling Qwen.
     """
     q = (question or "").strip()
     if not q:
         return False
-    if _CANDIDATE_RE.search(q):
-        return False
-    return bool(_ALWAYS_VISUAL_RE.search(q))
+    return bool(_NON_VISUAL_SUSPECT_RE.search(_SUSPECT_EXEMPT_RE.sub(" ", q)))
 
 
 def is_subjective_candidate(question: str) -> bool:
@@ -393,8 +414,9 @@ def filter_non_visual_questions(
 
     Args:
         rows: caption rows (dicts with at least ``question``).
-        classifier: Ollama classifier; when provided, **every** question is
-            classified (not only regex candidates).
+        classifier: Ollama classifier; when provided, questions matching
+            ``_NON_VISUAL_SUSPECT_RE`` are sent to the LLM and the rest are
+            kept as ``DIRECTLY_VISUAL`` without a call.
         offline_drop_candidates: when True and classifier is unavailable,
             drop all regex candidates (conservative offline mode).
         checkpoint_path: optional sidecar for incremental classifier resume.
@@ -502,12 +524,13 @@ def filter_non_visual_questions(
     if classifier is not None and n_total:
         n_fast = sum(
             1 for row in rows
-            if is_always_visual(str(row.get("question") or ""))
+            if not is_non_visual_suspect(str(row.get("question") or ""))
         )
         print(
             f"Question classifier: {n_total} questions "
             f"(binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL), "
-            f"{n_fast} fast-path visual (no LLM)...",
+            f"{n_fast} visual by default (no LLM), "
+            f"{n_total - n_fast} suspects to check...",
             flush=True,
         )
     elif offline_drop_candidates:
@@ -557,8 +580,9 @@ def filter_non_visual_questions(
                     flush=True,
                 )
 
-            # Fast-path: skip LLM for obviously visual question patterns
-            if is_always_visual(q):
+            # Visual by default: only OCR / personal / knowledge suspects
+            # are worth an LLM ruling.
+            if not is_non_visual_suspect(q):
                 label_counts["FAST_PATH_VISUAL"] += 1
                 label_counts["DIRECTLY_VISUAL"] += 1
                 kept.append(row)

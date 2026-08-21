@@ -84,7 +84,7 @@ QuestionDependentCaptionGenerator/
 | `caption_rules.py` | `is_ocr_question`, ghavanin-e rewrite, `generate_caption` |
 | `llm_prompts.py` | System prompt-e version-dar (`PROMPT_VERSION`) |
 | `llm_client.py` | Chat API, parse, Tier-1 lexical + Tier-2 semantic judge |
-| `question_classifier.py` | Regex fast-path + LLM → DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL (fast-path: sport/action/material/which/doing; ~60-70% soal-ha bedoon LLM; prompt `v4_sport_action_material`) |
+| `question_classifier.py` | DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL — default visual; faghat suspect-haye OCR / nazar-e shakhsi / knowledge-e biruni be LLM miran (~7% soal-ha; prompt `v5_image_answerable`) |
 | `audit/audit_captions.py` | Shomaresh-e bug-haye baghimande bad az generate |
 
 ---
@@ -99,9 +99,9 @@ flowchart TD
   ocr --> dedup[Drop duplicate rows]
   dedup -->|drop| dupDrop[duplicate_count]
   dedup --> subjOpt{--classify-questions?}
-  subjOpt -->|yes| fastPath{Regex fast-path?}
-  fastPath -->|visual pattern| rules
-  fastPath -->|mobham| clf[Qwen binary classify]
+  subjOpt -->|yes| suspect{Marker-e OCR / shakhsi / knowledge?}
+  suspect -->|na: default visual| rules
+  suspect -->|bale| clf[Qwen binary classify]
   clf -->|save| clfCkpt[classifier_checkpoint.json]
   clfCkpt -->|resume| clf
   clf -->|NOT_DIRECTLY_VISUAL| side[Sidecar JSON]
@@ -131,7 +131,7 @@ flowchart TD
 1. **Mode answer** — Az 10 annotator; `answer_consensus` negah dashte mishe (low-consensus hazf nemishe).
 2. **Hazf-e OCR** — Ba regex + chand `question_type`.
 3. **Dedup** — Faghat avalin `(image_id, question, answer)`; `duplicate_count`.
-4. **Ekhtiari: classifier-e binary** — Regex fast-path soal-haye visual (rang, tedad, sport/game, material, which, doing, animal, expression) ro bedoon LLM accept mikone. Soal-haye mobham be Qwen miran (`v4_sport_action_material`: shenasayi-e sport ≠ ghavanin-e sport). Checkpoint-e incremental (`*_classifier_checkpoint.json`) har `--classifier-checkpoint-every N` — resume ba'd az Ctrl+C. Drop-ha → sidecar.
+4. **Ekhtiari: classifier-e binary** — **Default visual**: har soal `DIRECTLY_VISUAL` mimune bedoon LLM call, magar `_NON_VISUAL_SUSPECT_RE` match kone (marker-e OCR / nazar-e shakhsi / knowledge-e biruni — ~7% VQA v2 train). Suspect-ha be Qwen miran (`v5_image_answerable`: "vaghti motmaen nisti, DIRECTLY_VISUAL bede"). Checkpoint-e incremental (`*_classifier_checkpoint.json`) har `--classifier-checkpoint-every N` — resume ba'd az Ctrl+C. Drop-ha → sidecar.
 5. **Motor-e Rule** — Shamel `yesno_is_everyone` va `is_there` ba `any`-e dorost.
 6. **Ekhtiari: LLM** — Tier-1 + Tier-2; 1 regenerate; ba'd drop.
 7. **Hazf-e sakht** — Caption-e khali / `needs_llm` toye file-e nahayi neveshte nemishe.
@@ -245,7 +245,7 @@ flowchart LR
 | Gate | Zaman | Natije |
 |------|-------|--------|
 | OCR | Hamishe | Hazf-e soal-haye text-reading |
-| Binary classifier | Ba `--classify-questions` | Regex fast-path + LLM; keep DIRECTLY_VISUAL; sidecar baraye NOT_DIRECTLY_VISUAL |
+| Binary classifier | Ba `--classify-questions` | Default visual; LLM faghat baraye suspect-ha; keep DIRECTLY_VISUAL; sidecar baraye NOT_DIRECTLY_VISUAL |
 | Rule safety | Hamishe | Template-e kharab → LLM |
 | Two-tier validators | Ba `--llm` | Rad / 1 regenerate / drop |
 | Empty drop | Hengam-e neveshtan | Hich target-e khali vared-e train nemishe |
@@ -269,8 +269,8 @@ flowchart LR
     "rule_counts": { "...": "..." },
     "llm": { "model": "...", "batch_size": 10, "prompt_version": "v7_..." },
     "question_classifier": {
-      "prompt_version": "v4_sport_action_material",
-      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 2800 }
+      "prompt_version": "v5_image_answerable",
+      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 3430 }
     }
   },
   "annotations": [ { "...": "..." } ]

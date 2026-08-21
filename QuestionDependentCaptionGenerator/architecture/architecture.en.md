@@ -82,7 +82,7 @@ QuestionDependentCaptionGenerator/
 | `caption_rules.py` | `is_ocr_question`, narrow rewrite rules, `generate_caption`, safety gates |
 | `llm_prompts.py` | System prompt, few-shots, packed user prompt (`PROMPT_VERSION`) |
 | `llm_client.py` | HTTP chat, parse JSON captions, Tier-1 lexical + Tier-2 semantic judge |
-| `question_classifier.py` | Regex fast-path + LLM → `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL` (fast-path skips sport/action/material/which/doing + ~60-70% of LLM calls; prompt `v4_sport_action_material`) |
+| `question_classifier.py` | `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`, visual by default; LLM only for OCR / personal / outside-knowledge suspects (~7% of questions; prompt `v5_image_answerable`) |
 | `audit/audit_captions.py` | Count residual bugs (`The there`, `made of is`, empty captions, …) |
 
 ---
@@ -97,9 +97,9 @@ flowchart TD
   ocr --> dedup[Dedup image_id + question + answer]
   dedup -->|drop| dupDrop[duplicate_count]
   dedup --> subjOpt{--classify-questions?}
-  subjOpt -->|yes| fastPath{Regex fast-path?}
-  fastPath -->|visual pattern| rules
-  fastPath -->|ambiguous| clf[Qwen binary classify]
+  subjOpt -->|yes| suspect{OCR / personal / knowledge marker?}
+  suspect -->|no: visual by default| rules
+  suspect -->|yes| clf[Qwen binary classify]
   clf -->|periodic save| clfCkpt[classifier_checkpoint.json]
   clfCkpt -->|resume| clf
   clf -->|NOT_DIRECTLY_VISUAL| side[Write sidecar JSON]
@@ -129,7 +129,7 @@ flowchart TD
 1. **Load & mode answer** — Majority of 10 annotators. Store `answer_count` and `answer_consensus`. Low-consensus rows are **kept**.
 2. **OCR exclusion** — Heuristic regex + selected `question_type` prefixes.
 3. **Dedup** — Keep first `(image_id, question, answer)`; store `duplicate_count`.
-4. **Optional binary classifier** — Regex fast-path auto-accepts obviously visual patterns (color, count, spatial, sport/game, material, which, doing, animal, visible expression) without an LLM call (~60-70% of questions). Ambiguous questions go to Qwen (`v4_sport_action_material`: visible sport identity ≠ sport rules). Incremental checkpoint (`*_classifier_checkpoint.json`) every `--classifier-checkpoint-every N` enables resume after interrupt. Dropped `NOT_DIRECTLY_VISUAL` rows go to `*_not_directly_visual.json` (captioner-training filter only).
+4. **Optional binary classifier** — **Visual by default**: a question is kept as `DIRECTLY_VISUAL` with no LLM call unless `_NON_VISUAL_SUSPECT_RE` matches an OCR, personal-opinion, or outside-knowledge marker (~7% of VQA v2 train). Suspects go to Qwen (`v5_image_answerable`, which also instructs "when unsure, answer DIRECTLY_VISUAL"). Incremental checkpoint (`*_classifier_checkpoint.json`) every `--classifier-checkpoint-every N` enables resume after interrupt. Dropped `NOT_DIRECTLY_VISUAL` rows go to `*_not_directly_visual.json` (captioner-training filter only).
 5. **Rule engine** — First safe match wins; else `needs_llm`. Includes `yesno_is_everyone` and fixed `is_there`/`any`.
 6. **Optional LLM fallback** — Packed batches; Tier-1 then Tier-2; **1** regenerate; leftovers become validation failures then dropped.
 7. **Hard drop** — Empty / short / `needs_llm` rows never enter the written set.
@@ -237,7 +237,7 @@ flowchart LR
 | Gate | When | Outcome |
 |------|------|---------|
 | OCR regex / `question_type` | Always | Remove text-reading questions |
-| Binary classifier | `--classify-questions` | Regex fast-path + LLM; keep DIRECTLY_VISUAL; sidecar for NOT_DIRECTLY_VISUAL |
+| Binary classifier | `--classify-questions` | Visual by default, LLM only for suspects; keep DIRECTLY_VISUAL; sidecar for NOT_DIRECTLY_VISUAL |
 | Rule safety | Always | Bad templates → LLM or skip |
 | Two-tier LLM validators | `--llm` | Reject / regenerate once / drop |
 | Empty drop | Always at write | No empty/`needs_llm` in final annotations |
@@ -268,8 +268,8 @@ flowchart LR
     },
     "question_classifier": {
       "model": "...",
-      "prompt_version": "v4_sport_action_material",
-      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 2800 }
+      "prompt_version": "v5_image_answerable",
+      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 3430 }
     }
   },
   "annotations": [
