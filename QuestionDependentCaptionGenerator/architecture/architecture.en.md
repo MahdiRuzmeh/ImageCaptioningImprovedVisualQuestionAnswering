@@ -164,13 +164,13 @@ flowchart TD
 | Attribute | `what_color`, `what_kind_type`, `what_is_doing` | Tight patterns only |
 | Existential | `is_there`, `are_there` | Includes bare nouns (`Is there grass?`) |
 | Yes/No specialized | `anyone`, `any`, `all`, `both`, `this_a`, possessive, coordinated, modal | Narrow shapes |
-| Yes/No general | `yesno_is_are_predicate` | Defers unreliable compound NPs |
+| Yes/No general | `yesno_is_are_predicate` | Locative `Is X with/in/on Y?` is subject+PP; PP leftover must be adjectival/participle; otherwise LLM |
 | Wh- | `what_is`, `who` | `made of` / `used for` before default |
 | Always LLM | Does/Do/Did, complex Is/Are, free-form which/where/… | Via `caption_generation_strategy` |
 
 ### Safety net
 
-`can_generate_safe_rule_caption` rejects broken templates such as `The there …`, `The the …`, `… made of is …`, `the answer is …`.
+`can_generate_safe_rule_caption` rejects broken templates such as `The there …`, `The the …`, `… made of is …`, `the answer is …`, `with his is not …`.
 
 ### Routing helpers
 

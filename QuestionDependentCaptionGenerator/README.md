@@ -66,7 +66,7 @@ Be jaye ye rule-e omoomi, chand sub-rule-e narrow darim — har kodoom faghat ba
 | `yesno_is_this_a` | `Is/Are this/that a/an/the X?` | "Is this a horse?" + no → "This is not a horse." |
 | `yesno_is_are_possessive` | `Is/Are the X's Y ...?` | "Is the zebra's tail up?" + no → "The zebra's tail is not up." |
 | `yesno_is_are_coordinated` | `Is/Are the X and Y ...?` | "Are the clock and owl made ...?" + no → "The clock and owl are not made ..." |
-| `yesno_is_are_predicate` | Simple `Is/Are` + subject + predicate | "Are the animals eating?" + yes → "The animals are eating." (complex / everyone/anyone → LLM or dedicated rule) |
+| `yesno_is_are_predicate` | Simple `Is/Are` + subject + predicate | "Are the animals eating?" + yes → "The animals are eating."; locative "Is the baby with his daddy?" + yes → "The baby is with his daddy."; PP leftover must be adjectival/participle (`squishy`) — bare-noun leftovers (`tourists`) and everyone/anyone → LLM or a dedicated rule |
 | `is_there` | `Is there (a/an/any) X?` | "Is there any window in the room?" + no → "There is no window in the room." (`any` as whole word — no `ny` bug) |
 
 A subject led by an indefinite article (`"a"`/`"an"`, e.g. `"Is a military person in the picture?"`) can't be split into a head noun without POS tagging, so those rules return `None` and defer to the SLM instead of guessing.
@@ -80,7 +80,7 @@ Some categories are too fragile for deterministic rewrite. Helpers in `caption_r
 | `should_use_llm_for_does_do` | **Always** LLM for Does/Do/Did (rule kept but never applied) |
 | `is_complex_is_are_question` | LLM when predicate has `trying to` / `enough to` / `able to` / `supposed to` / `going to` / `have in common` / `why`, is very long, or has multiple verbs |
 | `should_use_llm_for_who` | LLM for non-`Who is/are` (e.g. `Who made...`) or uncertain answers |
-| `can_generate_safe_rule_caption` | Rejects broken templates (`The in the...`, `the answer is...`) |
+| `can_generate_safe_rule_caption` | Rejects broken templates (`The in the...`, `the answer is...`, `with his is not trunk`) |
 | `caption_generation_strategy` | Returns `"rule"` or `"llm"` |
 
 Simple Is/Are (`Are the animals eating?`) stay rule-based.

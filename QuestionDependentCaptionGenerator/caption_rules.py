@@ -37,6 +37,7 @@ ARTICLES = {"a", "an", "the", "this", "that", "these", "those"}
 
 # Bare personal pronouns — never prefix these with "The" (bug: "The he is ...").
 PRONOUNS = {"he", "she", "it", "they", "we", "you", "i", "who"}
+_POSS_DETS = {"my", "your", "his", "her", "its", "our", "their"}
 
 # Quantifier-led NPs ('one of the giraffes') are already a complete subject —
 # don't prefix them with "The" either (bug: "The one is of the giraffes...").
@@ -693,15 +694,21 @@ _PREP_WORDS = _TRAILING_PREPOSITIONS | {
 
 
 def _leading_np_length(tokens: List[str]) -> Optional[int]:
-    """Conservative length of a leading NP: (DET)? NOUN.
+    """Conservative length of a leading NP: (DET|POSS)? NOUN.
 
     Used after a preposition to find the PP object so any leftover tokens
     can be treated as the yes/no predicate
-    ('on the elephants tourists' → object 'the elephants', pred 'tourists').
+    ('near the waterfront squishy' → object 'the waterfront', pred 'squishy').
+
+    Possessive dets count like articles: ``['his', 'trunk']`` is length 2,
+    so the PP consumes the remainder instead of peeling ``trunk`` off as a
+    fake predicate.
     """
     if not tokens:
         return None
-    if tokens[0].lower() in ARTICLES | {"this", "that", "these", "those"}:
+    if tokens[0].lower() in ARTICLES | _POSS_DETS | {
+        "this", "that", "these", "those",
+    }:
         return 2 if len(tokens) >= 2 else None
     return 1
 
@@ -785,15 +792,21 @@ def _split_coordinated_subject(rest: str) -> Optional[Tuple[str, str]]:
 
 
 def _split_pp_modified_subject(rest: str) -> Optional[Tuple[str, str]]:
-    """NP + PP-modifier + trailing predicate.
+    """NP + PP-modifier + trailing *predicative* leftover.
 
-    'the people on the elephants tourists'
-        → ('the people on the elephants', 'tourists')
     'the ground near the waterfront squishy'
         → ('the ground near the waterfront', 'squishy')
 
-    When the PP consumes the remainder ('this photo from a zoo'), returns
-    None so a later heuristic can treat the PP as the predicate.
+    Leftover must look like a predicate (``_SHORT_PREDICATES`` /
+    ``_PREDICATE_STARTERS``). A leftover bare noun is almost always the
+    head of a compound PP object, not a copular complement:
+
+        'with his trunk' / 'in a mud puddle' / 'with his daddy'
+
+    When the PP consumes the remainder, or the leftover is not predicative,
+    returns None so a later heuristic (participle, locative copula) or the
+    LLM can handle it. Bare-noun leftovers such as
+    'the people on the elephants tourists' therefore defer to the LLM.
     """
     tokens = rest.split()
     prep_indices = [
@@ -801,20 +814,64 @@ def _split_pp_modified_subject(rest: str) -> Optional[Tuple[str, str]]:
         for i, t in enumerate(tokens)
         if t.lower() in _PREP_WORDS and 0 < i < len(tokens) - 1
     ]
+    predicative = _SHORT_PREDICATES | _PREDICATE_STARTERS
     for prep_i in reversed(prep_indices):
         rem = tokens[prep_i + 1 :]
         obj_len = _leading_np_length(rem)
         if obj_len is None or obj_len >= len(rem):
             continue
         pred_tokens = rem[obj_len:]
-        # Trailing predicate should be short/contentful, not another long NP
-        # introduced by 'and' (coordination is handled separately).
-        if pred_tokens[0].lower() == "and":
+        first_pred = pred_tokens[0].lower()
+        if first_pred == "and" or first_pred not in predicative:
             continue
         subj = " ".join(tokens[: prep_i + 1 + obj_len])
         pred = " ".join(pred_tokens)
         return subj, pred
     return None
+
+
+def _split_locative_copula(rest: str) -> Optional[Tuple[str, str]]:
+    """Subject NP + locative PP as the entire predicate.
+
+    'the baby with his daddy' → ('the baby', 'with his daddy')
+    'the cat on the table' → ('the cat', 'on the table')
+
+    Rejects if the span before the first preposition contains a participle,
+    so '... touching ... with his trunk' is left for the participle split.
+    """
+    tokens = rest.split()
+    prep_i = next(
+        (
+            i
+            for i, t in enumerate(tokens)
+            if t.lower() in _PREP_WORDS and 0 < i < len(tokens) - 1
+        ),
+        None,
+    )
+    if prep_i is None:
+        return None
+    subj_tokens = tokens[:prep_i]
+    first = subj_tokens[0].lower()
+    if first not in ARTICLES | PRONOUNS | _QUANTIFIER_LEAD | {
+        "this", "that", "these", "those",
+    }:
+        return None
+    if first in {"a", "an"}:
+        return None
+    if any(
+        t.lower() in _PREDICATE_STARTERS or t.lower().endswith("ing")
+        for t in subj_tokens
+    ):
+        return None
+    if len(subj_tokens) > 4:
+        return None
+    rem = tokens[prep_i + 1 :]
+    obj_len = _leading_np_length(rem)
+    # The PP must be one complete object NP. Leftover tokens mean this is
+    # not a locative copula ('on the elephants tourists').
+    if obj_len is None or obj_len < len(rem):
+        return None
+    return " ".join(subj_tokens), " ".join(tokens[prep_i:])
 
 
 def _split_right_predicate(rest: str) -> Optional[Tuple[str, str]]:
@@ -853,18 +910,21 @@ def split_subject_predicate(rest: str) -> Tuple[str, str]:
     """Split yes/no rest into SUBJECT + PREDICATE.
 
     Specialized extractors run first (possessive, coordination, PP-modified
-    NP, right-edge particle). Only then fall back to participle / determiner
-    heuristics. Examples:
+    NP with a *predicative* leftover, locative copula, right-edge particle).
+    Only then fall back to participle / determiner heuristics. Examples:
 
         'these wings strong' → ('these wings', 'strong')
         'the stove light on' → ('the stove light', 'on')
         \"the zebra's tail up\" → (\"the zebra's tail\", 'up')
-        'the people on the elephants tourists'
-            → ('the people on the elephants', 'tourists')
+        'the ground near the waterfront squishy'
+            → ('the ground near the waterfront', 'squishy')
+        'the baby with his daddy' → ('the baby', 'with his daddy')
         'the clock and owl made in the same artistic fashion'
             → ('the clock and owl', 'made in the same artistic fashion')
         'the boy wearing glasses' → ('the boy', 'wearing glasses')
         'one of the giraffes eating' → ('one of the giraffes', 'eating')
+        'the small elephant touching the big elephant with his trunk'
+            → ('the small elephant', 'touching the big elephant with his trunk')
 
     Returns ``("", "")`` when the subject can't be split reliably (e.g. an
     indefinite article followed by a multi-word NP like 'a military
@@ -917,6 +977,10 @@ def split_subject_predicate(rest: str) -> Tuple[str, str]:
                 " ".join(tokens[:participle_idx]),
                 " ".join(tokens[participle_idx:]),
             )
+
+    locative = _split_locative_copula(rest)
+    if locative is not None:
+        return locative
 
     right = _split_right_predicate(rest)
     if right is not None:
@@ -1373,6 +1437,12 @@ def can_generate_safe_rule_caption(
     if re.match(r"^the the\b", low):
         return False
     if re.search(r"\bmade of is\b|\bused for is\b|\bdesigned for is\b", low):
+        return False
+    # PP-object chopped into a fake copula: "with his is not trunk",
+    # "They standing in a mud are not puddle."
+    if re.search(r"\b(?:his|her|their|its|my|your|our) is(?: not)?\b", low):
+        return False
+    if re.search(r"\bin a \w+ (?:is|are) not\b", low):
         return False
     return True
 
@@ -1841,12 +1911,16 @@ def rule_yesno_is_are_predicate(question: str, answer: str) -> Optional[str]:
             → 'One of the giraffes is eating.'
         'Is the stove light on?' + yes
             → 'The stove light is on.'
-        'Are the people on the elephants tourists?' + yes
-            → 'The people on the elephants are tourists.'
+        'Is the baby with his daddy?' + yes
+            → 'The baby is with his daddy.'
+        'Is the small elephant touching the big elephant with his trunk?' + no
+            → 'The small elephant is not touching the big elephant with his trunk.'
 
     Complex predicates ('trying to', 'enough to', long multi-verb clauses)
     return None — see ``is_complex_is_are_question``. Subjects led by an
-    indefinite article ('a military person') also return None.
+    indefinite article ('a military person') also return None. A PP leftover
+    that is a bare noun ('on the elephants tourists') is not split here;
+    those defer to the LLM.
     """
     if is_complex_is_are_question(question):
         return None

@@ -168,7 +168,7 @@ Ghavanin-e khastar-tar aval ejra mishan (rang, tedad, type, who, vojud-i, yes/no
 | Attribute | `what_color`, `what_kind_type` | Faghat pattern-e ghat'i |
 | Existential | `is_there`, `are_there` | `a`/`an`/`any` as whole words (`Is there any window?`) |
 | Yes/No takhasosi | anyone / everyone / any / all / both / this_a / … | Shape-e narrow |
-| Yes/No omoomi | `yesno_is_are_predicate` | everyone/anyone → rule-e joda ya LLM |
+| Yes/No omoomi | `yesno_is_are_predicate` | Locative `Is X with/in/on Y?` = subject+PP; leftover-e PP bayad adjective/participle bashe; vagarna LLM. everyone/anyone → rule-e joda ya LLM |
 | Wh- | `what_is`, `who` | Aval `made of` / `used for` |
 | Hamishe LLM | Does/Do/Did, Is/Are-e pichide | Az `caption_generation_strategy` |
 
@@ -179,6 +179,7 @@ Ghavanin-e khastar-tar aval ejra mishan (rang, tedad, type, who, vojud-i, yes/no
 - `The there …`, `The the …`
 - `… made of is …`
 - `the answer is …`
+- `with his is not …` (PP-object-e chop-shode)
 
 ### Routing
 
