@@ -7,19 +7,15 @@ When ``--classify-questions`` is on, questions are labeled:
 The gate is a **conservative whitelist**: a question skips the LLM only when
 it matches ``_FAST_PATH_VISUAL_RE`` (colour / count / existence / plain
 spatial / a small set of always-visual What-shapes) *and* carries no
-``_NON_VISUAL_SUSPECT_RE`` marker.  Everything else — judgment, intention,
-safety, preference, purpose, general knowledge, and anything merely
-phrased like a normal VQA question — reaches Qwen (Ollama) for a real
-ruling (UNKNOWN → LLM).
+``_NON_VISUAL_SUSPECT_RE`` marker.  Everything else reaches Qwen (Ollama)
+for a real ruling (UNKNOWN → LLM).
 
-Earlier versions were visual-by-default, which let non-visual questions
-("Is this safe?", "Is this place in a particular country?") into the final
-captions file without ever being classified.
-
-``DIRECTLY_VISUAL`` means the question can be answered by looking at the
-image.  ``NOT_DIRECTLY_VISUAL`` means answering needs rendered text (OCR),
-personal opinion/preference, judgment, intention, or knowledge from outside
-the picture.
+``DIRECTLY_VISUAL`` (the default) means a human could reasonably answer by
+looking at the image alone — including common visual inference (scene type,
+occupation from appearance, meal type, shared actions, "could this be…").
+``NOT_DIRECTLY_VISUAL`` means answering needs rendered text (OCR), personal
+opinion/preference, or external factual knowledge unavailable from
+appearance.
 
 Every classified row records where its decision came from in
 ``visual_filter_source`` (``fast_path`` or ``llm_classifier``) so error
@@ -40,7 +36,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-CLASSIFIER_PROMPT_VERSION = "v7_expanded_fast_path"
+CLASSIFIER_PROMPT_VERSION = "v8_visual_inference_default"
 
 QUESTION_LABELS = (
     "DIRECTLY_VISUAL",
@@ -73,85 +69,138 @@ _CANDIDATE_RE = re.compile(
 )
 
 _SYSTEM_PROMPT = (
-    "Classify each VQA question as DIRECTLY_VISUAL or NOT_DIRECTLY_VISUAL.\n"
-    "DIRECTLY_VISUAL (the default): the question can be answered simply by "
-    "looking at the image. This covers objects, colors, counts, spatial "
-    "positions, actions, materials, room or scene type, sport or activity, "
-    "weather, approximate age, and facial expressions — even when simple "
-    "visual inference is needed.\n"
-    "NOT_DIRECTLY_VISUAL: only when answering requires one of three things "
-    "that are not in the pixels:\n"
-    "  1. reading rendered text (names on signs, logos, brands, plates, "
-    "written words, clock time),\n"
-    "  2. personal opinion, taste, or preference,\n"
-    "  3. outside-world knowledge (sport rules, legality, species facts, "
-    "who manufactured something, prices, animal sounds),\n"
-    "  4. judgment or intention: whether something is safe, suitable, "
-    "healthy or allowed, what someone or an animal wants or is about to do, "
-    "or which country/city a place belongs to.\n"
-    "When unsure, answer DIRECTLY_VISUAL.\n"
-    "Return only the category label."
+    "You are classifying VQA questions for an image captioning dataset.\n"
+    "\n"
+    "The goal is NOT to determine whether the answer is objectively certain.\n"
+    "\n"
+    "The goal is to determine whether a human could reasonably answer the "
+    "question by looking at the image alone.\n"
+    "\n"
+    "Label:\n"
+    "\n"
+    "DIRECTLY_VISUAL\n"
+    "\n"
+    "This is the default.\n"
+    "\n"
+    "Choose DIRECTLY_VISUAL whenever the answer can be obtained or "
+    "reasonably inferred from the visible image.\n"
+    "\n"
+    "This includes:\n"
+    "\n"
+    "• object recognition\n"
+    "• animal recognition\n"
+    "• person recognition\n"
+    "• clothing\n"
+    "• occupations inferred from appearance\n"
+    "• activities\n"
+    "• actions\n"
+    "• interactions\n"
+    "• emotions\n"
+    "• facial expressions\n"
+    "• age estimates\n"
+    "• weather\n"
+    "• season\n"
+    "• room type\n"
+    "• scene type\n"
+    "• event type\n"
+    "• meal type\n"
+    "• sport\n"
+    "• object purpose inferred from context\n"
+    "• materials\n"
+    "• colors\n"
+    "• counts\n"
+    "• locations inside the image\n"
+    "• relative positions\n"
+    "• comparisons\n"
+    "• visible attributes\n"
+    "• visible relationships\n"
+    "• \"could this be...\"\n"
+    "• \"looks like...\"\n"
+    "• \"appears to...\"\n"
+    "• common visual inference\n"
+    "\n"
+    "Even if the answer is not 100% certain, if a human would answer it from "
+    "the image, choose DIRECTLY_VISUAL.\n"
+    "\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "\n"
+    "Only use this label when answering requires information NOT contained "
+    "in the image.\n"
+    "\n"
+    "These are limited to:\n"
+    "\n"
+    "1. Reading rendered text (OCR)\n"
+    "2. Personal opinion or preference\n"
+    "3. External factual knowledge unavailable from appearance\n"
+    "\n"
+    "Return ONLY one label."
 )
 
 _USER_PROMPT_TEMPLATE = (
     "Classify the following VQA question as DIRECTLY_VISUAL or "
     "NOT_DIRECTLY_VISUAL.\n"
-    "DIRECTLY_VISUAL means the question can be answered just by looking at "
-    "the image.\n"
-    "NOT_DIRECTLY_VISUAL means answering needs reading text (OCR), personal "
-    "opinion, or outside-world knowledge.\n"
-    "When unsure, answer DIRECTLY_VISUAL.\n"
-    "Return only the category label.\n\n"
+    "DIRECTLY_VISUAL is the default: choose it whenever a human could "
+    "reasonably answer by looking at the image alone (including common "
+    "visual inference).\n"
+    "NOT_DIRECTLY_VISUAL only when answering needs OCR, personal opinion/"
+    "preference, or external factual knowledge unavailable from appearance.\n"
+    "Return ONLY one label.\n\n"
     "Examples:\n"
-    "Q: What color is the bus?\n"
+    "Q: What type of animal is this?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: Are all the flowers white?\n"
+    "Q: What is this person's job?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: Number of animals?\n"
+    "Q: Who is the pilot?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: Is a military person in the picture?\n"
-    "DIRECTLY_VISUAL\n"
-    "Q: What is watching the TV?\n"
-    "DIRECTLY_VISUAL\n"
-    "Q: What room is this?\n"
+    "Q: What meal is this served for?\n"
     "DIRECTLY_VISUAL\n"
     "Q: Could this photo be from a zoo?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: What fruits are here?\n"
+    "Q: What do these giraffes have in common?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: Where is the lighthouse located?\n"
+    "Q: Is this a museum?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: Do the animals have ear tags?\n"
+    "Q: What season is it?\n"
+    "DIRECTLY_VISUAL\n"
+    "Q: What holiday could this be?\n"
+    "DIRECTLY_VISUAL\n"
+    "Q: Is it raining?\n"
     "DIRECTLY_VISUAL\n"
     "Q: What sport are they playing?\n"
     "DIRECTLY_VISUAL\n"
-    "Q: What is the wall made of?\n"
+    "Q: What is under the doughnut?\n"
     "DIRECTLY_VISUAL\n"
     "Q: What is the name of the hotel?\n"
     "NOT_DIRECTLY_VISUAL\n"
-    "Q: What beer is advertised on the window?\n"
+    "Q: What word is written?\n"
     "NOT_DIRECTLY_VISUAL\n"
-    "Q: What language is on the signs?\n"
+    "Q: What brand is shown?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: What license plate number?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: What language is on the sign?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: Would you eat this?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: Do you like this?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: Would you buy this?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: Which would you choose?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: Is this beautiful?\n"
     "NOT_DIRECTLY_VISUAL\n"
     "Q: What sound does this animal make?\n"
     "NOT_DIRECTLY_VISUAL\n"
-    "Q: Are you allowed to use your foot in ultimate?\n"
+    "Q: Who manufactured this?\n"
     "NOT_DIRECTLY_VISUAL\n"
-    "Q: Which toilet would you prefer to use?\n"
+    "Q: What company built this?\n"
     "NOT_DIRECTLY_VISUAL\n"
-    "Q: Is this pizza nutritious enough for a full dinner?\n"
+    "Q: What country is this flag from?\n"
     "NOT_DIRECTLY_VISUAL\n"
-    "Q: Does this train work?\n"
+    "Q: What breed is this dog?\n"
     "NOT_DIRECTLY_VISUAL\n"
-    "Q: Is this safe?\n"
-    "NOT_DIRECTLY_VISUAL\n"
-    "Q: Is this equipment suitable for the job?\n"
-    "NOT_DIRECTLY_VISUAL\n"
-    "Q: Does this animal want to eat?\n"
-    "NOT_DIRECTLY_VISUAL\n"
-    "Q: Is this place in a particular country?\n"
-    "NOT_DIRECTLY_VISUAL\n"
-    "Q: Should the man be riding here?\n"
+    "Q: What is the price?\n"
     "NOT_DIRECTLY_VISUAL\n\n"
     "Question: {question}"
 )
@@ -346,7 +395,7 @@ class QuestionClassifier:
         model: str = "qwen2.5:3b-instruct-q4_K_M",
         timeout_s: float = 60.0,
         temperature: float = 0.0,
-        num_ctx: int = 2048,
+        num_ctx: int = 4096,
     ) -> None:
         self.host = host.rstrip("/")
         self.model = model
