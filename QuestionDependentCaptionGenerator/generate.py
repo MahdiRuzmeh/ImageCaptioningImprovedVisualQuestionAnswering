@@ -8,7 +8,7 @@ Run az in folder:
     python generate.py --split val --llm --batch-size 10 \\
         --model qwen2.5:3b-instruct-q4_K_M --checkpoint-every 50
 
-Output default: ./outputs/v2_question_dependent_captions_{train,val}2014.json
+Output default: ./outputs/vqa_v2_question_dependent_captions_{train,val}2014.json
 
 Resume (Ctrl+C safe):
     hamoon command ro dobare bezan — classifier + LLM az checkpoint edame mide.
@@ -21,6 +21,7 @@ import json
 import os
 import tempfile
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -58,12 +59,18 @@ SPLIT_PATHS: Dict[str, Dict[str, Path]] = {
     "train": {
         "questions": DATASET_ROOT / "v2_OpenEnded_mscoco_train2014_questions.json",
         "annotations": DATASET_ROOT / "v2_mscoco_train2014_annotations.json",
-        "output": OUTPUT_ROOT / "v2_question_dependent_captions_train2014.json",
+        "output": OUTPUT_ROOT / "vqa_v2_question_dependent_captions_train2014.json",
+        "classification_result": (
+            OUTPUT_ROOT / "vqa_v2_question_classification_result.json"
+        ),
     },
     "val": {
         "questions": DATASET_ROOT / "v2_OpenEnded_mscoco_val2014_questions.json",
         "annotations": DATASET_ROOT / "v2_mscoco_val2014_annotations.json",
-        "output": OUTPUT_ROOT / "v2_question_dependent_captions_val2014.json",
+        "output": OUTPUT_ROOT / "vqa_v2_question_dependent_captions_val2014.json",
+        "classification_result": (
+            OUTPUT_ROOT / "vqa_v2_question_classification_result_val2014.json"
+        ),
     },
 }
 
@@ -80,6 +87,21 @@ def chunked(
     """List ro be batch haye size N chop mikone."""
     n = max(1, int(size))
     return [list(items[i : i + n]) for i in range(0, len(items), n)]
+
+
+def now_iso() -> str:
+    """Local timezone ISO-8601 timestamp (seconds precision)."""
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def duration_seconds(started_at: str, ended_at: str) -> float:
+    """Elapsed seconds between two ISO timestamps; 0.0 if unparsable."""
+    try:
+        start = datetime.fromisoformat(started_at)
+        end = datetime.fromisoformat(ended_at)
+    except ValueError:
+        return 0.0
+    return max(0.0, round((end - start).total_seconds(), 3))
 
 
 def recount_rules(rows: List[Dict[str, Any]]) -> Counter:
@@ -141,23 +163,31 @@ def count_vqa_overlap(
     return n
 
 
-def classifier_checkpoint_path(output_path: Path) -> Path:
-    """Sidecar JSON for incremental classifier resume."""
-    return output_path.with_name(output_path.stem + "_classifier_checkpoint.json")
+def classification_result_path(split: str) -> Path:
+    """Persistent question-classification result (also used as resume checkpoint).
+
+    Train: ``vqa_v2_question_classification_result.json``
+    Val: ``vqa_v2_question_classification_result_val2014.json``
+    """
+    return SPLIT_PATHS[split]["classification_result"]
 
 
-def resolve_post_filter_row_count(output_path: Path) -> Optional[int]:
+def resolve_post_filter_row_count(
+    output_path: Path,
+    classification_path: Optional[Path] = None,
+) -> Optional[int]:
     """Expected annotation count after OCR/dedup/classifier filters."""
-    ckpt = load_classifier_checkpoint(classifier_checkpoint_path(output_path))
-    if ckpt:
-        info = ckpt.get("info") or {}
-        if info.get("status") == "complete":
-            pf = info.get("post_filter_count")
-            if pf is not None:
-                return int(pf)
-            kept = ckpt.get("kept")
-            if isinstance(kept, list):
-                return len(kept)
+    if classification_path is not None:
+        ckpt = load_classifier_checkpoint(classification_path)
+        if ckpt:
+            info = ckpt.get("info") or {}
+            if info.get("status") == "complete":
+                pf = info.get("post_filter_count")
+                if pf is not None:
+                    return int(pf)
+                kept = ckpt.get("kept")
+                if isinstance(kept, list):
+                    return len(kept)
     data = load_output_payload(output_path)
     if not data:
         return None
@@ -174,6 +204,7 @@ def resolve_post_filter_row_count(output_path: Path) -> Optional[int]:
 
 def try_load_checkpoint_rows(
     output_path: Path,
+    classification_path: Optional[Path] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     """Load output rows when count matches post-filter expectation (resume fast-path)."""
     data = load_output_payload(output_path)
@@ -182,7 +213,10 @@ def try_load_checkpoint_rows(
     rows = data.get("annotations")
     if not isinstance(rows, list) or not rows:
         return None
-    expected = resolve_post_filter_row_count(output_path)
+    expected = resolve_post_filter_row_count(
+        output_path,
+        classification_path=classification_path,
+    )
     if expected is not None and len(rows) != expected:
         return None
     for row in rows[:3]:
@@ -466,8 +500,8 @@ def merge_llm_resume(
 
 
 def llm_failure_log_path(output_path: Path) -> Path:
-    """Sidecar log path next to captions JSON (``*.json.llm_failures.log``)."""
-    return output_path.with_suffix(output_path.suffix + ".llm_failures.log")
+    """Sidecar log path next to captions JSON (``*.json.llm_failures``)."""
+    return output_path.with_suffix(output_path.suffix + ".llm_failures")
 
 
 def retry_audit_path(output_path: Path) -> Path:
@@ -658,6 +692,7 @@ def apply_llm_fallbacks(
     low_consensus_excluded_count: int = 0,
     min_consensus: float = 0.0,
     rule_validation_reject_count: int = 0,
+    process_started_at: Optional[str] = None,
 ) -> Tuple[Counter, int, int]:
     """Row haye rule=needs_llm ro ba packed LLM caption update mikone.
 
@@ -721,6 +756,7 @@ def apply_llm_fallbacks(
             low_consensus_excluded_count=low_consensus_excluded_count,
             min_consensus=min_consensus,
             rule_validation_reject_count=rule_validation_reject_count,
+            process_started_at=process_started_at,
         )
 
     def _record_outcome(row_i: int, outcome: ItemOutcome, stage: str) -> None:
@@ -974,8 +1010,11 @@ def write_output_json(
     min_consensus: float = 0.0,
     validation_flagged_count: int = 0,
     rule_validation_reject_count: int = 0,
+    process_started_at: Optional[str] = None,
 ) -> None:
     """Natije ro atomic be JSON file save kon (crash-safe)."""
+    ended_at = now_iso()
+    started_at = process_started_at or ended_at
     info: Dict[str, Any] = {
         "description": "VQA v2 question-dependent captions (rule-based Q+A → statement)",
         "source_questions": str(questions_json),
@@ -994,6 +1033,9 @@ def write_output_json(
         "validation_failure_count": validation_failure_count,
         "validation_flagged_count": validation_flagged_count,
         "rule_validation_reject_count": rule_validation_reject_count,
+        "process_started_at": started_at,
+        "process_ended_at": ended_at,
+        "process_duration_seconds": duration_seconds(started_at, ended_at),
         "rule_counts": dict(rule_counts),
     }
     if classifier_meta:
@@ -1038,10 +1080,18 @@ def print_stats(
     not_directly_visual_count: int = 0,
     low_consensus_excluded_count: int = 0,
     min_consensus: float = 0.0,
+    process_started_at: Optional[str] = None,
 ) -> None:
     """Statistik rule ha ro chap kon ta befahmim cheghadr needs_llm darim."""
     total = len(rows)
     print(f"Wrote {total} captions -> {output_path}")
+    if process_started_at:
+        ended_at = now_iso()
+        secs = duration_seconds(process_started_at, ended_at)
+        print(
+            f"  process: {process_started_at} -> {ended_at} "
+            f"({secs:.1f}s)"
+        )
     if ocr_excluded_count:
         print(f"  (excluded {ocr_excluded_count} OCR-dependent question/answer pairs)")
     if low_consensus_excluded_count:
@@ -1187,7 +1237,8 @@ def parse_args() -> argparse.Namespace:
         default=50,
         help=(
             "Save classifier progress every N classified questions "
-            "(default 50; enables resume after interrupt)"
+            "(default 50; enables resume after interrupt). Final result is "
+            "kept as vqa_v2_question_classification_result[.json]."
         ),
     )
     parser.add_argument(
@@ -1196,7 +1247,8 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Run binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL classifier "
             "on every question and drop NOT_DIRECTLY_VISUAL "
-            "(writes *_not_directly_visual.json sidecar)"
+            "(writes *_not_directly_visual.json sidecar and "
+            "vqa_v2_question_classification_result.json)"
         ),
     )
     parser.add_argument(
@@ -1227,6 +1279,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Entry point — rule caption + optional LLM fallback + resume."""
     args = parse_args()
+    process_started_at = now_iso()
     paths = SPLIT_PATHS[args.split]
 
     questions_json = Path(args.questions) if args.questions else paths["questions"]
@@ -1234,6 +1287,7 @@ def main() -> None:
         Path(args.annotations) if args.annotations else paths["annotations"]
     )
     output_path = Path(args.output) if args.output else paths["output"]
+    clf_result_path = classification_result_path(args.split)
 
     if not questions_json.is_file():
         raise FileNotFoundError(f"Questions file not found: {questions_json}")
@@ -1258,9 +1312,8 @@ def main() -> None:
 
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
-    ckpt_path = classifier_checkpoint_path(output_path)
     if args.no_resume:
-        delete_classifier_checkpoint(ckpt_path)
+        delete_classifier_checkpoint(clf_result_path)
 
     rows: Optional[List[Dict[str, Any]]] = None
     rule_counts: Counter
@@ -1282,7 +1335,10 @@ def main() -> None:
     # A different --min-consensus means the previous rows were filtered with
     # another threshold, so they must be rebuilt instead of reused.
     if args.llm and not args.no_resume:
-        rows = try_load_checkpoint_rows(output_path)
+        rows = try_load_checkpoint_rows(
+            output_path,
+            classification_path=clf_result_path,
+        )
         prev_payload = load_output_payload(output_path) or {}
         prev_min = float((prev_payload.get("info") or {}).get("min_consensus", 0.0))
         if rows is not None and prev_min != args.min_consensus:
@@ -1295,6 +1351,9 @@ def main() -> None:
         if rows is not None:
             rule_counts = recount_rules(rows)
             prev_info = prev_payload.get("info") or {}
+            prev_started = prev_info.get("process_started_at")
+            if isinstance(prev_started, str) and prev_started.strip():
+                process_started_at = prev_started.strip()
             low_consensus_excluded_count = int(
                 prev_info.get("low_consensus_excluded_count", 0)
             )
@@ -1365,7 +1424,9 @@ def main() -> None:
                     clf,
                     offline_drop_candidates=args.drop_subjective_candidates
                     and not args.classify_questions,
-                    checkpoint_path=ckpt_path if args.classify_questions else None,
+                    checkpoint_path=(
+                        clf_result_path if args.classify_questions else None
+                    ),
                     checkpoint_every=args.classifier_checkpoint_every,
                     resume=not args.no_resume,
                     classifier_meta=classifier_meta,
@@ -1373,7 +1434,7 @@ def main() -> None:
                     fast_path=not args.no_fast_path,
                 )
             except KeyboardInterrupt:
-                ckpt = load_classifier_checkpoint(ckpt_path)
+                ckpt = load_classifier_checkpoint(clf_result_path)
                 done = 0
                 total = len(rows)
                 if ckpt:
@@ -1382,7 +1443,7 @@ def main() -> None:
                     total = int(info.get("total_to_classify", total))
                 print(
                     f"\nInterrupted during classification — "
-                    f"checkpoint saved -> {ckpt_path} "
+                    f"checkpoint saved -> {clf_result_path} "
                     f"({done}/{total} done). Rerun the same command to continue."
                 )
                 raise SystemExit(130) from None
@@ -1400,7 +1461,9 @@ def main() -> None:
             print(
                 f"Classifier filter: kept {directly_visual_count} DIRECTLY_VISUAL, "
                 f"dropped {not_directly_visual_count} NOT_DIRECTLY_VISUAL; "
-                f"sidecar -> {side}; label_counts={dict(lab_counts)}"
+                f"sidecar -> {side}; "
+                f"classification result -> {clf_result_path}; "
+                f"label_counts={dict(lab_counts)}"
             )
         else:
             directly_visual_count = len(rows)
@@ -1472,6 +1535,7 @@ def main() -> None:
                     low_consensus_excluded_count=low_consensus_excluded_count,
                     min_consensus=args.min_consensus,
                     rule_validation_reject_count=rule_validation_reject_count,
+                    process_started_at=process_started_at,
                 )
             )
         except KeyboardInterrupt:
@@ -1496,6 +1560,7 @@ def main() -> None:
                 low_consensus_excluded_count=low_consensus_excluded_count,
                 min_consensus=args.min_consensus,
                 rule_validation_reject_count=rule_validation_reject_count,
+                process_started_at=process_started_at,
             )
             still = sum(1 for r in rows if r["rule"] == "needs_llm")
             if failure_log is not None:
@@ -1562,8 +1627,8 @@ def main() -> None:
         min_consensus=args.min_consensus,
         validation_flagged_count=validation_flagged_count,
         rule_validation_reject_count=rule_validation_reject_count,
+        process_started_at=process_started_at,
     )
-    delete_classifier_checkpoint(ckpt_path)
     print_stats(
         rows,
         rule_counts,
@@ -1573,6 +1638,7 @@ def main() -> None:
         not_directly_visual_count=not_directly_visual_count,
         low_consensus_excluded_count=low_consensus_excluded_count,
         min_consensus=args.min_consensus,
+        process_started_at=process_started_at,
     )
     if args.llm:
         still = sum(1 for r in rows if r["rule"] == "needs_llm")

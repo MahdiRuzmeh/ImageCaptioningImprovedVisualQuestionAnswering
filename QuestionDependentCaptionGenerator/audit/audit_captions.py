@@ -6,7 +6,7 @@ Covers Comments6 (template collapses, leftovers) and Comments8: per-row
 
 Usage (from QuestionDependentCaptionGenerator/):
 
-    python audit/audit_captions.py outputs/v2_question_dependent_captions_train2014.json
+    python audit/audit_captions.py outputs/vqa_v2_question_dependent_captions_train2014.json
 """
 
 from __future__ import annotations
