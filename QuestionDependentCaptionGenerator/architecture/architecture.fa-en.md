@@ -84,7 +84,7 @@ QuestionDependentCaptionGenerator/
 | `caption_rules.py` | `is_ocr_question`, ghavanin-e rewrite, `generate_caption` |
 | `llm_prompts.py` | System prompt-e version-dar (`PROMPT_VERSION`) |
 | `llm_client.py` | Chat API, parse, Tier-1 lexical + Tier-2 semantic judge |
-| `question_classifier.py` | DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL — Fast Path ye **whitelist**-e mohtat (rang / tedad / vojud / rabete-ye makani-e sade); baghie hame be LLM miran (prompt `v6_conservative_fast_path`) va har row `visual_filter_source` migire |
+| `question_classifier.py` | DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL — Fast Path ye **whitelist**-e mohtat (rang / tedad / vojud / makani / animal|sport|room|food|… / do-you-see / doing|holding|wearing); baghie hame be LLM miran (prompt `v7_expanded_fast_path`) va har row `visual_filter_source` migire |
 | `audit/audit_captions.py` | Shomaresh-e bug-haye baghimande + `visual_filter_source` / `validation_flags` / check-e accounting |
 
 ---
@@ -138,7 +138,7 @@ flowchart TD
 3. **Ekhtiari: filter-e consensus** — `--min-consensus T` (default `0.0` = khamush) pair-hayi ke mode answer-eshun kamtar az `T` tavafogh-e annotator dare drop mikone: vaghti adam-ha tavafogh nadaran, oon caption target-e ghabel-e etemad nist. **Ghabl az dedup** ejra mishe ta pair-e drop-shode jaye dedup ro nagire. Drop-ha → `*_low_consensus.json` + `info.low_consensus_excluded_count`. Ru VQA v2 train ~11% zir-e `0.4` hastan va hame non-yes/no (javab-e binary ba 10 annotator nemitune zir-e `0.5` beshe), pas sahm-e yes/no dar dataset bala miravad.
 4. **Dedup** — Faghat avalin `(image_id, question, answer)`; `duplicate_count`.
 5. **Motor-e Rule** — Shamel `yesno_is_everyone` va `is_there` ba `any`-e dorost. Har caption-e rule ba hamun validator-e hard-e LLM check mishe: fail → `needs_llm` (`info.rule_validation_reject_count`), na template-e kharab.
-6. **Ekhtiari: classifier-e binary** — Fast Path ye **whitelist** ast, na default: soal faghat vaghti bedoon LLM label mikhore ke `_FAST_PATH_VISUAL_RE` (rang / tedad / vojud / rabete-ye makani-e sade) match kone, ≤14 token bashe, va hich marker-e `_NON_VISUAL_SUSPECT_RE` nadashte bashe. Baghie be Qwen miran (`v6_conservative_fast_path`). `--no-fast-path` whitelist ro kollan khamoosh mikone. Har row `visual_filter_source` (`fast_path` / `llm_classifier`) migire — row-haye `*_not_directly_visual.json` ham. Checkpoint (`*_classifier_checkpoint.json`) har `--classifier-checkpoint-every N` save mishe va ba `fast_path_enabled` key mikhore, pas run-e Fast Path ba run-e `--no-fast-path` checkpoint share nemikonan.
+6. **Ekhtiari: classifier-e binary** — Fast Path ye **whitelist** ast, na default: soal faghat vaghti bedoon LLM label mikhore ke `_FAST_PATH_VISUAL_RE` match kone (rang ba plural; `how many` / `number of`; `is/are there`; `do/can you see`; `is the sky`; `what animal(s)|shape|sport|game|activity|room|scene|place|food(s)|fruit(s)|dish`; `what is under/over/…`; spatial-e end-anchored; `what … doing|holding|wearing`-e end-anchored) **va** hich marker-e `_NON_VISUAL_SUSPECT_RE` nadashte bashe. Fast-path **nist** (UNKNOWN → LLM): bare `what is/are/do/does`, `what kind/type`, `is he/she`, `where is`, `could this`, `does this look`, `who is`, …. Baghie be Qwen miran (`v7_expanded_fast_path`). `--no-fast-path` whitelist ro kollan khamoosh mikone. Har row `visual_filter_source` (`fast_path` / `llm_classifier`) migire — row-haye `*_not_directly_visual.json` ham. Checkpoint (`*_classifier_checkpoint.json`) har `--classifier-checkpoint-every N` save mishe va ba `fast_path_enabled` key mikhore, pas run-e Fast Path ba run-e `--no-fast-path` checkpoint share nemikonan.
 7. **Ekhtiari: LLM** — Tier-1 (hard reject + flag) + Tier-2; 1 regenerate; salvage ham ye single-item retry dare, pas parse failure-e batch bedoon test-e tanha drop nemishe. Har retry → `*_validation_audit.jsonl`.
 8. **Hazf-e sakht** — Caption-e khali / `needs_llm` toye file-e nahayi neveshte nemishe.
 9. **Pass-e nahayi-e validator** — Check-haye hard ye bar dige ru **hame** caption ha (rule + LLM); moshkel-haye mashkuk → `validation_flags` va row mimoone (`info.validation_flagged_count`).
@@ -326,7 +326,7 @@ flowchart LR
       "retry_audit_log": "..."
     },
     "question_classifier": {
-      "prompt_version": "v6_conservative_fast_path",
+      "prompt_version": "v7_expanded_fast_path",
       "fast_path_enabled": true,
       "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 1390 }
     }

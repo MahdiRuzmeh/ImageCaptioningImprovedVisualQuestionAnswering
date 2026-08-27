@@ -5,12 +5,12 @@ When ``--classify-questions`` is on, questions are labeled:
     DIRECTLY_VISUAL | NOT_DIRECTLY_VISUAL
 
 The gate is a **conservative whitelist**: a question skips the LLM only when
-it matches ``_FAST_PATH_VISUAL_RE`` (plain colour / count / existence /
-spatial shapes that are essentially never ambiguous) *and* carries no
+it matches ``_FAST_PATH_VISUAL_RE`` (colour / count / existence / plain
+spatial / a small set of always-visual What-shapes) *and* carries no
 ``_NON_VISUAL_SUSPECT_RE`` marker.  Everything else — judgment, intention,
 safety, preference, purpose, general knowledge, and anything merely
 phrased like a normal VQA question — reaches Qwen (Ollama) for a real
-ruling.
+ruling (UNKNOWN → LLM).
 
 Earlier versions were visual-by-default, which let non-visual questions
 ("Is this safe?", "Is this place in a particular country?") into the final
@@ -40,7 +40,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-CLASSIFIER_PROMPT_VERSION = "v6_conservative_fast_path"
+CLASSIFIER_PROMPT_VERSION = "v7_expanded_fast_path"
 
 QUESTION_LABELS = (
     "DIRECTLY_VISUAL",
@@ -182,7 +182,7 @@ _NON_VISUAL_SUSPECT_RE = re.compile(
 
     # --- OCR / reading rendered text ---
     \bsays?\b | \bsaying\b | \bwritten\b | \bprinted\b | \bspelled\b |
-    \b(?:word|words|letter|letters|initials|caption|slogan)\b |
+    \b(?:word|words|letter|letters|initials|caption|slogan|text)\b |
     \bname\s+(?:of|on)\b | \bnamed\b | \bbrand\b | \blogo\b |
     \bcompany\b | \badvertis\w*\b | \bmentioned\b | \blanguage\b |
     \bwhat\s+time\b | \b(?:month|year|date)\b | \blicense\b |
@@ -225,33 +225,53 @@ _SUSPECT_EXEMPT_RE = re.compile(
     r"""
     \b(?:can|could|do|did|would)\s+you\s+see\b |
     \b(?:can|could)\s+be\s+seen\b |
-    \bwhat\s+time\s+of\s+(?:day|year)\b
+    \bwhat\s+time\s+of\s+(?:day|year)\b |
+    \bnext\s+to\b |
+    \b(?:to|on)\s+the\s+right\b |
+    \bright\s+side\b |
+    \btrash\s+can\b |
+    \bcity\s+bus(?:es)?\b |
+    \bcan\s+you\s+spot\b
     """,
     re.I | re.X,
 )
 
 
 # Fast Path whitelist: shapes whose answer is read straight off the pixels
-# with essentially no ambiguity.  Deliberately tiny — the professor's review
-# showed that a visual-by-default gate let judgment/intention/knowledge
-# questions through unclassified, so anything not listed here pays for an
-# LLM ruling.
+# with essentially no ambiguity.  Deliberately narrow — anything not listed
+# here is UNKNOWN and pays for an LLM ruling.
 #
-#   - colour:    "What color is the bus?"
-#   - counting:  "How many cookies are there?"
-#   - existence: "Is there a clock on the wall?"
-#   - plain spatial relation between two concrete noun phrases
+#   - colour:     "What color is the bus?" / "What colors are the cows?"
+#   - counting:   "How many cookies are there?" / "Number of animals?"
+#   - existence:  "Is there a clock on the wall?" / "Do you see a boat?"
+#   - scene type: "What sport/room/animal/food/…"
+#   - spatial:    plain is/are DET NP PREP DET noun; "What is under the table?"
+#   - action:     end-anchored "What is the man doing/holding/wearing?"
+#   - sky:        "Is the sky clear?"
 #
-# The spatial shape additionally requires a determiner on both sides and the
-# question to end right after the second noun phrase, so a trailing predicate
-# ("Is the man in the picture happy?") or a longer multi-clause question is
-# left for the classifier.
+# Not whitelisted (stay UNKNOWN → LLM): bare what is/are/do/does, what kind/type,
+# is he/she, where is, could this, does this look, who is, …
+#
+# The plain spatial shape requires a determiner on both sides and the question
+# to end right after the second noun phrase, so a trailing predicate
+# ("Is the man in the picture happy?") is left for the classifier.
 _FAST_PATH_VISUAL_RE = re.compile(
     r"""
     ^\s*(?:
-        what\s+colou?r\b |
+        what\s+colou?rs?\b |
+        what\s+(?:animals?|shape|sport|game|activity|room|scene|place|
+                  foods?|fruits?|dish)\b |
+        number\s+of\b |
         how\s+many\b |
         (?:is|are)\s+there\b |
+        is\s+the\s+sky\b |
+        (?:do|can|could|did|would)\s+you\s+see\b |
+        what\s+is\s+
+            (?:under|over|above|below|behind|beside|next\s+to|
+               in\s+front\s+of)\b |
+        what\s+(?:is|are)\s+
+            (?:the|this|that|he|she|it|they|these|those|a|an)\b
+            [\w'\s,-]*\b(?:doing|holding|wearing)\s*\??\s*$ |
         (?:is|are)\s+
             (?:the|a|an|this|that|these|those|his|her|its|their)\s+
             [\w'-]+(?:\s+[\w'-]+){0,3}\s+
@@ -264,10 +284,6 @@ _FAST_PATH_VISUAL_RE = re.compile(
     """,
     re.I | re.X,
 )
-
-# Above this length even a whitelisted shape is treated as too complex to
-# skip the classifier.
-_FAST_PATH_MAX_TOKENS = 14
 
 
 def is_non_visual_suspect(question: str) -> bool:
@@ -285,14 +301,11 @@ def is_non_visual_suspect(question: str) -> bool:
 def is_fast_path_visual(question: str) -> bool:
     """True when a question may be kept DIRECTLY_VISUAL without an LLM call.
 
-    Requires an unambiguous visual shape (colour / count / existence / plain
-    spatial relation), a short question, and no non-visual suspect marker.
-    Everything else must reach the classifier.
+    Requires an unambiguous visual whitelist shape and no non-visual suspect
+    marker. Everything else is UNKNOWN and must reach the classifier.
     """
     q = (question or "").strip()
     if not q:
-        return False
-    if len(q.split()) > _FAST_PATH_MAX_TOKENS:
         return False
     if not _FAST_PATH_VISUAL_RE.search(q):
         return False

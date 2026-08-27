@@ -82,7 +82,7 @@ QuestionDependentCaptionGenerator/
 | `caption_rules.py` | `is_ocr_question`, narrow rewrite rules, `generate_caption`, safety gates |
 | `llm_prompts.py` | System prompt, few-shots, packed user prompt (`PROMPT_VERSION`) |
 | `llm_client.py` | HTTP chat, parse JSON captions, Tier-1 lexical + Tier-2 semantic judge |
-| `question_classifier.py` | `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL` with a conservative Fast Path whitelist (colour / count / existence / plain spatial); everything else goes to the LLM (prompt `v6_conservative_fast_path`) and every row records `visual_filter_source` |
+| `question_classifier.py` | `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL` with a conservative Fast Path whitelist (colour / count / existence / spatial / animal|sport|room|food|… / do-you-see / doing|holding|wearing); everything else goes to the LLM (prompt `v7_expanded_fast_path`) and every row records `visual_filter_source` |
 | `audit/audit_captions.py` | Count residual bugs (`The there`, `made of is`, empty captions, …) plus `visual_filter_source` / `validation_flags` / accounting identity |
 
 ---
@@ -136,7 +136,7 @@ flowchart TD
 3. **Optional consensus filter** — `--min-consensus T` (default `0.0` = off) drops pairs whose mode answer got less than `T` annotator agreement: if humans cannot agree, the caption is not a trustworthy training target. Runs **before** dedup so a dropped pair does not occupy the dedup slot. Drops go to `*_low_consensus.json`; count in `info.low_consensus_excluded_count`. On VQA v2 train ~11% of pairs sit below `0.4` and all of them are non-yes/no (a binary answer over 10 annotators cannot fall below `0.5`), so the filter raises the yes/no share of the dataset.
 4. **Dedup** — Keep first `(image_id, question, answer)`; store `duplicate_count`.
 5. **Rule engine** — First safe match wins; else `needs_llm`. Includes `yesno_is_everyone` and fixed `is_there`/`any`. Every rule caption then goes through the same hard validator as an LLM caption: a failure becomes `needs_llm` (`info.rule_validation_reject_count`) instead of shipping a broken template.
-6. **Optional binary classifier** — Fast Path is a **whitelist**, not a default: a question skips the LLM only when it matches `_FAST_PATH_VISUAL_RE` (colour / count / existence / plain spatial relation), is at most 14 tokens, and carries no `_NON_VISUAL_SUSPECT_RE` marker. Everything else goes to Qwen (`v6_conservative_fast_path`). `--no-fast-path` disables the whitelist entirely so every question is classified by the LLM. Each row records `visual_filter_source` (`fast_path` / `llm_classifier`), including the rows written to `*_not_directly_visual.json`. Incremental checkpoint (`*_classifier_checkpoint.json`) every `--classifier-checkpoint-every N` enables resume after interrupt and is keyed on `fast_path_enabled`, so a Fast Path run cannot resume a `--no-fast-path` run.
+6. **Optional binary classifier** — Fast Path is a **whitelist**, not a default: a question skips the LLM only when it matches `_FAST_PATH_VISUAL_RE` (colour incl. plurals; `how many` / `number of`; `is/are there`; `do/can you see`; `is the sky`; `what animal(s)|shape|sport|game|activity|room|scene|place|food(s)|fruit(s)|dish`; `what is under/over/…`; plain end-anchored spatial `Is the cat on the table?`; end-anchored `what … doing|holding|wearing`) **and** carries no `_NON_VISUAL_SUSPECT_RE` marker. Not whitelisted (UNKNOWN → LLM): bare `what is/are/do/does`, `what kind/type`, `is he/she`, `where is`, `could this`, `does this look`, `who is`, …. Everything else goes to Qwen (`v7_expanded_fast_path`). `--no-fast-path` disables the whitelist entirely so every question is classified by the LLM. Each row records `visual_filter_source` (`fast_path` / `llm_classifier`), including the rows written to `*_not_directly_visual.json`. Incremental checkpoint (`*_classifier_checkpoint.json`) every `--classifier-checkpoint-every N` enables resume after interrupt and is keyed on `fast_path_enabled`, so a Fast Path run cannot resume a `--no-fast-path` run.
 7. **Optional LLM fallback** — Packed batches; Tier-1 hard rejects then Tier-2 semantic judge; **1** regenerate; salvage rounds also get one single-item retry so a batch parse failure is never dropped untested. Every retry is written to `*_validation_audit.jsonl`.
 8. **Hard drop** — Empty / short / `needs_llm` rows never enter the written set.
 9. **Final validation pass** — The hard validator runs once more over **all** remaining captions (rule and LLM alike); soft findings are stored as `validation_flags` and the row is kept (`info.validation_flagged_count`).
@@ -322,7 +322,7 @@ flowchart LR
     },
     "question_classifier": {
       "model": "...",
-      "prompt_version": "v6_conservative_fast_path",
+      "prompt_version": "v7_expanded_fast_path",
       "fast_path_enabled": true,
       "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 1390 }
     }

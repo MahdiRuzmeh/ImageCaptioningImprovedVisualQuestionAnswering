@@ -9,7 +9,7 @@ Pipeline:
 1. VQA questions + annotations ro load mikone (`input_count`)
 2. OCR-dependent Q/A pair ha (`is_ocr_question`) — soal hayi ke javab-eshun faghat az ru-ye reading-e text/adad-e ru-ye tasvir mishe fahmid (sign, logo, brand, plate, jersey number, clock) — kollan hazf mishan, chon `SimpleImageCaptioner` OCR nadare va nemitune in target ha ro yad begire; count-esh dar `info.ocr_excluded_count` save mishe
 3. Duplicate `(image_id, question, answer)` rows drop mishan (`info.duplicate_count`)
-4. Optional `--classify-questions`: binary `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. The gate is a **conservative whitelist** — only plain colour / count / existence / spatial shapes skip the LLM (`_FAST_PATH_VISUAL_RE`); everything else goes through Qwen (prompt `v6_conservative_fast_path`). Har row field-e `visual_filter_source` (`fast_path` ya `llm_classifier`) migire. `--no-fast-path` hame ro be LLM mifreste. Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad)
+4. Optional `--classify-questions`: binary `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. The gate is a **conservative whitelist** (`_FAST_PATH_VISUAL_RE`: colour / count / existence / spatial / animal|sport|room|food|… / do-you-see / end-anchored doing|holding|wearing) — match + no suspect marker → `fast_path`; else UNKNOWN → Qwen (`v7_expanded_fast_path`). Har row field-e `visual_filter_source` (`fast_path` ya `llm_classifier`) migire. `--no-fast-path` hame ro be LLM mifreste. Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad)
 5. Rule engine try mikone (`caption_rules.py`) — faghat pattern haye daghigh va motmaen
 6. Age hich rule match nakone, row `rule="needs_llm"` va `caption=""` mishe
 7. Age `--llm` on bashe → Ollama ba packed batch + **two-tier validator** (high-precision lexical reject → Qwen PASS/FAIL) + **1 regenerate** then drop
@@ -366,16 +366,21 @@ Beyond format checks, accepted LLM captions must pass Tier-1 relation / verbatim
 
 Ghablan gate **visual-by-default** bud: har soal-i ke `_NON_VISUAL_SUSPECT_RE` ro match nemikard bedoon hich LLM call `FAST_PATH_VISUAL` mishod. Natije: ru 4000 sample, 3453 az 3623 soal fast-path shodan va classifier faghat 170 soal did — pas soal-haye safety / intention / country be file-e nahayi resid.
 
-Hala Fast Path ye **whitelist-e kuchak** ast (`_FAST_PATH_VISUAL_RE`) va faghat vaghti kar mikone ke soal:
+Hala Fast Path ye **whitelist** ast (`_FAST_PATH_VISUAL_RE`): match → `DIRECTLY_VISUAL` (`visual_filter_source=fast_path`); else → UNKNOWN → Qwen. Faghat in shape-ha (va bedoon marker-e `_NON_VISUAL_SUSPECT_RE`) fast-path mishan:
 
-- `what color/colour ...`، ya
-- `how many ...`، ya
-- `is/are there ...`، ya
-- ye rabete-ye makani-e sade beyne do noun phrase (`Is the cat on the table?`)
+- colour: `what color/colour/colors …`
+- count: `how many …`, `number of …`
+- existence: `is/are there …`, `(do|can|…) you see …`
+- scene / object class: `what animal(s)|shape|sport|game|activity|room|scene|place|food(s)|fruit(s)|dish …`
+- sky: `is the sky …`
+- spatial: `what is under|over|above|below|behind|beside|next to|in front of …`, plus plain `Is the cat on the table?` (end-anchored)
+- action / attire (end-anchored): `What is the man doing/holding/wearing?`
 
-bashe، **va** kutah bashe (≤14 token)، **va** hich marker-e `_NON_VISUAL_SUSPECT_RE` nadashte bashe. Baghie — har chi — be Qwen miran (`v6_conservative_fast_path`). `Could this photo be from a zoo?` mitune bâz ham visual label bekhore, vali **hich vaght** fast-path nemishe.
+**Nist** fast-path (mimune UNKNOWN → LLM): bare `what is/are/do/does`, `what kind/type`, `is he/she`, `where is`, `could this`, `does this look/appear`, `who is`, …
 
-`made of` suspect **nist** (material-e visible) vali `who made` hast (maker/brand knowledge). `can be seen` / `can you see` exempt hastan, pas `How many cookies can be seen?` hanooz fast-path mishe.
+Baghie be Qwen miran (`v7_expanded_fast_path`). `Could this photo be from a zoo?` mitune bâz ham visual label bekhore, vali **hich vaght** fast-path nemishe.
+
+`made of` suspect **nist** (material-e visible) vali `who made` hast (maker/brand knowledge). `text` / `says` / `words` OCR-suspect hastan. `can be seen` / `can you see` / `next to` / `on the right` / `trash can` / `city bus` / `can you spot` exempt hastan.
 
 Hazine: LLM call-haye classifier az ~170 be ~2200 ru hamun 4000 sample mire (va ~3600 ba `--no-fast-path`) — kondtar, vali daghigh-tar; hamin trade-off khaste shode bud.
 
@@ -398,7 +403,7 @@ Sidecar: `outputs/v2_question_dependent_captions_{split}2014_not_directly_visual
 
 Counts: `info.directly_visual_count`, `info.not_directly_visual_count`, `info.question_classifier.label_counts` (`FAST_PATH_VISUAL` = tedad-e row-haye `visual_filter_source == "fast_path"`), `info.question_classifier.fast_path_enabled`.
 
-Note: `prompt_version` (`v6_conservative_fast_path`) avaz shode va checkpoint ba `fast_path_enabled` key mikhore, pas checkpoint-e ghadimi-e visual-by-default roye resume invalid hast — pak-esh kon ya `--no-resume` bede ta row-haye ghablan drop-shode dobare label bekhoran.
+Note: `prompt_version` (`v7_expanded_fast_path`) avaz shode va checkpoint ba `fast_path_enabled` key mikhore, pas checkpoint-e ghadimi (masalan `v6_conservative_fast_path`) roye resume invalid hast — pak-esh kon ya `--no-resume` bede ta row-haye ghablan drop-shode dobare label bekhoran.
 
 ## Tests + audit
 
