@@ -4,14 +4,26 @@ When ``--classify-questions`` is on, questions are labeled:
 
     DIRECTLY_VISUAL | NOT_DIRECTLY_VISUAL
 
-The gate is **visual by default**: a question is DIRECTLY_VISUAL unless it
-matches ``_NON_VISUAL_SUSPECT_RE`` (OCR / personal opinion / outside-world
-knowledge markers).  Only those suspects go through Qwen (Ollama), so the
-vast majority of VQA v2 questions are labeled with no HTTP round-trip.
+The gate is a **conservative whitelist**: a question skips the LLM only when
+it matches ``_FAST_PATH_VISUAL_RE`` (plain colour / count / existence /
+spatial shapes that are essentially never ambiguous) *and* carries no
+``_NON_VISUAL_SUSPECT_RE`` marker.  Everything else — judgment, intention,
+safety, preference, purpose, general knowledge, and anything merely
+phrased like a normal VQA question — reaches Qwen (Ollama) for a real
+ruling.
+
+Earlier versions were visual-by-default, which let non-visual questions
+("Is this safe?", "Is this place in a particular country?") into the final
+captions file without ever being classified.
 
 ``DIRECTLY_VISUAL`` means the question can be answered by looking at the
 image.  ``NOT_DIRECTLY_VISUAL`` means answering needs rendered text (OCR),
-personal opinion/preference, or knowledge from outside the picture.
+personal opinion/preference, judgment, intention, or knowledge from outside
+the picture.
+
+Every classified row records where its decision came from in
+``visual_filter_source`` (``fast_path`` or ``llm_classifier``) so error
+analysis can separate the two.
 
 Offline ``--drop-subjective-candidates`` still uses a cheap regex candidate
 gate (no LLM) and drops matching rows as NOT_DIRECTLY_VISUAL.
@@ -28,12 +40,17 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-CLASSIFIER_PROMPT_VERSION = "v5_image_answerable"
+CLASSIFIER_PROMPT_VERSION = "v6_conservative_fast_path"
 
 QUESTION_LABELS = (
     "DIRECTLY_VISUAL",
     "NOT_DIRECTLY_VISUAL",
 )
+
+# Provenance of a DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL decision, stored per
+# row as ``visual_filter_source`` for later error analysis.
+VISUAL_FILTER_FAST_PATH = "fast_path"
+VISUAL_FILTER_LLM = "llm_classifier"
 
 # Offline / candidate-drop regex (broadened beyond the old subjective-only gate).
 _CANDIDATE_RE = re.compile(
@@ -68,7 +85,10 @@ _SYSTEM_PROMPT = (
     "written words, clock time),\n"
     "  2. personal opinion, taste, or preference,\n"
     "  3. outside-world knowledge (sport rules, legality, species facts, "
-    "who manufactured something, prices, animal sounds).\n"
+    "who manufactured something, prices, animal sounds),\n"
+    "  4. judgment or intention: whether something is safe, suitable, "
+    "healthy or allowed, what someone or an animal wants or is about to do, "
+    "or which country/city a place belongs to.\n"
     "When unsure, answer DIRECTLY_VISUAL.\n"
     "Return only the category label."
 )
@@ -122,6 +142,16 @@ _USER_PROMPT_TEMPLATE = (
     "Q: Is this pizza nutritious enough for a full dinner?\n"
     "NOT_DIRECTLY_VISUAL\n"
     "Q: Does this train work?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: Is this safe?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: Is this equipment suitable for the job?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: Does this animal want to eat?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: Is this place in a particular country?\n"
+    "NOT_DIRECTLY_VISUAL\n"
+    "Q: Should the man be riding here?\n"
     "NOT_DIRECTLY_VISUAL\n\n"
     "Question: {question}"
 )
@@ -129,17 +159,15 @@ _USER_PROMPT_TEMPLATE = (
 
 # Suspect gate: questions that MIGHT need something beyond the pixels.
 #
-# The default is DIRECTLY_VISUAL — enumerating every visual phrasing is
-# impossible ("Number of animals?", "What room is this?", "Are all the
-# flowers white?" all describe visible facts), so only the three genuine
-# exception families are listed here:
+# Since the Fast Path is now a whitelist, this regex is a *veto* over it: a
+# question that looks like a plain visual shape but carries one of these
+# markers still goes to the LLM classifier.  The families:
 #
 #   1. personal opinion / preference        ("Would you prefer...")
 #   2. OCR / reading rendered text          ("What is the name of the hotel?")
 #   3. outside-world knowledge / causation  ("What sound does this animal make?")
-#
-# Matching questions go to Qwen for a ruling; everything else is kept as
-# DIRECTLY_VISUAL with no HTTP round-trip.
+#   4. judgment / intention / modality      ("Is this safe?", "Is it about to
+#      rain?", "Is this place in a particular country?")
 #
 # Note: ``made of`` is intentionally NOT a suspect (visible material) while
 # ``who made`` is (maker/brand knowledge).
@@ -148,8 +176,8 @@ _NON_VISUAL_SUSPECT_RE = re.compile(
     # --- personal / opinion / preference ---
     \b(?:do|would|did|have|can|could)\s+you\b |
     \bdo\s+we\b | \bwould\s+one\b | \byour\b | \bprefer\b | \bfavorite\b |
-    \b(?:safe|healthy|nutritious|tasty|delicious|beautiful|ugly|attractive|
-       comfortable|dangerous|expensive|valuable|cheap|personality|
+    \b(?:safe|safety|healthy|nutritious|tasty|delicious|beautiful|ugly|
+       attractive|comfortable|dangerous|expensive|valuable|cheap|personality|
        professional|romantic)\b |
 
     # --- OCR / reading rendered text ---
@@ -167,7 +195,22 @@ _NON_VISUAL_SUSPECT_RE = re.compile(
     \bwhy\b | \bpurpose\b | \bused\s+for\b | \bmeant\s+for\b | \bfor\?\s*$ |
     \bcost\b | \bprice\b |
     \bwork(?:s|ing)?\s*\?*\s*$ | \bfunction\b | \bpopular\b | \bfamous\b |
-    \bwhat\s+will\s+happen\b | \bgoing\s+to\s+happen\b
+    \bwhat\s+will\s+happen\b | \bgoing\s+to\s+happen\b |
+
+    # --- judgment / modality (Comments8: should/would/could/can/think) ---
+    \bshould\b | \bwould\b | \bcould\b | \bmight\b | \bmay\b | \bmust\b |
+    \bcan\b | \bthink\b | \bsuppose\w*\b | \bseem\w*\b | \bprobably\b |
+    \b(?:suitable|appropriate|proper|polite|rude|correct|right|wrong|
+       necessary|useful|worth|better|best|good|bad)\b |
+
+    # --- intention / future action ---
+    \babout\s+to\b | \bgoing\s+to\b | \bwant(?:s|ed)?\s+to\b |
+    \btry(?:ing|s)?\s+to\b | \bplan(?:s|ning)?\s+to\b | \bintend\w*\b |
+    \bwill\s+\w+\b | \bnext\b |
+
+    # --- place identity / geography (outside the pixels) ---
+    \bcountry\b | \bcity\b | \bstate\b | \bnation\w*\b | \bcontinent\b |
+    \bregion\b | \bprovince\b | \bwhich\s+part\s+of\s+the\s+world\b
     """,
     re.I | re.X,
 )
@@ -175,27 +218,85 @@ _NON_VISUAL_SUSPECT_RE = re.compile(
 
 # Frequent phrasings that trip a suspect marker while describing something
 # plainly visible ("can you see" is perception, not preference; "time of day"
-# is daylight, not a clock face).  Removed before the suspect test so they
-# only exempt themselves — "Do you see a brand name?" still stays suspect.
+# is daylight, not a clock face; "can be seen" is a VQA counting idiom).
+# Removed before the suspect test so they only exempt themselves — "Do you
+# see a brand name?" still stays suspect.
 _SUSPECT_EXEMPT_RE = re.compile(
     r"""
     \b(?:can|could|do|did|would)\s+you\s+see\b |
+    \b(?:can|could)\s+be\s+seen\b |
     \bwhat\s+time\s+of\s+(?:day|year)\b
     """,
     re.I | re.X,
 )
 
 
-def is_non_visual_suspect(question: str) -> bool:
-    """True when a question needs an LLM ruling (OCR / personal / knowledge).
+# Fast Path whitelist: shapes whose answer is read straight off the pixels
+# with essentially no ambiguity.  Deliberately tiny — the professor's review
+# showed that a visual-by-default gate let judgment/intention/knowledge
+# questions through unclassified, so anything not listed here pays for an
+# LLM ruling.
+#
+#   - colour:    "What color is the bus?"
+#   - counting:  "How many cookies are there?"
+#   - existence: "Is there a clock on the wall?"
+#   - plain spatial relation between two concrete noun phrases
+#
+# The spatial shape additionally requires a determiner on both sides and the
+# question to end right after the second noun phrase, so a trailing predicate
+# ("Is the man in the picture happy?") or a longer multi-clause question is
+# left for the classifier.
+_FAST_PATH_VISUAL_RE = re.compile(
+    r"""
+    ^\s*(?:
+        what\s+colou?r\b |
+        how\s+many\b |
+        (?:is|are)\s+there\b |
+        (?:is|are)\s+
+            (?:the|a|an|this|that|these|those|his|her|its|their)\s+
+            [\w'-]+(?:\s+[\w'-]+){0,3}\s+
+            (?:on\s+top\s+of|in\s+front\s+of|next\s+to|
+               on|in|under|underneath|above|below|behind|beside|
+               between|near|inside|outside|beneath)\s+
+            (?:the|a|an|this|that|these|those|his|her|its|their)\s+
+            [\w'-]+\s*\??\s*$
+    )
+    """,
+    re.I | re.X,
+)
 
-    False means "answerable by looking at the image" — the default — and the
-    row is kept as DIRECTLY_VISUAL without calling Qwen.
+# Above this length even a whitelisted shape is treated as too complex to
+# skip the classifier.
+_FAST_PATH_MAX_TOKENS = 14
+
+
+def is_non_visual_suspect(question: str) -> bool:
+    """True when a question carries an OCR / opinion / knowledge / judgment marker.
+
+    Used as a veto over :func:`is_fast_path_visual`; a suspect question can
+    still be labeled DIRECTLY_VISUAL, but only by the LLM classifier.
     """
     q = (question or "").strip()
     if not q:
         return False
     return bool(_NON_VISUAL_SUSPECT_RE.search(_SUSPECT_EXEMPT_RE.sub(" ", q)))
+
+
+def is_fast_path_visual(question: str) -> bool:
+    """True when a question may be kept DIRECTLY_VISUAL without an LLM call.
+
+    Requires an unambiguous visual shape (colour / count / existence / plain
+    spatial relation), a short question, and no non-visual suspect marker.
+    Everything else must reach the classifier.
+    """
+    q = (question or "").strip()
+    if not q:
+        return False
+    if len(q.split()) > _FAST_PATH_MAX_TOKENS:
+        return False
+    if not _FAST_PATH_VISUAL_RE.search(q):
+        return False
+    return not is_non_visual_suspect(q)
 
 
 def is_subjective_candidate(question: str) -> bool:
@@ -342,10 +443,19 @@ def validate_classifier_checkpoint(
     pre_classify_count: int,
     input_count: int,
     classifier_meta: Optional[Dict[str, Any]] = None,
+    fast_path: bool = True,
 ) -> bool:
-    """True when a checkpoint matches the current run configuration."""
+    """True when a checkpoint matches the current run configuration.
+
+    ``fast_path`` is part of the identity: a checkpoint built with the Fast
+    Path enabled cannot be reused for a ``--no-fast-path`` comparison run
+    (and vice versa), because the two label different questions without an
+    LLM call.
+    """
     info = checkpoint.get("info") or {}
     if info.get("prompt_version") != CLASSIFIER_PROMPT_VERSION:
+        return False
+    if bool(info.get("fast_path_enabled", True)) != bool(fast_path):
         return False
     if int(info.get("pre_classify_count", -1)) != pre_classify_count:
         return False
@@ -409,14 +519,14 @@ def filter_non_visual_questions(
     resume: bool = True,
     classifier_meta: Optional[Dict[str, Any]] = None,
     input_count: int = 0,
+    fast_path: bool = True,
 ) -> Tuple[List[Dict], List[Dict[str, Any]], Dict[str, int]]:
     """Keep DIRECTLY_VISUAL rows; collect NOT_DIRECTLY_VISUAL drops for a sidecar.
 
     Args:
         rows: caption rows (dicts with at least ``question``).
-        classifier: Ollama classifier; when provided, questions matching
-            ``_NON_VISUAL_SUSPECT_RE`` are sent to the LLM and the rest are
-            kept as ``DIRECTLY_VISUAL`` without a call.
+        classifier: Ollama classifier; when provided, only questions that
+            pass :func:`is_fast_path_visual` skip the LLM call.
         offline_drop_candidates: when True and classifier is unavailable,
             drop all regex candidates (conservative offline mode).
         checkpoint_path: optional sidecar for incremental classifier resume.
@@ -424,12 +534,16 @@ def filter_non_visual_questions(
         resume: load and continue from ``checkpoint_path`` when valid.
         classifier_meta: model/host/prompt metadata for checkpoint validation.
         input_count: raw VQA input count before OCR/dedup (for validation).
+        fast_path: when False, every question goes to the LLM classifier
+            (``--no-fast-path``), for measuring Fast Path false positives.
 
     Returns:
         (kept_rows, dropped_rows, label_counts)
 
-        ``dropped_rows`` entries include ``label`` (and optional ``detail``)
-        suitable for ``*_not_directly_visual.json``.
+        Kept rows and ``dropped_rows`` both carry ``visual_filter_source``
+        (``fast_path`` / ``llm_classifier``); ``dropped_rows`` entries also
+        include ``label`` (and optional ``detail``) suitable for
+        ``*_not_directly_visual.json``.
     """
     n_total = len(rows)
     pre_classify_count = n_total
@@ -441,6 +555,7 @@ def filter_non_visual_questions(
             pre_classify_count=pre_classify_count,
             input_count=input_count,
             classifier_meta=classifier_meta,
+            fast_path=fast_path,
         ):
             info = existing.get("info") or {}
             if info.get("status") == "complete":
@@ -471,6 +586,7 @@ def filter_non_visual_questions(
             pre_classify_count=pre_classify_count,
             input_count=input_count,
             classifier_meta=classifier_meta,
+            fast_path=fast_path,
         ):
             kept = list(existing.get("kept") or [])
             dropped = list(existing.get("dropped") or [])
@@ -491,6 +607,7 @@ def filter_non_visual_questions(
         out: Dict[str, Any] = {
             "status": status,
             "prompt_version": CLASSIFIER_PROMPT_VERSION,
+            "fast_path_enabled": bool(fast_path),
             "input_count": input_count,
             "pre_classify_count": pre_classify_count,
             "label_counts": dict(label_counts),
@@ -522,15 +639,21 @@ def filter_non_visual_questions(
         )
 
     if classifier is not None and n_total:
-        n_fast = sum(
-            1 for row in rows
-            if not is_non_visual_suspect(str(row.get("question") or ""))
+        n_fast = (
+            sum(
+                1 for row in rows
+                if is_fast_path_visual(str(row.get("question") or ""))
+            )
+            if fast_path
+            else 0
         )
         print(
             f"Question classifier: {n_total} questions "
             f"(binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL), "
-            f"{n_fast} visual by default (no LLM), "
-            f"{n_total - n_fast} suspects to check...",
+            f"{n_fast} on the conservative Fast Path whitelist (no LLM), "
+            f"{n_total - n_fast} to classify with the LLM"
+            + ("" if fast_path else " (--no-fast-path)")
+            + "...",
             flush=True,
         )
     elif offline_drop_candidates:
@@ -580,11 +703,12 @@ def filter_non_visual_questions(
                     flush=True,
                 )
 
-            # Visual by default: only OCR / personal / knowledge suspects
-            # are worth an LLM ruling.
-            if not is_non_visual_suspect(q):
+            # Conservative Fast Path: only unambiguous colour / count /
+            # existence / plain-spatial shapes skip the LLM ruling.
+            if fast_path and is_fast_path_visual(q):
                 label_counts["FAST_PATH_VISUAL"] += 1
                 label_counts["DIRECTLY_VISUAL"] += 1
+                row["visual_filter_source"] = VISUAL_FILTER_FAST_PATH
                 kept.append(row)
                 if qid is not None:
                     classified_ids.add(qid)
@@ -598,14 +722,22 @@ def filter_non_visual_questions(
                 label_counts["PARSE_FAIL_DROP"] += 1
                 label_counts["NOT_DIRECTLY_VISUAL"] += 1
                 dropped.append(
-                    _drop_record(row, "NOT_DIRECTLY_VISUAL", detail or "parse_fail")
+                    _drop_record(
+                        row,
+                        "NOT_DIRECTLY_VISUAL",
+                        detail or "parse_fail",
+                        VISUAL_FILTER_LLM,
+                    )
                 )
             else:
                 label_counts[label] = label_counts.get(label, 0) + 1
                 if label == "DIRECTLY_VISUAL":
+                    row["visual_filter_source"] = VISUAL_FILTER_LLM
                     kept.append(row)
                 else:
-                    dropped.append(_drop_record(row, label, detail))
+                    dropped.append(
+                        _drop_record(row, label, detail, VISUAL_FILTER_LLM)
+                    )
 
             if qid is not None:
                 classified_ids.add(qid)
@@ -626,6 +758,7 @@ def _drop_record(
     row: Dict,
     label: str,
     detail: str = "",
+    visual_filter_source: str = "",
 ) -> Dict[str, Any]:
     """Build a sidecar annotation from a source row."""
     out: Dict[str, Any] = {
@@ -637,6 +770,8 @@ def _drop_record(
         "answer_consensus": row.get("answer_consensus"),
         "label": label,
     }
+    if visual_filter_source:
+        out["visual_filter_source"] = visual_filter_source
     if detail:
         out["detail"] = detail
     return out

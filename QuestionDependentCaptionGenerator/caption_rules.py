@@ -120,24 +120,37 @@ def answer_mode_stats(answers: List[str]) -> Tuple[str, int, float]:
 #
 # Deliberately conservative: ambiguous prefixes like "what is the name"
 # (could be "what is the name of this fruit" — not OCR — or "what is the
-# name on the jersey" — OCR) are left OUT unless phrased as "name on ...".
+# name on the jersey" — OCR) are left OUT unless phrased as "name on ..." /
+# "name of the street"; the bare form is a suspect for the question
+# classifier instead, which can judge it per question.
 # Prefer intent phrases (letter/website/initials/street name/printed) over
 # bare nouns like ``sign`` so "What color is the sign?" stays visual.
+#
+# Comments8 additions: rendered numbers on objects/clothing ("number on the
+# shirt", "train number", "shirt number"), street names, and text
+# written/printed/engraved on a surface, since a Faster R-CNN captioner
+# cannot read any of them.
 
 _OCR_QUESTION_RE = re.compile(
     r"""
-    \bwhat\s+(does|do)\s+.{0,40}?\bsay\b |        # "what does the sign say"
-    \bwhat\s+is\s+written\b |                     # "what is written on..."
+    \bwhat\s+(does|do|did)\s+.{0,40}?\bsays?\b |  # "what does the sign say"
+    \bwhat\s+.{0,30}?\bsign\s+says?\b |           # "what the sign says"
+    \b(?:is|are|was)\s+written\b |                # "what is written on..."
     \bwhat\s+is\s+printed\b |                     # "what is printed on..."
+    \b(?:written|printed|inscribed|engraved|embossed|stamped|typed)\s+
+        (?:on|in|across|above|below|under|at|near)\b |
     \bwhat\s+words?\b |                           # "what word(s) are on..."
     \bwhat\s+(are\s+the\s+)?letters?\b |          # "what letter(s)..."
     \bwhat\s+is\s+(the\s+)?(last\s+)?letter\b |   # "what is the last letter"
     \bthat\s+letter\s+is\b |                      # "That letter is large on..."
+    \b(?:letters|initials)\s+(?:on|in|are\s+on)\b |
     \bwhat\s+are\s+the\s+initials\b |
     \bwhat\s+(is\s+)?(the\s+)?website\b |
     \bwhat\s+website\b |
     \bwhat\s+(are\s+)?(the\s+)?(two\s+)?street\s+names?\b |
     \bwhat\s+is\s+(the\s+)?street\s+name\b |
+    \bname\s+of\s+(?:the\s+)?street\b |           # "name of the street"
+    \b(?:street|road|avenue|boulevard)\s+(?:name|sign)\b |
     \blicense\s+(number|plate)\b |                # plate / registration number
     \bwhat\s+brand\b | \bwhat\s+is\s+the\s+brand\b |
     \bwhat\s+logo\b | \bwhat\s+team'?s?\s+logo\b |
@@ -146,6 +159,14 @@ _OCR_QUESTION_RE = re.compile(
     \bwhat\s+hundred\s+block\b |                  # street number text
     \bwhat\s+number\s+is\s+(on|the|this|that)\b | # jersey / bus / plate number
     \bwhat\s+is\s+the\s+number\s+on\b |           # "what is the number on..."
+    \bnumbers?\s+on\s+(?:the|this|that|his|her|their|a|an)\b |
+    \bwhat\s+(?:is\s+)?(?:the\s+)?
+        (?:shirt|jersey|uniform|player|bus|train|plane|flight|truck|taxi|
+           room|gate|platform|track|route|channel|phone|model|
+           serial|apartment|house|address)\s+number\b |
+    \b(?:shirt|jersey|uniform|player|bus|train|plane|flight|truck|taxi|
+        room|gate|platform|track|route|channel|phone|model|
+        serial|apartment|house)\s+number\b |
     \bwhat\s+time\s+(is\s+it|does)\b              # clock / watch reading
     """,
     re.I | re.X,
@@ -371,32 +392,7 @@ def format_subject_be(subject: str, predicate: str, be: str) -> str:
     return f"{prefix_the(subject)} {be} {predicate}."
 
 
-# Prepositions / location heads for "What is PREP ...?"
-_LOCATION_HEADS = (
-    "in front of",
-    "next to",
-    "on top of",
-    "in back of",
-    "in",
-    "on",
-    "at",
-    "near",
-    "behind",
-    "under",
-    "over",
-    "above",
-    "below",
-    "beside",
-    "between",
-    "among",
-    "around",
-    "inside",
-    "outside",
-    "across",
-    "against",
-)
-
-# Single-word prepositions used to reconstruct "What is X V-ing (PREP)?"
+# Single-word prepositions that can end a question's predicate
 _TRAILING_PREPOSITIONS = {
     "in", "on", "at", "near", "behind", "under", "over", "above", "below",
     "beside", "between", "among", "around", "inside", "outside", "across",
@@ -423,9 +419,9 @@ _COLOR_PARTICIPLES = {
     "painting",
 }
 
-# Broader action-verb whitelist for "What is SUBJECT V-ing (...)?" reconstruction
-# in rule_what_is. Kept as an explicit whitelist (not a generic \w+ing regex) to
-# avoid false positives on -ing NOUNS ('building', 'morning', 'something', ...).
+# Broader action-verb whitelist for participle detection. Kept as an explicit
+# whitelist (not a generic \w+ing regex) to avoid false positives on -ing
+# NOUNS ('building', 'morning', 'something', ...).
 _ACTION_PARTICIPLES = _COLOR_PARTICIPLES | {
     "looking", "watching", "flying", "walking", "running", "throwing",
     "smiling", "talking", "pulling", "pushing", "hanging", "leaning",
@@ -1764,54 +1760,6 @@ def rule_yesno_does_do(question: str, answer: str) -> Optional[str]:
     return None
 
 
-def rule_yesno_modal_have(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'Can/Could/Will/Would/Has/Have/Had ...?' → keep the auxiliary.
-
-    Example:
-        'Could this photo be from a zoo?' + yes
-            → 'This photo could be from a zoo.'
-
-    Personal / free-form subjects ('Would you want...', 'Have you ever...')
-    return None so the SLM (or subjective filter) handles them.
-    """
-    m = re.match(r"^(can|could|will|would|has|have|had)\s+(.+)$", question, re.I)
-    if not m:
-        return None
-    aux = m.group(1).lower()
-    rest = m.group(2).strip()
-    if not rest:
-        return None
-    # Second-person / ever / prefer-style → too fragile for templates
-    first = rest.split()[0].lower()
-    if first in {"you", "i", "we"} or re.search(r"\bever\b|\bprefer\b|\bwant\b|\blike\b", rest, re.I):
-        return None
-
-    subj, pred = split_subject_predicate(rest)
-    pred = _drop_duplicate_leading_aux(pred, aux)
-    if not subj or not pred:
-        # Keep the auxiliary when falling back — never emit
-        # "This photo be from a zoo." (missing could/can/...).
-        words = rest.split()
-        if (
-            len(words) >= 3
-            and words[0].lower() in {"this", "that", "these", "those", "the"}
-        ):
-            # "this photo be from a zoo" + could
-            # → "This photo could be from a zoo."
-            head = prefix_the(" ".join(words[:2]))
-            pos = f"{head} {aux} {' '.join(words[2:])}."
-        else:
-            return None
-    else:
-        pos = f"{prefix_the(subj)} {aux} {pred}."
-
-    if is_yes(answer):
-        return pos
-    if is_no(answer):
-        return insert_not(pos)
-    return None
-
-
 def rule_yesno_is_this_a(question: str, answer: str) -> Optional[str]:
     """Pattern: 'Is/Are this/that/these/those a/an/the X?'
 
@@ -1960,320 +1908,6 @@ def rule_yesno_is_are_predicate(question: str, answer: str) -> Optional[str]:
     return None
 
 
-# Surfaces that typically *display* text — prefer "The sign says ...".
-_TEXT_SURFACE_NOUNS = {
-    "sign", "signs", "board", "boards", "label", "labels", "poster",
-    "posters", "banner", "banners", "plaque", "plaques", "screen",
-    "display", "billboard", "billboards", "shirt", "jersey", "paper",
-    "page", "book", "menu", "box", "package", "bottle", "wrapper",
-    "sticker", "tag", "plate", "monitor", "tv", "television", "scoreboard",
-}
-
-_TEXT_RENDER_VERBS = {
-    "printed", "written", "painted", "displayed", "shown", "embossed",
-    "engraved", "stamped", "drawn", "scribbled",
-}
-
-# Bare "What is V-ing PREP ...?" where "what" is the theme/subject of V-ing.
-_LOCATIVE_PARTICIPLES = {
-    "hanging", "sitting", "standing", "lying", "resting", "floating",
-    "mounted", "attached", "tied", "placed", "located", "leaning",
-    "parked", "growing", "sticking", "protruding", "dangling", "suspended",
-    "shown", "displayed", "hidden", "buried", "parked", "waiting",
-}
-
-
-def _plural_be(answer: str) -> str:
-    """Pick is/are from a bare answer noun (best-effort)."""
-    ans_l = answer.strip().lower()
-    if not ans_l:
-        return "is"
-    if ans_l in {"people", "children", "men", "women", "mice", "geese"}:
-        return "are"
-    if " " in ans_l:
-        return "is"
-    if ans_l.endswith("s") and not ans_l.endswith(("ss", "us", "is", "ous")):
-        return "are"
-    return "is"
-
-
-def _rule_what_is_text_render(rest: str, answer: str) -> Optional[str]:
-    """'What is printed/written/painted on SURFACE?' → surface says/displays answer.
-
-    Examples:
-        'printed on the orange sign' + pizza
-            → \"The orange sign says 'pizza'.\"
-        'written on the plane' + china airlines
-            → 'China airlines is written on the plane.'
-    """
-    m = re.match(
-        r"^(" + "|".join(_TEXT_RENDER_VERBS) + r")\s+"
-        r"(on|in|across|over|under|inside|onto|upon|along)\s+(.+)$",
-        rest,
-        re.I,
-    )
-    if not m:
-        return None
-    participle = m.group(1).lower()
-    prep = m.group(2).lower()
-    surface = m.group(3).strip()
-    if not surface:
-        return None
-
-    surface_core = re.sub(r"^(?:the|a|an)\s+", "", surface, flags=re.I).strip()
-    head = surface_core.split()[-1].lower() if surface_core else ""
-    looks_textual = head in _TEXT_SURFACE_NOUNS or any(
-        key in surface_core.lower().split()
-        for key in ("sign", "board", "label", "banner", "poster", "shirt", "jersey")
-    )
-
-    if looks_textual and participle in {
-        "printed", "written", "painted", "displayed", "shown", "embossed",
-        "engraved", "stamped",
-    }:
-        verb = "says" if participle in {"printed", "written", "stamped", "embossed", "engraved"} else "displays"
-        return f"{prefix_the(surface_core)} {verb} '{answer}'."
-
-    return f"{capitalize_first(answer)} is {participle} {prep} {surface}."
-
-
-def _rule_what_is_bare_participle(rest: str, answer: str) -> Optional[str]:
-    """'What is hanging/sitting/... PREP ...?' — answer is the theme subject.
-
-    'hanging above the stove' + lights → 'Lights are hanging above the stove.'
-    'shown here' + scooter → 'A scooter is shown here.'
-    """
-    tokens = rest.split()
-    if not tokens or tokens[0].lower() not in _LOCATIVE_PARTICIPLES:
-        return None
-    ans = smart_article(answer)
-    return f"{capitalize_first(ans)} {_plural_be(answer)} {rest}."
-
-
-def _rule_what_is_participle(rest: str, answer: str) -> Optional[str]:
-    """Sub-pattern of rule_what_is: 'What is SUBJECT V-ing (PREP ...)?'.
-
-    Keeps the verb instead of collapsing it into 'SUBJECT is ANSWER':
-        'the giraffe standing behind' + tree -> 'The giraffe is standing behind a tree.'
-        'the vase sitting on' + railing      -> 'The vase is sitting on a railing.'
-        'the animal eating' + grass          -> 'The animal is eating grass.'
-        'she holding' + broccoli             -> 'She is holding broccoli.'
-        'this person wearing on head' + hat  -> 'This person is wearing a hat on the head.'
-    """
-    tokens = rest.split()
-    verb_idx = next(
-        (i for i, t in enumerate(tokens) if t.lower() in _ACTION_PARTICIPLES),
-        None,
-    )
-    if verb_idx is None:
-        return None
-
-    subject_tokens = tokens[:verb_idx]
-    if not subject_tokens:
-        return None
-    if len(subject_tokens) == 1 and subject_tokens[0].lower() not in PRONOUNS:
-        return None
-
-    verb = tokens[verb_idx].lower()
-    trailing_tokens = tokens[verb_idx + 1 :]
-    subject = prefix_the(" ".join(subject_tokens))
-    ans = smart_article(answer)
-
-    if not trailing_tokens:
-        predicate = f"{verb} {ans}"
-    elif trailing_tokens[-1].lower() in _TRAILING_PREPOSITIONS:
-        # Dangling preposition — the answer is its object.
-        # e.g. 'sitting on' + railing -> 'sitting on a railing'
-        predicate = f"{verb} {' '.join(trailing_tokens)} {ans}"
-    else:
-        # Trailing is already a full prepositional phrase (has its own noun);
-        # the answer is the verb's direct object instead.
-        # e.g. 'wearing on head' + hat -> 'wearing a hat on the head'
-        tail_tokens = list(trailing_tokens)
-        if (
-            tail_tokens[0].lower() in _TRAILING_PREPOSITIONS
-            and len(tail_tokens) >= 2
-            and tail_tokens[-1].lower() not in ARTICLES
-        ):
-            tail_tokens = [tail_tokens[0], "the"] + tail_tokens[1:]
-        predicate = f"{verb} {ans} {' '.join(tail_tokens)}"
-
-    return f"{subject} is {predicate}."
-
-
-def _rule_what_is_material_purpose(rest: str, answer: str) -> Optional[str]:
-    """High-precision: made of/from, used/designed for, bare 'for'.
-
-    Examples:
-        'the building made of' + brick → 'The building is made of brick.'
-        'the middle thing used for' + praying → 'The middle thing is used for praying.'
-        'the grass for' + park → 'The grass is for a park.'
-    """
-    rest = rest.strip()
-    # Materials / purposes usually take a bare answer NP ("brick", not "a brick").
-    ans = answer.strip()
-    if not ans:
-        return None
-    if ans.lower().split()[0] not in ARTICLES:
-        # Keep multi-word answers as-is; single tokens stay bare for "made of".
-        pass
-
-    m = re.match(
-        r"^(?P<sub>.+?)\s+made\s+(?P<prep>of|from)$",
-        rest,
-        re.I,
-    )
-    if m:
-        subj = prefix_the(m.group("sub").strip())
-        return f"{subj} is made {m.group('prep').lower()} {ans}."
-
-    m = re.match(
-        r"^(?P<sub>.+?)\s+(?P<verb>used|designed)\s+for$",
-        rest,
-        re.I,
-    )
-    if m:
-        subj = prefix_the(m.group("sub").strip())
-        verb = m.group("verb").lower()
-        return f"{subj} is {verb} for {ans}."
-
-    # Short clean NP + trailing 'for' only (avoid 'reaching for', 'looking for')
-    m = re.match(r"^(?P<sub>(?:the\s+)?\w+(?:\s+\w+){0,3})\s+for$", rest, re.I)
-    if m:
-        sub = m.group("sub").strip()
-        if re.search(r"\b(reaching|looking|waiting|asking|calling|heading)\b", sub, re.I):
-            return None
-        subj = prefix_the(sub)
-        return f"{subj} is for {smart_article(ans)}."
-
-    return None
-
-
-def _what_is_has_trailing_glue(rest: str) -> bool:
-    """True when default 'The X is Y' would collapse a verb/prep into the subject."""
-    low = rest.lower().strip()
-    glue_tails = (
-        "made of", "made from", "used for", "designed for", "reaching for",
-        "sitting on", "laying on", "lying on", "standing on", "hanging on",
-        "looking at", "looking for",
-    )
-    return any(low.endswith(t) or f" {t} " in f" {low} " for t in glue_tails)
-
-
-def rule_what_is(question: str, answer: str) -> Optional[str]:
-    """Pattern: 'What is ...?' — role-aware declarative with the answer.
-
-    Understands that 'what' is not always the sentence subject:
-
-        'What is printed on the orange sign?' + pizza
-            → \"The orange sign says 'pizza'.\"
-        'What is hanging above the stove?' + lights
-            → 'Lights are hanging above the stove.'
-        'What is in front of the giraffes?' + tree
-            → 'A tree is in front of the giraffes.'
-        'What is in the picture?' + clock
-            → 'The picture shows a clock.'
-        'What is the giraffe standing behind?' + tree
-            → 'The giraffe is standing behind a tree.'
-        'What is the animal eating?' + grass
-            → 'The animal is eating grass.'
-        'What is the building made of?' + brick
-            → 'The building is made of brick.'
-        'What is the car?' + taxi
-            → 'The car is a taxi.'
-
-    Returns None (LLM fallback) when the template would be ungrammatical
-    ("The in the picture is...", "The answer is...").
-    """
-    m = re.match(r"^what is\s+(.+)$", question, re.I)
-    if not m:
-        return None
-    rest = m.group(1).strip()
-    if not rest or answer in YES | NO:
-        return None
-
-    caption: Optional[str] = None
-
-    # Material / purpose patterns before participle / default collapse.
-    material_cap = _rule_what_is_material_purpose(rest, answer)
-    if material_cap:
-        caption = material_cap
-
-    # "What is SUBJECT V-ing (PREP ...)?" — keep the verb, don't collapse it.
-    if caption is None:
-        participle_cap = _rule_what_is_participle(rest, answer)
-        if participle_cap:
-            caption = participle_cap
-
-    # "What is printed/written/... on SURFACE?"
-    if caption is None:
-        text_cap = _rule_what_is_text_render(rest, answer)
-        if text_cap:
-            caption = text_cap
-
-    # "What is hanging/sitting/... PREP ...?" — answer is the theme.
-    if caption is None:
-        bare_cap = _rule_what_is_bare_participle(rest, answer)
-        if bare_cap:
-            caption = bare_cap
-
-    ans_np = smart_article(answer)
-
-    # "What is in/on the picture/photo/image?" → "The picture shows a/an {answer}."
-    if caption is None:
-        media_m = re.match(
-            r"^(?:in|on)\s+(?:the\s+)?(picture|photo|image|photograph|scene|shot)$",
-            rest,
-            re.I,
-        )
-        if media_m:
-            media = media_m.group(1).lower()
-            caption = f"The {media} shows {ans_np}."
-
-    # "What is PREP_PHRASE?" → "A {answer} is/are PREP_PHRASE."
-    if caption is None:
-        rest_l = rest.lower()
-        for prep in _LOCATION_HEADS:
-            if rest_l == prep or rest_l.startswith(prep + " "):
-                caption = (
-                    f"{capitalize_first(ans_np)} {_plural_be(answer)} {rest}."
-                )
-                break
-
-    # "What is the X?" / "What is X?" → "The X is {answer}."
-    # Never fire when trailing glue would produce "The X made of is Y."
-    if caption is None:
-        if _what_is_has_trailing_glue(rest):
-            return None
-        subj_m = re.match(
-            r"^(?:the\s+)?(.+?)(?:\s+(?:on|in|near|at|under|over|behind)\s+.+)?$",
-            rest,
-            re.I,
-        )
-        if not subj_m:
-            return None
-        subj = subj_m.group(1).strip()
-        first = subj.lower().split()[0] if subj else ""
-        # Bare preposition / empty subject → unsafe ("The in the picture is...")
-        if not subj or first in {
-            "in", "on", "at", "near", "behind", "under", "over",
-            "among", "between", "of", "to", "for", "with", "by",
-        }:
-            return None
-        # Long / multi-clause subjects are safer with the LLM
-        if len(subj.split()) > 6:
-            return None
-        caption = format_the_subject(
-            subj,
-            smart_article(answer) if len(answer.split()) == 1 else answer,
-            "is",
-        )
-
-    if caption and can_generate_safe_rule_caption(question, answer, caption, "what_is"):
-        return caption
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Rule list — order matters: most specific rules first. Deliberately
 # excludes 'which', 'where', and 'what brand/sport/room/animal/vehicle/
@@ -2281,6 +1915,13 @@ def rule_what_is(question: str, answer: str) -> Optional[str]:
 # without POS tagging) — those always defer to the SLM. There is no
 # catch-all fallback rule: anything unmatched is marked "needs_llm" with an
 # empty caption instead of a fabricated template sentence.
+#
+# Comments8 removals: ``yesno_modal_have`` (Can/Could/Will/Would/Has/Have)
+# and ``what_is`` are gone entirely. The modal rule mis-ordered auxiliaries
+# ("This photo be could ...", "The plane fly will ..."), and 'What is ...?'
+# has too many subtypes that need a real parser ("What is it called?",
+# "What is it for?", "What is the weather like?"). Both families now go
+# straight to the SLM instead of a fragile template.
 # ---------------------------------------------------------------------------
 
 RULES: List[Tuple[str, RuleFn]] = [
@@ -2299,12 +1940,10 @@ RULES: List[Tuple[str, RuleFn]] = [
     # Kept in the list for name compatibility / inspection, but
     # should_use_llm_for_does_do + the rule body always defer to LLM.
     ("yesno_does_do", rule_yesno_does_do),
-    ("yesno_modal_have", rule_yesno_modal_have),
     ("yesno_is_this_a", rule_yesno_is_this_a),
     ("yesno_is_are_possessive", rule_yesno_is_are_possessive),
     ("yesno_is_are_coordinated", rule_yesno_is_are_coordinated),
     ("yesno_is_are_predicate", rule_yesno_is_are_predicate),
-    ("what_is", rule_what_is),
 ]
 
 

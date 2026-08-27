@@ -82,8 +82,8 @@ QuestionDependentCaptionGenerator/
 | `caption_rules.py` | `is_ocr_question`, narrow rewrite rules, `generate_caption`, safety gates |
 | `llm_prompts.py` | System prompt, few-shots, packed user prompt (`PROMPT_VERSION`) |
 | `llm_client.py` | HTTP chat, parse JSON captions, Tier-1 lexical + Tier-2 semantic judge |
-| `question_classifier.py` | `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`, visual by default; LLM only for OCR / personal / outside-knowledge suspects (~7% of questions; prompt `v5_image_answerable`) |
-| `audit/audit_captions.py` | Count residual bugs (`The there`, `made of is`, empty captions, …) |
+| `question_classifier.py` | `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL` with a conservative Fast Path whitelist (colour / count / existence / plain spatial); everything else goes to the LLM (prompt `v6_conservative_fast_path`) and every row records `visual_filter_source` |
+| `audit/audit_captions.py` | Count residual bugs (`The there`, `made of is`, empty captions, …) plus `visual_filter_source` / `validation_flags` / accounting identity |
 
 ---
 
@@ -98,32 +98,35 @@ flowchart TD
   cons -->|no| consDrop[low_consensus_excluded_count + sidecar]
   cons -->|yes / filter off| dedup[Dedup image_id + question + answer]
   dedup -->|drop| dupDrop[duplicate_count]
-  dedup --> subjOpt{--classify-questions?}
-  subjOpt -->|yes| suspect{OCR / personal / knowledge marker?}
-  suspect -->|no: visual by default| rules
-  suspect -->|yes| clf[Qwen binary classify]
+  dedup --> rules[Rule engine generate_caption]
+  rules -->|safe match| ruleVal{Hard validator on rule caption?}
+  ruleVal -->|fail| needs
+  ruleVal -->|pass| row[Caption row]
+  rules -->|uncertain| needs[needs_llm empty caption]
+  row --> subjOpt
+  needs --> subjOpt{--classify-questions?}
+  subjOpt -->|yes| fast{Fast Path whitelist match and no suspect marker?}
+  fast -->|yes: fast_path| llmOpt
+  fast -->|no| clf[Qwen binary classify: llm_classifier]
   clf -->|periodic save| clfCkpt[classifier_checkpoint.json]
   clfCkpt -->|resume| clf
   clf -->|NOT_DIRECTLY_VISUAL| side[Write sidecar JSON]
-  clf -->|DIRECTLY_VISUAL| rules
-  subjOpt -->|no| rules[Rule engine generate_caption]
-  rules -->|safe match| row[Caption row]
-  rules -->|uncertain| needs[needs_llm empty caption]
-  needs --> llmOpt{--llm?}
+  clf -->|DIRECTLY_VISUAL| llmOpt
+  subjOpt -->|no| llmOpt{--llm?}
   llmOpt -->|yes| batch[Packed Ollama batches size ≤ 10]
-  batch --> tier1[Tier1 lexical validators]
-  tier1 -->|suspect| tier2[Tier2 Qwen PASS/FAIL]
-  tier1 -->|fail| retry[Regenerate once]
+  batch --> tier1[Tier1 hard rejects + soft flags]
+  tier1 -->|suspect or flagged| tier2[Tier2 Qwen PASS/FAIL]
+  tier1 -->|hard reject| retry[Regenerate once + audit JSONL]
   tier2 -->|FAIL| retry
   tier1 -->|pass| llmRow[rule = llm_fallback]
   tier2 -->|PASS| llmRow
   retry -->|still fail| dropVal[validation_failure_count]
   llmOpt -->|no| keepEmpty[Leave needs_llm]
-  row --> drop
   llmRow --> drop
   keepEmpty --> drop[Drop empty / short / needs_llm]
   dropVal --> drop
-  drop --> out[Write outputs/*.json + full info accounting]
+  drop --> finalVal[Final validator pass on every caption]
+  finalVal --> out[Write outputs/*.json + full info accounting]
 ```
 
 ### Stages (ordered)
@@ -132,10 +135,11 @@ flowchart TD
 2. **OCR exclusion** — Heuristic regex + selected `question_type` prefixes.
 3. **Optional consensus filter** — `--min-consensus T` (default `0.0` = off) drops pairs whose mode answer got less than `T` annotator agreement: if humans cannot agree, the caption is not a trustworthy training target. Runs **before** dedup so a dropped pair does not occupy the dedup slot. Drops go to `*_low_consensus.json`; count in `info.low_consensus_excluded_count`. On VQA v2 train ~11% of pairs sit below `0.4` and all of them are non-yes/no (a binary answer over 10 annotators cannot fall below `0.5`), so the filter raises the yes/no share of the dataset.
 4. **Dedup** — Keep first `(image_id, question, answer)`; store `duplicate_count`.
-5. **Optional binary classifier** — **Visual by default**: a question is kept as `DIRECTLY_VISUAL` with no LLM call unless `_NON_VISUAL_SUSPECT_RE` matches an OCR, personal-opinion, or outside-knowledge marker (~7% of VQA v2 train). Suspects go to Qwen (`v5_image_answerable`, which also instructs "when unsure, answer DIRECTLY_VISUAL"). Incremental checkpoint (`*_classifier_checkpoint.json`) every `--classifier-checkpoint-every N` enables resume after interrupt. Dropped `NOT_DIRECTLY_VISUAL` rows go to `*_not_directly_visual.json` (captioner-training filter only).
-6. **Rule engine** — First safe match wins; else `needs_llm`. Includes `yesno_is_everyone` and fixed `is_there`/`any`.
-7. **Optional LLM fallback** — Packed batches; Tier-1 then Tier-2; **1** regenerate; leftovers become validation failures then dropped.
+5. **Rule engine** — First safe match wins; else `needs_llm`. Includes `yesno_is_everyone` and fixed `is_there`/`any`. Every rule caption then goes through the same hard validator as an LLM caption: a failure becomes `needs_llm` (`info.rule_validation_reject_count`) instead of shipping a broken template.
+6. **Optional binary classifier** — Fast Path is a **whitelist**, not a default: a question skips the LLM only when it matches `_FAST_PATH_VISUAL_RE` (colour / count / existence / plain spatial relation), is at most 14 tokens, and carries no `_NON_VISUAL_SUSPECT_RE` marker. Everything else goes to Qwen (`v6_conservative_fast_path`). `--no-fast-path` disables the whitelist entirely so every question is classified by the LLM. Each row records `visual_filter_source` (`fast_path` / `llm_classifier`), including the rows written to `*_not_directly_visual.json`. Incremental checkpoint (`*_classifier_checkpoint.json`) every `--classifier-checkpoint-every N` enables resume after interrupt and is keyed on `fast_path_enabled`, so a Fast Path run cannot resume a `--no-fast-path` run.
+7. **Optional LLM fallback** — Packed batches; Tier-1 hard rejects then Tier-2 semantic judge; **1** regenerate; salvage rounds also get one single-item retry so a batch parse failure is never dropped untested. Every retry is written to `*_validation_audit.jsonl`.
 8. **Hard drop** — Empty / short / `needs_llm` rows never enter the written set.
+9. **Final validation pass** — The hard validator runs once more over **all** remaining captions (rule and LLM alike); soft findings are stored as `validation_flags` and the row is kept (`info.validation_flagged_count`).
 
 ---
 
@@ -154,7 +158,7 @@ flowchart TD
   match -->|yes| cap[Caption + rule name]
   match -->|try next| tryRules
   match -->|none left| needsLlm
-  tryRules --> families[Families: color / how_many / is_there / yesno_* / what_is / ...]
+  tryRules --> families[Families: color / how_many / is_there / yesno_* / what_is_doing / ...]
 ```
 
 ### Rule families (order matters)
@@ -163,10 +167,19 @@ flowchart TD
 |--------|----------|-------|
 | Attribute | `what_color`, `what_kind_type`, `what_is_doing` | Tight patterns only |
 | Existential | `is_there`, `are_there` | Includes bare nouns (`Is there grass?`) |
-| Yes/No specialized | `anyone`, `any`, `all`, `both`, `this_a`, possessive, coordinated, modal | Narrow shapes |
+| Yes/No specialized | `anyone`, `any`, `all`, `both`, `this_a`, possessive, coordinated | Narrow shapes |
 | Yes/No general | `yesno_is_are_predicate` | Locative `Is X with/in/on Y?` is subject+PP; PP leftover must be adjectival/participle; otherwise LLM |
-| Wh- | `what_is`, `who` | `made of` / `used for` before default |
-| Always LLM | Does/Do/Did, complex Is/Are, free-form which/where/… | Via `caption_generation_strategy` |
+| Wh- | `who` | Uncertain answers → LLM |
+| Always LLM | Does/Do/Did, `Can/Could/Will/Would/Has/Have/Had`, all `What is …?`, complex Is/Are, free-form which/where/… | Via `caption_generation_strategy` + deleted rules |
+
+### Deleted rules (Comments8)
+
+| Rule | Failure mode | Now |
+|------|--------------|-----|
+| `yesno_modal_have` | Misplaced the auxiliary: "This photo be could …", "The plane fly will …" | Deleted — always `needs_llm` |
+| `what_is` | Too many `What is …?` subtypes need a real parser (`What is it called?`, `What is it for?`, `What is the weather like?`) | Deleted — always `needs_llm` |
+
+`what_is_doing` is a separate rule and is unchanged.
 
 ### Safety net
 
@@ -190,14 +203,17 @@ flowchart TD
   needs[needs_llm rows] --> pack[Pack batch size ≤ 10]
   pack --> ollama[Ollama chat]
   ollama --> parse[Parse JSON array]
-  parse --> fmt[Format check]
-  fmt --> pol[Yes polarity check]
-  pol --> ground[Answer / question grounding]
+  parse --> fmt[Format / echo check]
+  fmt --> pol[Flat polarity contradiction]
+  pol --> ground[Verbatim answer grounding]
   ground --> contam[Batch contamination check]
-  contam -->|ok| accept[llm_fallback]
-  contam -->|fail| single[Single-item retry ×3]
+  contam -->|clear error| single[Single-item retry + audit JSONL]
+  contam -->|suspicious| flags[validation_flags + Tier2 judge]
+  flags -->|PASS| accept[llm_fallback, flags kept on the row]
+  flags -->|FAIL| single
+  contam -->|clean| accept
   single -->|ok| accept
-  single -->|fail| salvage[Final salvage]
+  single -->|fail| salvage[Final salvage + one single-item retry]
   salvage -->|fail| log[llm_failures.log]
   log --> dropLater[Drop from final output]
 ```
@@ -210,19 +226,37 @@ flowchart TD
 
 ### Validators (`llm_client.py`)
 
+The validator is deliberately split: a regex may only reject what is almost certainly wrong, and everything merely suspicious becomes a flag that a human (or the Tier-2 judge) can review. It runs on **all** captions, rule-based and LLM alike.
+
+**Hard rejects** (regex, high precision)
+
 | Check | Rejects |
 |-------|---------|
 | Format | Empty, &lt;2 words, `?`, brackets/quotes, multi-sentence, “the answer” |
-| Yes polarity | `answer=yes` but clear negation (unless question embeds negation) |
-| No polarity | `answer=no` but the caption asserts it positively, with no negation at all (`Are the cows in the shade?` + no → `The cows are free range.`) |
-| Relation | Fewer than **50%** (`RELATION_MIN_RATIO`) of the question's *required* stems survive in the caption. Required = content stems minus the wh-category noun phrase — the answer *replaces* the category word, so these keep: `What **animal** is this?` → `This is a dog.`; `What **season** is it?` → `It is summer outside.`; `What **sport** is shown here?` → `A skateboarding competition can be seen.`; `What **mode of transportation** is pictured?` → `A car is pictured.` — and minus either/or alternatives (`right **or** left` can only yield one). A verb straight after the wh-word means nothing is exempt, so `What is on the table?` → `The cat is on the chair.` is still rejected. Depiction verbs (`shown`/`pictured`/`seen`) are stopwords so synonym choice does not fail a correct caption |
-| Grounding | Missing answer; proper nouns/numbers/colors must be **verbatim** |
-| Unsupported facts | Caption invents content absent from Q+A |
-| Spurious negation | Non-yes/no answer but caption invents `no`/`not`/… |
+| Question echo | Caption just repeats the question |
+| Yes polarity | `answer=yes` but a clear sentential negation, or a caption opening with “No” (unless the question embeds negation) |
+| No polarity | `answer=no` but the caption explicitly says “Yes” |
+| Spurious negation | Non-yes/no answer but caption invents a sentential `no`/`not`/… — determiner `no` inside a noun phrase (`a no parking sign`) does not count |
+| Grounding | Proper nouns / numbers / colours / short answers must appear **verbatim** (Loon ≠ Loom) |
 | Contamination | Near-duplicate of another batch caption or better match to another Q+A |
-| Semantic judge | Suspicious items → Qwen PASS/FAIL; FAIL → 1 regenerate then drop |
+| Semantic judge | Tier-2 Qwen FAIL → 1 regenerate then drop |
 
-**Default batch size is 10.** `single_retries` default is **1**.
+**Soft flags** (`validation_flags`, row is kept)
+
+| Flag | Meaning |
+|------|---------|
+| `relation_low` | Fewer than **50%** (`RELATION_MIN_RATIO`) of the question's *required* stems survive in the caption. Required = content stems minus the wh-category noun phrase — the answer *replaces* the category word, so these keep: `What **animal** is this?` → `This is a dog.`; `What **season** is it?` → `It is summer outside.`; `What **mode of transportation** is pictured?` → `A car is pictured.` — and minus either/or alternatives (`right **or** left` can only yield one). Depiction verbs (`shown`/`pictured`/`seen`) are stopwords so synonym choice does not flag a correct caption |
+| `unsupported_facts_suspect` | Caption adds content words absent from Q+A |
+| `no_answer_without_negation` | `answer=no` with no negation word — often a correct paraphrase (`Was this taken during the day?` + no → `It is taken at night.`) |
+| `answer_partial_match` | Fewer than 50% of a longer answer's tokens appear in the caption |
+
+Two fixes make this precision possible: `_stem` strips inflection **twice** (so `buildings` and `building` share a stem instead of producing a false relation mismatch), and negation detection ignores determiner `no` inside a noun phrase (`The sign says no parking.` is a positive statement).
+
+**Default batch size is 10.** `single_retries` default is **1**, including the final salvage round.
+
+### Retry audit log
+
+`{stem}_validation_audit.jsonl` records one entry per retried item — `retry_kind` (`validator` vs `generation`), `first_caption`, `failure_reason`, `retry_caption`, `final_result` (`accepted`/`dropped`), `stage` (`main`/`salvage`). Successful retries used to leave no trace beyond the `validation_retry_count` number.
 
 ---
 
@@ -232,21 +266,23 @@ flowchart TD
 flowchart LR
   inQ[VQA Q+A] --> g1[OCR filter]
   g1 --> gC[Answer-consensus filter]
-  gC --> g2[Binary DIRECTLY_VISUAL classifier]
-  g2 --> g3[Rule safety]
-  g3 --> g4[Two-tier LLM validators]
+  gC --> g3[Rule safety + rule caption validator]
+  g3 --> g2[Binary DIRECTLY_VISUAL classifier]
+  g2 --> g4[Two-tier LLM validators]
   g4 --> g5[Empty drop]
-  g5 --> clean[Clean caption set]
+  g5 --> g6[Final validator pass on all captions]
+  g6 --> clean[Clean caption set + validation_flags]
 ```
 
 | Gate | When | Outcome |
 |------|------|---------|
-| OCR regex / `question_type` | Always | Remove text-reading questions |
+| OCR regex / `question_type` | Always | Remove text-reading questions (now also `number on …`, `shirt/train number`, `street name`, `written/printed on …`, `letters/initials on …`) |
 | Answer consensus | `--min-consensus T` (off at `0.0`) | Drop pairs humans disagreed on; sidecar for dropped pairs |
-| Binary classifier | `--classify-questions` | Visual by default, LLM only for suspects; keep DIRECTLY_VISUAL; sidecar for NOT_DIRECTLY_VISUAL |
-| Rule safety | Always | Bad templates → LLM or skip |
-| Two-tier LLM validators | `--llm` | Reject / regenerate once / drop |
+| Rule safety + validator | Always | Bad templates → LLM (`rule_validation_reject_count`) |
+| Binary classifier | `--classify-questions` | Fast Path whitelist only; everything else classified by the LLM; keep DIRECTLY_VISUAL; sidecar for NOT_DIRECTLY_VISUAL; `visual_filter_source` on every row |
+| Two-tier LLM validators | `--llm` | Hard reject → regenerate once → drop; suspicious → flag + Tier-2 |
 | Empty drop | Always at write | No empty/`needs_llm` in final annotations |
+| Final validator pass | Always at write | Hard checks on every caption; soft findings → `validation_flags` |
 
 ---
 
@@ -267,6 +303,8 @@ flowchart LR
     "dropped_empty_count": 100,
     "validation_retry_count": 40,
     "validation_failure_count": 15,
+    "validation_flagged_count": 60,
+    "rule_validation_reject_count": 12,
     "rule_counts": { "what_color": 181, "llm_fallback": 900 },
     "llm": {
       "model": "qwen2.5:3b-instruct-q4_K_M",
@@ -274,16 +312,19 @@ flowchart LR
       "prompt_version": "v7_verbatim_answers_no_extra_facts",
       "validation": {
         "single_retries": 1,
+        "salvage_single_retries": 1,
         "tier": "lexical+semantic_judge",
-        "validator_version": "v2_flat_relation_0.5_wh_category_or_aware",
+        "validator_version": "v3_high_precision_reject_plus_flags",
         "relation_min_ratio": 0.5
       },
-      "failure_log": "..."
+      "failure_log": "...",
+      "retry_audit_log": "..."
     },
     "question_classifier": {
       "model": "...",
-      "prompt_version": "v5_image_answerable",
-      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 3430 }
+      "prompt_version": "v6_conservative_fast_path",
+      "fast_path_enabled": true,
+      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 1390 }
     }
   },
   "annotations": [
@@ -295,15 +336,16 @@ flowchart LR
       "answer_count": 3,
       "answer_consensus": 0.3,
       "caption": "The dishes are pink and yellow.",
-      "rule": "what_color"
+      "rule": "what_color",
+      "visual_filter_source": "fast_path"
     }
   ]
 }
 ```
 
-Sidecars: `{stem}_not_directly_visual.json` (classifier drops) and `{stem}_low_consensus.json` (`--min-consensus` drops) keep dropped questions for later analysis.
+Sidecars: `{stem}_not_directly_visual.json` (classifier drops, each with `visual_filter_source`), `{stem}_low_consensus.json` (`--min-consensus` drops), and `{stem}_validation_audit.jsonl` (one record per retried item) keep dropped and retried questions for later analysis.
 
-`rule` is a rule name, `llm_fallback`, or (transiently before drop) `needs_llm`.
+`rule` is a rule name, `llm_fallback`, or (transiently before drop) `needs_llm`. `visual_filter_source` is written only when `--classify-questions` ran; `validation_flags` only when a soft check fired.
 
 ---
 
@@ -312,9 +354,10 @@ Sidecars: `{stem}_not_directly_visual.json` (classifier drops) and `{stem}_low_c
 | Topic | Behavior |
 |-------|----------|
 | Resume | Same command continues: classifier checkpoint + LLM `llm_fallback` merge; full skip when output JSON matches `post_filter_count` |
-| Classifier checkpoint | `{stem}_classifier_checkpoint.json`; saved every `--classifier-checkpoint-every N`; Ctrl+C safe |
+| Classifier checkpoint | `{stem}_classifier_checkpoint.json`; saved every `--classifier-checkpoint-every N`; Ctrl+C safe; keyed on `prompt_version` **and** `fast_path_enabled` so Fast Path and `--no-fast-path` runs never share a checkpoint |
 | Checkpoint | Atomic JSON write every N batches; Ctrl+C saves then exits |
 | Failure log | `*.json.llm_failures.log` with reason codes |
+| Retry audit log | `{stem}_validation_audit.jsonl`, one record per retried item (validator and generation retries) |
 | Reproducibility | Store model, host, `prompt_version`, batch size, classifier metadata |
 | QC audit | `python audit/audit_captions.py outputs/....json` |
 | Eval hygiene | DIRECTLY_VISUAL filter applies only to captioner supervision, not raw VQA2 eval |

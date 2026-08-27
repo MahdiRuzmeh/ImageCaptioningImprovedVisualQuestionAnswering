@@ -84,8 +84,8 @@ QuestionDependentCaptionGenerator/
 | `caption_rules.py` | `is_ocr_question`, ghavanin-e rewrite, `generate_caption` |
 | `llm_prompts.py` | System prompt-e version-dar (`PROMPT_VERSION`) |
 | `llm_client.py` | Chat API, parse, Tier-1 lexical + Tier-2 semantic judge |
-| `question_classifier.py` | DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL — default visual; faghat suspect-haye OCR / nazar-e shakhsi / knowledge-e biruni be LLM miran (~7% soal-ha; prompt `v5_image_answerable`) |
-| `audit/audit_captions.py` | Shomaresh-e bug-haye baghimande bad az generate |
+| `question_classifier.py` | DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL — Fast Path ye **whitelist**-e mohtat (rang / tedad / vojud / rabete-ye makani-e sade); baghie hame be LLM miran (prompt `v6_conservative_fast_path`) va har row `visual_filter_source` migire |
+| `audit/audit_captions.py` | Shomaresh-e bug-haye baghimande + `visual_filter_source` / `validation_flags` / check-e accounting |
 
 ---
 
@@ -100,32 +100,35 @@ flowchart TD
   cons -->|na| consDrop[low_consensus_excluded_count + sidecar]
   cons -->|bale / filter off| dedup[Drop duplicate rows]
   dedup -->|drop| dupDrop[duplicate_count]
-  dedup --> subjOpt{--classify-questions?}
-  subjOpt -->|yes| suspect{Marker-e OCR / shakhsi / knowledge?}
-  suspect -->|na: default visual| rules
-  suspect -->|bale| clf[Qwen binary classify]
+  dedup --> rules[Rule engine]
+  rules -->|safe match| ruleVal{Validator-e hard ru caption-e rule?}
+  ruleVal -->|fail| needs
+  ruleVal -->|pass| row[Row ba caption]
+  rules -->|na-motmaen| needs[needs_llm + caption khali]
+  row --> subjOpt
+  needs --> subjOpt{--classify-questions?}
+  subjOpt -->|yes| fast{Whitelist-e Fast Path va bedoon suspect?}
+  fast -->|bale: fast_path| llmOpt
+  fast -->|na| clf[Qwen binary classify: llm_classifier]
   clf -->|save| clfCkpt[classifier_checkpoint.json]
   clfCkpt -->|resume| clf
   clf -->|NOT_DIRECTLY_VISUAL| side[Sidecar JSON]
-  clf -->|DIRECTLY_VISUAL| rules
-  subjOpt -->|no| rules[Rule engine]
-  rules -->|safe match| row[Row ba caption]
-  rules -->|na-motmaen| needs[needs_llm + caption khali]
-  needs --> llmOpt{--llm?}
+  clf -->|DIRECTLY_VISUAL| llmOpt
+  subjOpt -->|no| llmOpt{--llm?}
   llmOpt -->|yes| batch[Ollama batch max 10]
-  batch --> tier1[Tier1 lexical]
-  tier1 -->|suspect| tier2[Tier2 PASS/FAIL]
-  tier1 -->|fail| retry[1 regenerate]
+  batch --> tier1[Tier1 hard reject + flag]
+  tier1 -->|suspect ya flag| tier2[Tier2 PASS/FAIL]
+  tier1 -->|hard reject| retry[1 regenerate + audit JSONL]
   tier2 -->|FAIL| retry
   tier1 -->|pass| llmRow[llm_fallback]
   tier2 -->|PASS| llmRow
   retry -->|fail| dropVal[validation_failure]
   llmOpt -->|no| keepEmpty[needs_llm mimone]
-  row --> drop
   llmRow --> drop
   keepEmpty --> drop[Drop empty / needs_llm]
   dropVal --> drop
-  drop --> out[Write outputs/*.json]
+  drop --> finalVal[Validator-e nahayi ru hame caption ha]
+  finalVal --> out[Write outputs/*.json]
 ```
 
 ### Marhale-ha be tartib / Stages
@@ -134,10 +137,11 @@ flowchart TD
 2. **Hazf-e OCR** — Ba regex + chand `question_type`.
 3. **Ekhtiari: filter-e consensus** — `--min-consensus T` (default `0.0` = khamush) pair-hayi ke mode answer-eshun kamtar az `T` tavafogh-e annotator dare drop mikone: vaghti adam-ha tavafogh nadaran, oon caption target-e ghabel-e etemad nist. **Ghabl az dedup** ejra mishe ta pair-e drop-shode jaye dedup ro nagire. Drop-ha → `*_low_consensus.json` + `info.low_consensus_excluded_count`. Ru VQA v2 train ~11% zir-e `0.4` hastan va hame non-yes/no (javab-e binary ba 10 annotator nemitune zir-e `0.5` beshe), pas sahm-e yes/no dar dataset bala miravad.
 4. **Dedup** — Faghat avalin `(image_id, question, answer)`; `duplicate_count`.
-5. **Ekhtiari: classifier-e binary** — **Default visual**: har soal `DIRECTLY_VISUAL` mimune bedoon LLM call, magar `_NON_VISUAL_SUSPECT_RE` match kone (marker-e OCR / nazar-e shakhsi / knowledge-e biruni — ~7% VQA v2 train). Suspect-ha be Qwen miran (`v5_image_answerable`: "vaghti motmaen nisti, DIRECTLY_VISUAL bede"). Checkpoint-e incremental (`*_classifier_checkpoint.json`) har `--classifier-checkpoint-every N` — resume ba'd az Ctrl+C. Drop-ha → sidecar.
-6. **Motor-e Rule** — Shamel `yesno_is_everyone` va `is_there` ba `any`-e dorost.
-7. **Ekhtiari: LLM** — Tier-1 + Tier-2; 1 regenerate; ba'd drop.
+5. **Motor-e Rule** — Shamel `yesno_is_everyone` va `is_there` ba `any`-e dorost. Har caption-e rule ba hamun validator-e hard-e LLM check mishe: fail → `needs_llm` (`info.rule_validation_reject_count`), na template-e kharab.
+6. **Ekhtiari: classifier-e binary** — Fast Path ye **whitelist** ast, na default: soal faghat vaghti bedoon LLM label mikhore ke `_FAST_PATH_VISUAL_RE` (rang / tedad / vojud / rabete-ye makani-e sade) match kone, ≤14 token bashe, va hich marker-e `_NON_VISUAL_SUSPECT_RE` nadashte bashe. Baghie be Qwen miran (`v6_conservative_fast_path`). `--no-fast-path` whitelist ro kollan khamoosh mikone. Har row `visual_filter_source` (`fast_path` / `llm_classifier`) migire — row-haye `*_not_directly_visual.json` ham. Checkpoint (`*_classifier_checkpoint.json`) har `--classifier-checkpoint-every N` save mishe va ba `fast_path_enabled` key mikhore, pas run-e Fast Path ba run-e `--no-fast-path` checkpoint share nemikonan.
+7. **Ekhtiari: LLM** — Tier-1 (hard reject + flag) + Tier-2; 1 regenerate; salvage ham ye single-item retry dare, pas parse failure-e batch bedoon test-e tanha drop nemishe. Har retry → `*_validation_audit.jsonl`.
 8. **Hazf-e sakht** — Caption-e khali / `needs_llm` toye file-e nahayi neveshte nemishe.
+9. **Pass-e nahayi-e validator** — Check-haye hard ye bar dige ru **hame** caption ha (rule + LLM); moshkel-haye mashkuk → `validation_flags` va row mimoone (`info.validation_flagged_count`).
 
 ---
 
@@ -156,21 +160,30 @@ flowchart TD
   match -->|yes| cap[Caption + rule name]
   match -->|no next| tryRules
   match -->|hich kodom| needsLlm
-  tryRules --> families[Families: color / how_many / is_there / yesno_* / what_is / ...]
+  tryRules --> families[Families: color / how_many / is_there / yesno_* / what_is_doing / ...]
 ```
 
 ### Family-haye ghanun / Rule families
 
-Ghavanin-e khastar-tar aval ejra mishan (rang, tedad, type, who, vojud-i, yes/no-e takhasosi, ba'd predicate va what-is).
+Ghavanin-e khastar-tar aval ejra mishan (rang, tedad, type, who, vojud-i, yes/no-e takhasosi, ba'd predicate).
 
 | Family | Mesal | Note |
 |--------|-------|------|
-| Attribute | `what_color`, `what_kind_type` | Faghat pattern-e ghat'i |
+| Attribute | `what_color`, `what_kind_type`, `what_is_doing` | Faghat pattern-e ghat'i |
 | Existential | `is_there`, `are_there` | `a`/`an`/`any` as whole words (`Is there any window?`) |
 | Yes/No takhasosi | anyone / everyone / any / all / both / this_a / … | Shape-e narrow |
 | Yes/No omoomi | `yesno_is_are_predicate` | Locative `Is X with/in/on Y?` = subject+PP; leftover-e PP bayad adjective/participle bashe; vagarna LLM. everyone/anyone → rule-e joda ya LLM |
-| Wh- | `what_is`, `who` | Aval `made of` / `used for` |
-| Hamishe LLM | Does/Do/Did, Is/Are-e pichide | Az `caption_generation_strategy` |
+| Wh- | `who` | Javab-e na-motmaen → LLM |
+| Hamishe LLM | Does/Do/Did, `Can/Could/Will/Would/Has/Have/Had`, hame-ye `What is …?`, Is/Are-e pichide | Az `caption_generation_strategy` + rule-haye hazf-shode |
+
+### Rule-haye hazf-shode (Comments8)
+
+| Rule | Moshkel | Alan |
+|------|---------|------|
+| `yesno_modal_have` | Auxiliary ro jabeja mikard: "This photo be could …", "The plane fly will …" | Hazf shod — hamishe `needs_llm` |
+| `what_is` | Sub-type haye ziad-e `What is …?` bedoon parser mishkanand (`What is it called?`, `What is it for?`, `What is the weather like?`) | Hazf shod — hamishe `needs_llm` |
+
+`what_is_doing` rule-e jodast va avaz nashode.
 
 ### Tor-e imeni / Safety net
 
@@ -199,14 +212,17 @@ flowchart TD
   needs[needs_llm rows] --> pack[Pack batch size leq 10]
   pack --> ollama[Ollama chat]
   ollama --> parse[Parse JSON array]
-  parse --> fmt[Format check]
-  fmt --> pol[Yes polarity check]
-  pol --> ground[Answer / question grounding]
+  parse --> fmt[Format / echo check]
+  fmt --> pol[Polarity-e ghat'i motanaghez]
+  pol --> ground[Grounding-e verbatim]
   ground --> contam[Batch contamination check]
-  contam -->|ok| accept[llm_fallback]
-  contam -->|fail| single[Single-item retry x3]
+  contam -->|khataye vazeh| single[Single-item retry + audit JSONL]
+  contam -->|mashkuk| flags[validation_flags + Tier2 judge]
+  flags -->|PASS| accept[llm_fallback + flag roye row]
+  flags -->|FAIL| single
+  contam -->|salem| accept
   single -->|ok| accept
-  single -->|fail| salvage[Final salvage]
+  single -->|fail| salvage[Final salvage + yek single-item retry]
   salvage -->|fail| log[llm_failures.log]
   log --> dropLater[Drop az output-e nahayi]
 ```
@@ -219,19 +235,37 @@ flowchart TD
 
 ### Validator-ha (`llm_client.py`)
 
+Ghaide (Comments8 band-e 6): regex faghat chizi ro rad mikone ke **taghriban ghat'i** ghalat ast; har chi faghat mashkuk ast flag mikhore. Validator ru **hame** caption ha (rule + LLM) run mishe.
+
+**Reject-haye hard**
+
 | Check | Chi rad mishe |
 |-------|---------------|
 | Format | Khali, kootah, soal, chand-jomle, bracket |
-| Yes polarity | Javab yes vali caption manfi-ye vazeh |
-| No polarity | Javab `no` vali caption mosbat va bedoon hich negation (`Are the cows in the shade?` + no → `The cows are free range.`) |
-| Relation | Kamtar az **50%** (`RELATION_MIN_RATIO`) az stem-haye *required*-e soal toye caption bashe. required = content stem-ha menha-ye wh-category NP — javab *jaye* esm-e daste ro migire, pas in-ha keep mishan: `What **animal** is this?` → `This is a dog.`; `What **season** is it?` → `It is summer outside.`; `What **sport** is shown here?` → `A skateboarding competition can be seen.`; `What **mode of transportation** is pictured?` → `A car is pictured.` — va menha-ye either/or alternatives (`right **or** left` faghat yeki mishe). Age ba'd az wh-word fe'l biyad hich chi hazf nemishe, pas `What is on the table?` → `The cat is on the chair.` hanooz reject mishe. Fe'l-haye depiction (`shown`/`pictured`/`seen`) stopword hastan |
-| Grounding | Proper noun / adad / rang **verbatim**; digar ≥50% |
-| Unsupported facts | Vaghe'iyat-e ezafi ke toye Q+A nist |
-| Spurious negation | Javab gheyr-e yes/no vali caption manfi-ye sakhtagi |
+| Echo | Caption faghat soal ro tekrar karde |
+| Yes polarity | Javab yes vali negation-e jomle-i ya shoru' ba "No" |
+| No polarity | Javab `no` vali caption sarih "Yes" migeh |
+| Spurious negation | Javab gheyr-e yes/no vali negation-e jomle-i-e sakhtagi. `no` toye noun phrase (`a no parking sign`) hesab **nemishe** |
+| Grounding | Proper noun / adad / rang / javab-e kutah bayad **verbatim** bashe (Loon ≠ Loom) |
 | Contamination | Jabeja shodan-e caption beyn-e item-haye yek batch |
-| Semantic judge | Mashkuk → Qwen PASS/FAIL; FAIL → 1 regenerate ba'd drop |
+| Semantic judge | Tier-2 Qwen FAIL → 1 regenerate ba'd drop |
 
-**Batch size-e pishfarz 10.** `single_retries` pishfarz **1**.
+**Flag ha (`validation_flags`, row mimoone)**
+
+| Flag | Ma'ni |
+|------|-------|
+| `relation_low` | Kamtar az **50%** (`RELATION_MIN_RATIO`) az stem-haye *required*-e soal toye caption ast. required = content stem-ha menha-ye wh-category NP — javab *jaye* esm-e daste ro migire (`What **animal** is this?` → `This is a dog.`; `What **mode of transportation** is pictured?` → `A car is pictured.`) va menha-ye either/or alternatives. Fe'l-haye depiction (`shown`/`pictured`/`seen`) stopword hastan |
+| `unsupported_facts_suspect` | Content word-e ezafe ke toye Q+A nist |
+| `no_answer_without_negation` | Javab `no` vali caption negation nadare — ghalaban paraphrase-e dorost (`Was this taken during the day?` + no → `It is taken at night.`) |
+| `answer_partial_match` | Kamtar az 50% token-haye javab-e tulani-tar |
+
+Do fix in daghat ro momken karde: `_stem` do bar suffix strip mikone (pas `buildings` va `building` yek stem daran va relation mismatch-e ghalat pish nemiyad), va negation-e determiner-i toye noun phrase nadide gerefte mishe (`The sign says no parking.` jomle-ye mosbat ast).
+
+**Batch size-e pishfarz 10.** `single_retries` pishfarz **1** — salvage ham hamintor.
+
+### Retry audit log
+
+`{stem}_validation_audit.jsonl` baraye har item-e retry-shode yek record dare: `retry_kind` (`validator` / `generation`), `first_caption`, `failure_reason`, `retry_caption`, `final_result` (`accepted`/`dropped`), `stage` (`main`/`salvage`). Ghablan retry-e movafagh hich asari nemigozasht.
 
 ---
 
@@ -240,20 +274,22 @@ flowchart TD
 ```mermaid
 flowchart LR
   inQ[VQA Q+A] --> g1[OCR filter]
-  g1 --> g2[Binary DIRECTLY_VISUAL classifier]
-  g2 --> g3[Rule safety]
-  g3 --> g4[Two-tier LLM validators]
+  g1 --> g3[Rule safety + validator-e caption-e rule]
+  g3 --> g2[Binary DIRECTLY_VISUAL classifier]
+  g2 --> g4[Two-tier LLM validators]
   g4 --> g5[Empty drop]
-  g5 --> clean[Clean caption set]
+  g5 --> g6[Validator-e nahayi ru hame caption ha]
+  g6 --> clean[Clean caption set + validation_flags]
 ```
 
 | Gate | Zaman | Natije |
 |------|-------|--------|
-| OCR | Hamishe | Hazf-e soal-haye text-reading |
-| Binary classifier | Ba `--classify-questions` | Default visual; LLM faghat baraye suspect-ha; keep DIRECTLY_VISUAL; sidecar baraye NOT_DIRECTLY_VISUAL |
-| Rule safety | Hamishe | Template-e kharab → LLM |
-| Two-tier validators | Ba `--llm` | Rad / 1 regenerate / drop |
+| OCR | Hamishe | Hazf-e soal-haye text-reading (hala `number on …`, `shirt/train number`, `street name`, `written/printed on …`, `letters/initials on …` ham) |
+| Rule safety + validator | Hamishe | Template-e kharab → LLM (`rule_validation_reject_count`) |
+| Binary classifier | Ba `--classify-questions` | Faghat whitelist-e Fast Path bedoon LLM; baghie label-e LLM mikhoran; sidecar baraye NOT_DIRECTLY_VISUAL; `visual_filter_source` roye har row |
+| Two-tier validators | Ba `--llm` | Hard reject → 1 regenerate → drop; mashkuk → flag + Tier-2 |
 | Empty drop | Hengam-e neveshtan | Hich target-e khali vared-e train nemishe |
+| Validator-e nahayi | Hengam-e neveshtan | Check-e hard ru hame caption ha; mashkuk → `validation_flags` |
 
 ---
 
@@ -273,6 +309,8 @@ flowchart LR
     "dropped_empty_count": 100,
     "validation_retry_count": 40,
     "validation_failure_count": 15,
+    "validation_flagged_count": 60,
+    "rule_validation_reject_count": 12,
     "rule_counts": { "...": "..." },
     "llm": {
       "model": "...",
@@ -280,21 +318,33 @@ flowchart LR
       "prompt_version": "v7_...",
       "validation": {
         "single_retries": 1,
+        "salvage_single_retries": 1,
         "tier": "lexical+semantic_judge",
-        "validator_version": "v2_flat_relation_0.5_wh_category_or_aware",
+        "validator_version": "v3_high_precision_reject_plus_flags",
         "relation_min_ratio": 0.5
-      }
+      },
+      "retry_audit_log": "..."
     },
     "question_classifier": {
-      "prompt_version": "v5_image_answerable",
-      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 3430 }
+      "prompt_version": "v6_conservative_fast_path",
+      "fast_path_enabled": true,
+      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 1390 }
     }
   },
-  "annotations": [ { "...": "..." } ]
+  "annotations": [
+    {
+      "question_id": 9001,
+      "question": "What color are the dishes?",
+      "answer": "pink and yellow",
+      "caption": "The dishes are pink and yellow.",
+      "rule": "what_color",
+      "visual_filter_source": "fast_path"
+    }
+  ]
 }
 ```
 
-Sidecar-ha: `{stem}_not_directly_visual.json` va `{stem}_low_consensus.json`. Filter-ha faghat baraye train-e Captioner; VQA2 eval dast nakhord.
+Sidecar-ha: `{stem}_not_directly_visual.json` (ba `visual_filter_source`), `{stem}_low_consensus.json`, va `{stem}_validation_audit.jsonl`. Filter-ha faghat baraye train-e Captioner; VQA2 eval dast nakhord.
 
 `answer_consensus` = tavaghof-e annotator-ha; sample-haye consensus-e payin default **hazf nemishan** (faghat ba `--min-consensus T`).
 
@@ -305,9 +355,10 @@ Sidecar-ha: `{stem}_not_directly_visual.json` va `{stem}_low_consensus.json`. Fi
 | Mozu | Raftar |
 |------|--------|
 | Resume | Hamoon dastur edame mide: classifier checkpoint + LLM merge; full skip vaghti output ba `post_filter_count` match kone |
-| Classifier checkpoint | `{stem}_classifier_checkpoint.json`; har `--classifier-checkpoint-every N`; Ctrl+C safe |
+| Classifier checkpoint | `{stem}_classifier_checkpoint.json`; har `--classifier-checkpoint-every N`; Ctrl+C safe; ba `prompt_version` **va** `fast_path_enabled` key mikhore |
 | Checkpoint | Save-e atomic har N batch; Ctrl+C ham save mikone |
 | Failure log | `*.json.llm_failures.log` ba dalil-e khata |
+| Retry audit log | `{stem}_validation_audit.jsonl` — yek record baraye har item-e retry-shode |
 | Audit | `python audit/audit_captions.py outputs/....json` |
 
 ### Pilot-e pishnahadi ghabl az kol-e train (~443 hezar)

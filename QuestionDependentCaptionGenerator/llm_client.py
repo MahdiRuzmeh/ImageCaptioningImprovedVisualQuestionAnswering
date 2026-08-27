@@ -19,7 +19,7 @@ from llm_prompts import chat_messages
 
 # Bumped whenever the Tier-1 accept/reject rules change, so a captions JSON
 # records which validator produced it.
-VALIDATOR_VERSION = "v2_flat_relation_0.5_wh_category_or_aware"
+VALIDATOR_VERSION = "v3_high_precision_reject_plus_flags"
 
 _WORD_TO_DIGIT = {word: digit for digit, word in DIGIT_TO_WORD.items()}
 
@@ -42,17 +42,30 @@ def _numeric_equivalents(token: str) -> Set[str]:
 _INFLECTION_SUFFIXES = ("ing", "edly", "ed", "es", "s")
 
 
+def _strip_inflection(word: str) -> Tuple[str, bool]:
+    """Strip one inflection suffix if >=3 letters remain; report whether it hit."""
+    for suf in _INFLECTION_SUFFIXES:
+        if word.endswith(suf) and len(word) - len(suf) >= 3:
+            return word[: -len(suf)], True
+    return word, False
+
+
 def _stem(word: str) -> str:
-    """Strip a common inflection suffix, but only if >=3 letters remain.
+    """Strip inflection suffixes, but only while >=3 letters remain.
+
+    The strip runs **twice** so a pluralized verbal noun collapses onto its
+    singular: 'buildings' -> 'building' -> 'build' now matches 'building' ->
+    'build'.  With a single pass the two forms stemmed differently and a
+    caption saying 'buildings' was rejected as a relation mismatch against a
+    question about a 'building'.
 
     A trailing silent 'e' is dropped last so singular/plural pairs collapse to
     the same stem: without it 'planes' -> 'plan' but 'plane' -> 'plane', and a
     word would fail to match itself ('picture' vs 'pictured' likewise).
     """
-    for suf in _INFLECTION_SUFFIXES:
-        if word.endswith(suf) and len(word) - len(suf) >= 3:
-            word = word[: -len(suf)]
-            break
+    word, changed = _strip_inflection(word)
+    if changed:
+        word, _ = _strip_inflection(word)
     if len(word) > 3 and word.endswith("e"):
         word = word[:-1]
     return word
@@ -230,6 +243,33 @@ _QUESTION_NEGATION_RE = re.compile(
     r"|\w*n't\b)",
     re.I,
 )
+
+# "no" inside a noun phrase names a thing, it does not negate the sentence:
+# "The sign says no parking." is a positive statement about a sign. Treating
+# it as negation used to reject perfectly good captions, so these spans are
+# removed before any negation test.
+_NON_SENTENTIAL_NO_RE = re.compile(
+    r"""
+    \bno\s+(?:parking|standing|stopping|smoking|entry|entrance|exit|
+              trespassing|littering|swimming|diving|fishing|hunting|
+              turn|turns|u-turn|uturn|left\s+turn|right\s+turn|
+              dogs|pets|photos|photography|food|drinks|outlet|service|
+              vacancy|passing|dumping|loitering|skateboarding|bikes|
+              cell\s+phones|shirt|shoes)\b |
+    \b(?:a|an|the|this|that|any|one)\s+no\s+\w+\s+
+        (?:sign|signs|symbol|marking|markings|notice|placard)\b
+    """,
+    re.I | re.X,
+)
+
+
+def has_sentential_negation(caption: str) -> bool:
+    """True when the caption negates its own statement.
+
+    Determiner-style ``no`` inside a named phrase ("no parking sign") is not
+    negation — see :data:`_NON_SENTENTIAL_NO_RE`.
+    """
+    return bool(_NEGATION_RE.search(_NON_SENTENTIAL_NO_RE.sub(" ", caption)))
 
 _STOPWORDS = {
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
@@ -555,8 +595,8 @@ def answer_in_caption(
     Strictness:
       - proper nouns / numbers / colors / short answers → verbatim (100%)
       - other answers → >=50% token match (digit/word + light stem)
-      - yes/no → majority question-content overlap (see relation check in
-        ``caption_is_valid``); here we still require some overlap.
+      - yes/no → majority question-content overlap (see the relation flag in
+        ``caption_soft_flags``); here we still require some overlap.
     """
     a = answer.strip().lower()
     c = caption.strip().lower()
@@ -586,12 +626,13 @@ def has_spurious_negation(answer: str, caption: str) -> bool:
     A negation word in the caption is fine when:
       - the gold answer is itself yes/no/none-style, or
       - the answer text already contains a negation word (e.g. 'not moving'),
-        so the caption is just echoing it, not flipping the meaning.
+        so the caption is just echoing it, not flipping the meaning, or
+      - the ``no`` belongs to a noun phrase ("no parking sign").
     """
     a = answer.strip().lower()
     if not a or a in _YES or a in _NO:
         return False
-    if not _NEGATION_RE.search(caption):
+    if not has_sentential_negation(caption):
         return False
     answer_words = set(re.split(r"\W+", a))
     if answer_words & {"no", "not", "never", "none", "nobody", "nothing", "neither", "without"}:
@@ -608,30 +649,50 @@ def has_yes_polarity_mismatch(answer: str, caption: str, question: str = "") -> 
     a = answer.strip().lower()
     if a not in _YES:
         return False
-    if not _NEGATION_RE.search(caption):
+    if not has_sentential_negation(caption):
         return False
     if question and _QUESTION_NEGATION_RE.search(question):
         return False
     return True
+
+
+# A caption that opens with "Yes"/"No" contradicts the opposite gold answer.
+# This is the only polarity direction we still reject for answer=no: a
+# paraphrase without any negation word is usually correct English ("Is it
+# taken during the day?" + no -> "It is taken at night."), so it is flagged
+# rather than dropped.
+_CAPTION_AFFIRMS_RE = re.compile(r"^\s*yes\b|\bthe answer is yes\b", re.I)
+_CAPTION_DENIES_RE = re.compile(r"^\s*no[,.\s]|\bthe answer is no\b", re.I)
 
 
 def has_no_polarity_mismatch(answer: str, caption: str, question: str = "") -> bool:
-    """True when answer=no but the caption asserts something positive.
+    """True when answer=no but the caption explicitly affirms ("Yes, ...").
 
-    Mirror of :func:`has_yes_polarity_mismatch`, and the only guard against
-    'Are the cows in the shade?' + no → 'The cows are free range.', which the
-    relation check used to catch only as a side effect of demanding 100%
-    overlap. Restricted to the literal answer 'no': other negative-ish answers
-    ('0', 'zero', 'nothing') are content words that ``answer_in_caption``
-    already grounds.
+    Deliberately narrow. The previous rule demanded a negation word for every
+    ``no`` answer, which rejected semantically correct paraphrases such as
+    'It is taken at night.' Those now come back as a
+    ``no_answer_without_negation`` flag from :func:`caption_soft_flags`.
     """
     if answer.strip().lower() != "no":
         return False
-    if _NEGATION_RE.search(caption):
+    del question  # question negation no longer changes this narrow check
+    return bool(_CAPTION_AFFIRMS_RE.search(caption))
+
+
+def has_yes_denial(answer: str, caption: str) -> bool:
+    """True when answer is yes-like but the caption opens with a flat 'No'."""
+    if answer.strip().lower() not in _YES:
         return False
-    if question and _QUESTION_NEGATION_RE.search(question):
+    return bool(_CAPTION_DENIES_RE.search(caption))
+
+
+def echoes_question(question: str, caption: str) -> bool:
+    """True when the caption just repeats the question as a statement."""
+    q = _normalize_phrase(question)
+    c = _normalize_phrase(caption)
+    if not q or not c:
         return False
-    return True
+    return c == q or (len(q.split()) >= 4 and c.startswith(q))
 
 
 def is_batch_contamination(
@@ -682,7 +743,56 @@ def is_batch_contamination(
     return False
 
 
-def caption_is_valid(
+# Soft findings: recorded on the row as ``validation_flags`` and used to
+# escalate to the Tier-2 judge, but never a regex-only reject. Comments8: a
+# regex must not decide semantic equivalence — if a case is merely
+# suspicious, flag it instead of deleting the sample.
+FLAG_RELATION_LOW = "relation_low"
+FLAG_UNSUPPORTED_FACTS = "unsupported_facts_suspect"
+FLAG_NO_ANSWER_WITHOUT_NEGATION = "no_answer_without_negation"
+FLAG_ANSWER_PARTIAL = "answer_partial_match"
+
+VALIDATION_FLAGS = (
+    FLAG_RELATION_LOW,
+    FLAG_UNSUPPORTED_FACTS,
+    FLAG_NO_ANSWER_WITHOUT_NEGATION,
+    FLAG_ANSWER_PARTIAL,
+)
+
+
+@dataclass
+class Validation:
+    """Outcome of validating one caption."""
+
+    ok: bool
+    reason: str = "ok"
+    flags: List[str] = field(default_factory=list)
+
+    @property
+    def needs_semantic_review(self) -> bool:
+        """True when a Tier-2 LLM ruling should decide this caption."""
+        return self.ok and self.reason == "needs_semantic_review"
+
+
+def caption_soft_flags(question: str, answer: str, caption: str) -> List[str]:
+    """Suspicious-but-not-wrong findings, safe to keep in the dataset."""
+    flags: List[str] = []
+    if question.strip():
+        rel_ok, _ratio = question_relation_preserved(question, caption)
+        if not rel_ok:
+            flags.append(FLAG_RELATION_LOW)
+    if has_unsupported_facts(question, answer, caption):
+        flags.append(FLAG_UNSUPPORTED_FACTS)
+    if answer.strip().lower() == "no" and not has_sentential_negation(caption):
+        flags.append(FLAG_NO_ANSWER_WITHOUT_NEGATION)
+    if not answer_requires_verbatim(answer) and not answer_in_caption(
+        answer, caption, question
+    ):
+        flags.append(FLAG_ANSWER_PARTIAL)
+    return flags
+
+
+def caption_hard_reject_reason(
     answer: str,
     caption: str,
     question: str = "",
@@ -690,32 +800,31 @@ def caption_is_valid(
     batch_pairs: Optional[Sequence[Tuple[str, str]]] = None,
     batch_captions: Optional[Sequence[Optional[str]]] = None,
     self_index: int = -1,
-) -> Tuple[bool, str]:
-    """Tier-1 acceptance: format, polarity, grounding, relation, extra facts.
+) -> Optional[str]:
+    """Reject code for errors we are nearly certain about, else None.
 
-    Returns:
-        (ok, reason) — reason is 'ok', 'needs_semantic_review', or a reject code.
-        Callers should escalate ``needs_semantic_review`` to the LLM judge.
+    High precision by design (Comments8): broken format, an echoed question,
+    a flat polarity contradiction, a missing verbatim answer (number / proper
+    noun / colour / short answer), and batch contamination. Semantic judgment
+    is left to the Tier-2 LLM judge.
     """
     fmt_ok, fmt_reason = caption_format_is_valid(caption)
     if not fmt_ok:
-        return False, fmt_reason
+        return fmt_reason
+    if question.strip() and echoes_question(question, caption):
+        return "echoes_question"
     if has_yes_polarity_mismatch(answer, caption, question):
-        return False, "polarity_mismatch"
+        return "polarity_mismatch"
+    if has_yes_denial(answer, caption):
+        return "polarity_mismatch"
     if has_no_polarity_mismatch(answer, caption, question):
-        return False, "polarity_mismatch"
+        return "polarity_mismatch"
     if has_spurious_negation(answer, caption):
-        return False, "spurious_negation"
-    if question.strip():
-        rel_ok, rel_ratio = question_relation_preserved(question, caption)
-        if not rel_ok:
-            return False, "relation_mismatch"
-    else:
-        rel_ratio = 1.0
-    if not answer_in_caption(answer, caption, question):
-        return False, "answer_mismatch"
-    if has_unsupported_facts(question, answer, caption):
-        return False, "unsupported_facts"
+        return "spurious_negation"
+    if answer_requires_verbatim(answer) and not answer_verbatim_in_caption(
+        answer, caption
+    ):
+        return "answer_mismatch"
     if (
         batch_pairs is not None
         and batch_captions is not None
@@ -724,12 +833,47 @@ def caption_is_valid(
             question, answer, caption, batch_pairs, batch_captions, self_index
         )
     ):
-        return False, "batch_contamination"
-    if is_semantically_suspicious(
+        return "batch_contamination"
+    return None
+
+
+def validate_caption(
+    answer: str,
+    caption: str,
+    question: str = "",
+    *,
+    batch_pairs: Optional[Sequence[Tuple[str, str]]] = None,
+    batch_captions: Optional[Sequence[Optional[str]]] = None,
+    self_index: int = -1,
+) -> Validation:
+    """Tier-1 validation: hard rejects, soft flags, Tier-2 escalation.
+
+    Returns a :class:`Validation` whose ``reason`` is a reject code when
+    ``ok`` is False, ``'needs_semantic_review'`` when the LLM judge should
+    rule, or ``'ok'``.
+    """
+    hard = caption_hard_reject_reason(
+        answer,
+        caption,
+        question,
+        batch_pairs=batch_pairs,
+        batch_captions=batch_captions,
+        self_index=self_index,
+    )
+    if hard is not None:
+        return Validation(ok=False, reason=hard)
+
+    flags = caption_soft_flags(question, answer, caption)
+    _rel_ok, rel_ratio = (
+        question_relation_preserved(question, caption)
+        if question.strip()
+        else (True, 1.0)
+    )
+    if flags or is_semantically_suspicious(
         question, answer, caption, relation_ratio=rel_ratio
     ):
-        return True, "needs_semantic_review"
-    return True, "ok"
+        return Validation(ok=True, reason="needs_semantic_review", flags=flags)
+    return Validation(ok=True, reason="ok", flags=flags)
 
 
 def answer_mismatch_detail(answer: str, caption: str) -> str:
@@ -760,12 +904,20 @@ def polarity_mismatch_detail(answer: str, caption: str, question: str = "") -> s
     if answer.strip().lower() == "no":
         return (
             f"answer={answer!r} is negative but caption={caption!r} "
-            f"asserts it positively (no negation found) (Q={question!r})"
+            f"explicitly affirms it (Q={question!r})"
         )
     hits = _NEGATION_RE.findall(caption)
     return (
         f"answer={answer!r} is yes-like but caption={caption!r} "
-        f"contains negation {hits} (Q={question!r})"
+        f"contradicts it (negation {hits}) (Q={question!r})"
+    )
+
+
+def echoes_question_detail(question: str, caption: str) -> str:
+    """Human-readable why the caption was treated as an echo of the question."""
+    return (
+        f"caption={caption!r} just repeats the question {question!r} "
+        "instead of stating the answer"
     )
 
 
@@ -778,10 +930,10 @@ def batch_contamination_detail(caption: str) -> str:
 
 
 def relation_mismatch_detail(question: str, caption: str) -> str:
-    """Human-readable why subject/relation overlap failed."""
+    """Human-readable why subject/relation overlap looked low (flag only)."""
     ok, ratio = question_relation_preserved(question, caption)
     return (
-        f"question content not preserved in caption={caption!r} "
+        f"question content only partly preserved in caption={caption!r} "
         f"(Q={question!r}, overlap_ratio={ratio:.2f}, ok={ok})"
     )
 
@@ -820,15 +972,33 @@ _FORMAT_REASONS = {
     "multiple_sentences",
 }
 
+# Reasons that actually drop a caption. ``relation_mismatch`` and
+# ``unsupported_facts`` are gone from this set: they are flags now, so the
+# accounting identity in the output JSON still adds up.
 _VALIDATION_FAIL_REASONS = {
     "answer_mismatch",
+    "echoes_question",
     "polarity_mismatch",
     "spurious_negation",
     "batch_contamination",
-    "relation_mismatch",
-    "unsupported_facts",
     "semantic_fail",
 } | _FORMAT_REASONS
+
+
+def flag_detail(flag: str, question: str, answer: str, caption: str) -> str:
+    """Human-readable description of a soft validation flag."""
+    if flag == FLAG_RELATION_LOW:
+        return relation_mismatch_detail(question, caption)
+    if flag == FLAG_UNSUPPORTED_FACTS:
+        return unsupported_facts_detail(question, answer, caption)
+    if flag == FLAG_NO_ANSWER_WITHOUT_NEGATION:
+        return (
+            f"answer={answer!r} but caption={caption!r} has no negation word — "
+            "may still be a correct paraphrase, kept for review"
+        )
+    if flag == FLAG_ANSWER_PARTIAL:
+        return answer_mismatch_detail(answer, caption)
+    return f"{flag}: caption={caption!r}"
 
 
 def rejection_detail(
@@ -844,12 +1014,10 @@ def rejection_detail(
         return spurious_negation_detail(answer, caption)
     if reason == "polarity_mismatch":
         return polarity_mismatch_detail(answer, caption, question)
+    if reason == "echoes_question":
+        return echoes_question_detail(question, caption)
     if reason == "batch_contamination":
         return batch_contamination_detail(caption)
-    if reason == "relation_mismatch":
-        return relation_mismatch_detail(question, caption)
-    if reason == "unsupported_facts":
-        return unsupported_facts_detail(question, answer, caption)
     if reason == "semantic_fail":
         return semantic_fail_detail(question, answer, caption)
     return answer_mismatch_detail(answer, caption)
@@ -866,12 +1034,21 @@ class ChatResult:
 
 @dataclass
 class ItemOutcome:
-    """Per Q+A outcome after batch + single retries."""
+    """Per Q+A outcome after batch + single retries.
+
+    ``first_caption`` / ``first_reason`` remember the caption that was
+    rejected before a retry, so the audit log can show what the retry
+    actually changed.
+    """
 
     caption: Optional[str] = None
     reason: str = "ok"
     detail: str = ""
     attempts: List[str] = field(default_factory=list)
+    flags: List[str] = field(default_factory=list)
+    first_caption: Optional[str] = None
+    first_reason: str = ""
+    retry_kind: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -1039,9 +1216,9 @@ class OllamaClient:
         batch_pairs: Optional[Sequence[Tuple[str, str]]] = None,
         batch_captions: Optional[Sequence[Optional[str]]] = None,
         self_index: int = -1,
-    ) -> Tuple[bool, str]:
-        """Run Tier-1 then optional Tier-2 semantic judge."""
-        ok, reason = caption_is_valid(
+    ) -> Validation:
+        """Run Tier-1 then, for suspicious items, the Tier-2 semantic judge."""
+        result = validate_caption(
             answer,
             caption,
             question,
@@ -1049,14 +1226,14 @@ class OllamaClient:
             batch_captions=batch_captions,
             self_index=self_index,
         )
-        if not ok:
-            return False, reason
-        if reason != "needs_semantic_review":
-            return True, "ok"
-        passed, detail = self.semantic_judge(question, answer, caption)
+        if not result.ok:
+            return result
+        if not result.needs_semantic_review:
+            return Validation(ok=True, reason="ok", flags=result.flags)
+        passed, _detail = self.semantic_judge(question, answer, caption)
         if passed:
-            return True, "ok"
-        return False, "semantic_fail"
+            return Validation(ok=True, reason="ok", flags=result.flags)
+        return Validation(ok=False, reason="semantic_fail", flags=result.flags)
 
     def captions_with_retry(
         self,
@@ -1090,20 +1267,24 @@ class OllamaClient:
             tentative: List[Optional[str]] = [None] * n
             for i, cap in enumerate(batch.captions):
                 q, a = pairs_list[i]
-                ok, reason = self._accept_or_escalate(q, a, cap)
-                if ok:
+                result = self._accept_or_escalate(q, a, cap)
+                if result.ok:
                     tentative[i] = cap
                 else:
                     out[i] = ItemOutcome(
-                        reason=reason,
-                        detail=rejection_detail(reason, a, cap, q),
-                        attempts=[f"batch:{reason}"],
+                        reason=result.reason,
+                        detail=rejection_detail(result.reason, a, cap, q),
+                        attempts=[f"batch:{result.reason}"],
+                        flags=result.flags,
+                        first_caption=cap,
+                        first_reason=result.reason,
+                        retry_kind="validator",
                     )
             for i, cap in enumerate(tentative):
                 if cap is None:
                     continue
                 q, a = pairs_list[i]
-                ok, reason = self._accept_or_escalate(
+                result = self._accept_or_escalate(
                     q,
                     a,
                     cap,
@@ -1111,19 +1292,24 @@ class OllamaClient:
                     batch_captions=tentative,
                     self_index=i,
                 )
-                if ok:
+                if result.ok:
                     batch_caps[i] = cap
                     out[i] = ItemOutcome(
                         caption=cap,
                         reason="ok",
                         detail="accepted from batch",
                         attempts=["batch:ok"],
+                        flags=result.flags,
                     )
                 else:
                     out[i] = ItemOutcome(
-                        reason=reason,
-                        detail=rejection_detail(reason, a, cap, q),
-                        attempts=[f"batch:{reason}"],
+                        reason=result.reason,
+                        detail=rejection_detail(result.reason, a, cap, q),
+                        attempts=[f"batch:{result.reason}"],
+                        flags=result.flags,
+                        first_caption=cap,
+                        first_reason=result.reason,
+                        retry_kind="validator",
                     )
         else:
             for i in range(n):
@@ -1131,6 +1317,8 @@ class OllamaClient:
                     reason=batch.reason,
                     detail=batch.detail,
                     attempts=[f"batch:{batch.reason}"],
+                    first_reason=batch.reason,
+                    retry_kind="generation",
                 )
 
         if all(o.caption is not None for o in out):
@@ -1149,18 +1337,27 @@ class OllamaClient:
                     last.detail = single.detail
                     continue
                 cap = single.captions[0]
-                ok, reason = self._accept_or_escalate(q, a, cap)
-                if ok:
+                result = self._accept_or_escalate(q, a, cap)
+                if result.ok:
                     out[i] = ItemOutcome(
                         caption=cap,
                         reason="ok",
                         detail=f"accepted from {tag}",
                         attempts=last.attempts + [f"{tag}:ok"],
+                        flags=result.flags,
+                        first_caption=last.first_caption,
+                        first_reason=last.first_reason,
+                        retry_kind=last.retry_kind or "generation",
                     )
                     break
-                last.attempts.append(f"{tag}:{reason}")
-                last.reason = reason
-                last.detail = rejection_detail(reason, a, cap, q)
+                last.attempts.append(f"{tag}:{result.reason}")
+                last.reason = result.reason
+                last.detail = rejection_detail(result.reason, a, cap, q)
+                last.flags = result.flags
+                if last.first_caption is None:
+                    last.first_caption = cap
+                    last.first_reason = result.reason
+                    last.retry_kind = last.retry_kind or "validator"
             else:
                 out[i] = last
         return out

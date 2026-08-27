@@ -1,8 +1,12 @@
-"""Audit a generated captions JSON for Comments6 / QC failure patterns.
+"""Audit a generated captions JSON for known QC failure patterns.
+
+Covers Comments6 (template collapses, leftovers) and Comments8: per-row
+``visual_filter_source`` provenance, ``validation_flags``, and the new
+``info`` counters, so a re-run can be reported with one command.
 
 Usage (from QuestionDependentCaptionGenerator/):
 
-    python audit_captions.py outputs/v2_question_dependent_captions_train2014.json
+    python audit/audit_captions.py outputs/v2_question_dependent_captions_train2014.json
 """
 
 from __future__ import annotations
@@ -50,7 +54,24 @@ def audit(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         if neg.search(r.get("caption") or ""):
             yes_neg += 1
 
+    # Rules deleted after Comments8 — any row still carrying them means the
+    # file predates the change.
+    retired_rules = sum(
+        1 for r in rows if str(r.get("rule")) in {"what_is", "yesno_modal_have"}
+    )
+
     rules = Counter(str(r.get("rule")) for r in rows)
+    sources = Counter(
+        str(r.get("visual_filter_source") or "(none)") for r in rows
+    )
+    flags: Counter = Counter()
+    flagged_rows = 0
+    for r in rows:
+        row_flags = r.get("validation_flags") or []
+        if row_flags:
+            flagged_rows += 1
+            flags.update(str(f) for f in row_flags)
+
     return {
         "num_samples": len(rows),
         "the_there": the_there,
@@ -58,8 +79,12 @@ def audit(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "made_of_is_collapses": made_of_is,
         "empty_captions": empty,
         "needs_llm": needs,
+        "retired_rule_rows": retired_rules,
         "llm_yes_to_neg_suspects": yes_neg,
         "rule_counts": dict(rules.most_common()),
+        "visual_filter_source_counts": dict(sources.most_common()),
+        "rows_with_validation_flags": flagged_rows,
+        "validation_flag_counts": dict(flags.most_common()),
         "has_answer_consensus": sum(
             1 for r in rows if "answer_consensus" in r
         ),
@@ -88,7 +113,38 @@ def main() -> None:
     )
     report["info_validation_retry"] = info.get("validation_retry_count")
     report["info_validation_failure"] = info.get("validation_failure_count")
+    report["info_validation_flagged"] = info.get("validation_flagged_count")
+    report["info_rule_validation_rejects"] = info.get(
+        "rule_validation_reject_count"
+    )
     report["info_input_count"] = info.get("input_count")
+    report["info_low_consensus_excluded"] = info.get(
+        "low_consensus_excluded_count"
+    )
+    report["info_min_consensus"] = info.get("min_consensus")
+    classifier = info.get("question_classifier") or {}
+    report["info_classifier_prompt_version"] = classifier.get("prompt_version")
+    report["info_fast_path_enabled"] = classifier.get("fast_path_enabled")
+    report["info_classifier_label_counts"] = classifier.get("label_counts")
+
+    # Accounting identity the professor checks: every input row is either
+    # filtered out, dropped, or present in the file.
+    accounted = sum(
+        int(info.get(k) or 0)
+        for k in (
+            "ocr_excluded_count",
+            "low_consensus_excluded_count",
+            "duplicate_count",
+            "not_directly_visual_count",
+            "dropped_empty_count",
+            "validation_failure_count",
+        )
+    ) + len(rows)
+    report["accounting_input_vs_accounted"] = {
+        "input_count": info.get("input_count"),
+        "accounted": accounted,
+        "difference": (int(info.get("input_count") or 0) - accounted),
+    }
     print(json.dumps(report, indent=2))
 
     bad = (
@@ -97,15 +153,19 @@ def main() -> None:
         + report["made_of_is_collapses"]
         + report["empty_captions"]
         + report["needs_llm"]
+        + report["retired_rule_rows"]
     )
     if bad:
         print(
             f"\nAUDIT FAIL: {bad} residual rule/empty issues "
-            "(llm yes→neg suspects are advisory).",
+            "(llm yes→neg suspects and validation_flags are advisory).",
             file=sys.stderr,
         )
         raise SystemExit(1)
-    print("\nAUDIT OK: no The-there / made-of-is / empty / needs_llm leftovers.")
+    print(
+        "\nAUDIT OK: no The-there / made-of-is / empty / needs_llm / "
+        "retired-rule leftovers."
+    )
 
 
 if __name__ == "__main__":

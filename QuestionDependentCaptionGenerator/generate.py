@@ -30,6 +30,8 @@ from llm_client import (
     OllamaClient,
     RELATION_MIN_RATIO,
     VALIDATOR_VERSION,
+    caption_hard_reject_reason,
+    caption_soft_flags,
     run_batches_concurrent,
     _VALIDATION_FAIL_REASONS,
 )
@@ -199,11 +201,16 @@ def load_vqa_pairs(
     annotations_json: Path,
     max_items: Optional[int] = None,
     min_consensus: float = 0.0,
-) -> Tuple[List[Dict[str, Any]], Counter, int, int, int, List[Dict[str, Any]]]:
+) -> Tuple[List[Dict[str, Any]], Counter, int, int, int, List[Dict[str, Any]], int]:
     """Soal va javab haye VQA v2 ro load kon va ba rule caption besaz.
 
     Filter order is fixed: OCR → answer consensus → dedup. Consensus runs
     before dedup so a dropped low-consensus pair never claims a dedup slot.
+
+    Rule captions are validated with the same high-precision checks used for
+    LLM captions (Comments8: validation must not be LLM-only). A rule caption
+    that fails a hard check becomes ``needs_llm`` so the SLM can rewrite it
+    instead of shipping a broken template.
 
     Args:
         questions_json: path be v2_OpenEnded_*_questions.json
@@ -214,7 +221,7 @@ def load_vqa_pairs(
 
     Returns:
         (rows, rule_counts, ocr_excluded_count, duplicate_count, input_count,
-        low_consensus_rows)
+        low_consensus_rows, rule_validation_reject_count)
     """
     print(f"Loading VQA JSON: {questions_json.name} + {annotations_json.name} ...")
     with questions_json.open("r", encoding="utf-8") as f:
@@ -238,6 +245,7 @@ def load_vqa_pairs(
     low_consensus_rows: List[Dict[str, Any]] = []
     duplicates_dropped = 0
     ocr_excluded = 0
+    rule_validation_rejects = 0
     input_count = len(qids)
     total_qids = len(qids)
     progress_every = max(500, total_qids // 20) if total_qids else 500
@@ -277,6 +285,11 @@ def load_vqa_pairs(
         seen.add(dedup_key)
 
         caption, rule = generate_caption(q["question"], ans)
+        if caption:
+            reject = caption_hard_reject_reason(ans, caption, q["question"])
+            if reject is not None:
+                rule_validation_rejects += 1
+                caption, rule = "", "needs_llm"
         rule_counts[rule] += 1
 
         rows.append(
@@ -314,6 +327,11 @@ def load_vqa_pairs(
             f"Dedup: {duplicates_dropped} duplicate (image_id, question, answer) "
             "rows dropped — kept the first occurrence of each."
         )
+    if rule_validation_rejects:
+        print(
+            f"Rule validation: {rule_validation_rejects} rule captions failed a "
+            "hard check and were routed to the LLM instead."
+        )
     print(
         f"Rule pass done: {len(rows)} rows "
         f"({rule_counts.get('needs_llm', 0)} needs_llm)",
@@ -327,6 +345,7 @@ def load_vqa_pairs(
         duplicates_dropped,
         input_count,
         low_consensus_rows,
+        rule_validation_rejects,
     )
 
 
@@ -451,6 +470,95 @@ def llm_failure_log_path(output_path: Path) -> Path:
     return output_path.with_suffix(output_path.suffix + ".llm_failures.log")
 
 
+def retry_audit_path(output_path: Path) -> Path:
+    """Sidecar JSONL with one record per retried item."""
+    return output_path.with_name(output_path.stem + "_validation_audit.jsonl")
+
+
+class RetryAuditLogger:
+    """JSONL log of every retried item, whether or not the retry succeeded.
+
+    Comments8 item 8: the run must show which samples were regenerated and
+    what happened to them. ``validation_retry_count`` alone hides that, and
+    the failure log only ever recorded rows that stayed ``needs_llm``.
+
+    One record per retry event::
+
+        {"question_id": 1, "retry_kind": "validator",
+         "first_caption": "...", "failure_reason": "answer_mismatch",
+         "retry_caption": "...", "final_result": "accepted"}
+
+    ``retry_kind`` is ``validator`` when a caption was produced but rejected,
+    and ``generation`` when the model failed to produce a parsable caption
+    (``parse_*``, ``timeout``, ``empty_response``, connection error).
+    """
+
+    def __init__(self, path: Path) -> None:
+        """Open (overwrite) the audit log."""
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._fh = self.path.open("w", encoding="utf-8")
+        self.count = 0
+        self.kind_counts: Counter = Counter()
+        self.result_counts: Counter = Counter()
+
+    @staticmethod
+    def should_log(outcome: ItemOutcome) -> bool:
+        """True when the item went through at least one retry."""
+        if outcome.first_caption is not None:
+            return True
+        return any(a.startswith("single#") for a in outcome.attempts)
+
+    def log_retry(
+        self,
+        *,
+        question_id: int,
+        question: str,
+        answer: str,
+        stage: str,
+        outcome: ItemOutcome,
+    ) -> None:
+        """Append one retry record."""
+        accepted = outcome.caption is not None
+        kind = outcome.retry_kind or "generation"
+        record: Dict[str, Any] = {
+            "question_id": question_id,
+            "question": question,
+            "answer": answer,
+            "stage": stage,
+            "retry_kind": kind,
+            "first_caption": outcome.first_caption,
+            "failure_reason": outcome.first_reason or outcome.reason,
+            "retry_caption": outcome.caption,
+            "final_result": "accepted" if accepted else "dropped",
+            "final_reason": outcome.reason,
+            "attempts": list(outcome.attempts),
+            "validation_flags": list(outcome.flags),
+        }
+        self._fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        self._fh.flush()
+        self.count += 1
+        self.kind_counts[kind] += 1
+        self.result_counts[record["final_result"]] += 1
+
+    def summary(self) -> str:
+        """One-line summary for the console."""
+        return (
+            f"{self.count} retry records "
+            f"(validator={self.kind_counts.get('validator', 0)}, "
+            f"generation={self.kind_counts.get('generation', 0)}; "
+            f"accepted={self.result_counts.get('accepted', 0)}, "
+            f"dropped={self.result_counts.get('dropped', 0)})"
+        )
+
+    def close(self) -> None:
+        """Close the underlying file handle."""
+        try:
+            self._fh.close()
+        except Exception:
+            pass
+
+
 class LlmFailureLogger:
     """Append-only log file that explains why LLM could not resolve ``needs_llm``.
 
@@ -535,6 +643,7 @@ def apply_llm_fallbacks(
     llm_meta: Dict[str, Any],
     resume_map: Optional[Dict[int, Dict[str, Any]]] = None,
     failure_log: Optional[LlmFailureLogger] = None,
+    retry_audit: Optional[RetryAuditLogger] = None,
     single_retries: int = 1,
     final_retries: int = 1,
     ocr_excluded_count: int = 0,
@@ -548,6 +657,7 @@ def apply_llm_fallbacks(
     classifier_meta: Optional[Dict[str, Any]] = None,
     low_consensus_excluded_count: int = 0,
     min_consensus: float = 0.0,
+    rule_validation_reject_count: int = 0,
 ) -> Tuple[Counter, int, int]:
     """Row haye rule=needs_llm ro ba packed LLM caption update mikone.
 
@@ -610,7 +720,27 @@ def apply_llm_fallbacks(
             classifier_meta=classifier_meta,
             low_consensus_excluded_count=low_consensus_excluded_count,
             min_consensus=min_consensus,
+            rule_validation_reject_count=rule_validation_reject_count,
         )
+
+    def _record_outcome(row_i: int, outcome: ItemOutcome, stage: str) -> None:
+        """Apply one outcome to its row and audit-log any retry it went through."""
+        last_outcome[row_i] = outcome
+        if outcome.caption is not None:
+            rows[row_i]["caption"] = outcome.caption
+            rows[row_i]["rule"] = "llm_fallback"
+            if outcome.flags:
+                rows[row_i]["validation_flags"] = list(outcome.flags)
+            else:
+                rows[row_i].pop("validation_flags", None)
+        if retry_audit is not None and RetryAuditLogger.should_log(outcome):
+            retry_audit.log_retry(
+                question_id=int(rows[row_i]["question_id"]),
+                question=str(rows[row_i]["question"]),
+                answer=str(rows[row_i]["answer"]),
+                stage=stage,
+                outcome=outcome,
+            )
 
     def _on_batch_start(batch_i: int, batch_len: int) -> None:
         print(
@@ -627,12 +757,9 @@ def apply_llm_fallbacks(
         # failures counted at end from leftovers; retries accumulate here
         for j, outcome in enumerate(outcomes):
             row_i = batches_idx[batch_i][j][0]
-            last_outcome[row_i] = outcome
-            if outcome.caption is None:
-                continue
-            rows[row_i]["caption"] = outcome.caption
-            rows[row_i]["rule"] = "llm_fallback"
-            ok_n += 1
+            _record_outcome(row_i, outcome, "main")
+            if outcome.caption is not None:
+                ok_n += 1
         done_batches += 1
         still = sum(1 for r in rows if r["rule"] == "needs_llm")
         print(
@@ -672,7 +799,7 @@ def apply_llm_fallbacks(
             print(
                 f"Final salvage round {round_i}/{final_retries}: "
                 f"{len(leftover)} leftovers in {n_salvage} packed batches "
-                f"(batch-size={batch_size}, no per-item retry)",
+                f"(batch-size={batch_size}, one single-item retry per leftover)",
                 flush=True,
             )
 
@@ -697,12 +824,9 @@ def apply_llm_fallbacks(
                     validation_retry_count += r
                     for j, outcome in enumerate(outcomes):
                         row_i = batches_idx_local[batch_i][j][0]
-                        last_outcome[row_i] = outcome
-                        if outcome.caption is None:
-                            continue
-                        rows[row_i]["caption"] = outcome.caption
-                        rows[row_i]["rule"] = "llm_fallback"
-                        ok_n += 1
+                        _record_outcome(row_i, outcome, "salvage")
+                        if outcome.caption is not None:
+                            ok_n += 1
                     still = sum(1 for r in rows if r["rule"] == "needs_llm")
                     print(
                         f"  salvage batch {batch_i + 1}/{n_local} done "
@@ -714,13 +838,16 @@ def apply_llm_fallbacks(
                 return _start, _done
 
             s_start, s_done = _make_salvage_callbacks(salvage_batches_idx, n_salvage)
+            # Comments8 item 9: never drop a parse failure without trying the
+            # item on its own first — a packed batch that failed to parse says
+            # nothing about the individual Q+A.
             run_batches_concurrent(
                 client,
                 salvage_pairs,
                 workers=workers,
                 on_batch_done=s_done,
                 on_batch_start=s_start,
-                single_retries=0,
+                single_retries=1,
             )
 
     if failure_log is not None:
@@ -770,6 +897,43 @@ def apply_llm_fallbacks(
     return recount_rules(rows), validation_retry_count, validation_failure_count
 
 
+def final_validation_pass(
+    rows: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], int, int]:
+    """Validate every caption once more, whatever produced it.
+
+    Comments8 item 7: the validator must not run on LLM captions only. This
+    last pass applies the same high-precision hard checks to rule captions
+    too, and records soft findings in ``validation_flags`` instead of
+    deleting anything that merely looks suspicious.
+
+    Returns:
+        (kept_rows, dropped_count, flagged_count)
+    """
+    kept: List[Dict[str, Any]] = []
+    dropped = 0
+    flagged = 0
+    for row in rows:
+        caption = str(row.get("caption") or "")
+        question = str(row.get("question") or "")
+        answer = str(row.get("answer") or "")
+        reject = caption_hard_reject_reason(answer, caption, question)
+        if reject is not None:
+            dropped += 1
+            continue
+        flags = sorted(
+            set(row.get("validation_flags") or [])
+            | set(caption_soft_flags(question, answer, caption))
+        )
+        if flags:
+            row["validation_flags"] = flags
+            flagged += 1
+        else:
+            row.pop("validation_flags", None)
+        kept.append(row)
+    return kept, dropped, flagged
+
+
 def drop_empty_or_short_captions(
     rows: List[Dict[str, Any]],
 ) -> Tuple[List[Dict[str, Any]], int]:
@@ -808,6 +972,8 @@ def write_output_json(
     classifier_meta: Optional[Dict[str, Any]] = None,
     low_consensus_excluded_count: int = 0,
     min_consensus: float = 0.0,
+    validation_flagged_count: int = 0,
+    rule_validation_reject_count: int = 0,
 ) -> None:
     """Natije ro atomic be JSON file save kon (crash-safe)."""
     info: Dict[str, Any] = {
@@ -826,6 +992,8 @@ def write_output_json(
         "dropped_empty_count": dropped_empty_count,
         "validation_retry_count": validation_retry_count,
         "validation_failure_count": validation_failure_count,
+        "validation_flagged_count": validation_flagged_count,
+        "rule_validation_reject_count": rule_validation_reject_count,
         "rule_counts": dict(rule_counts),
     }
     if classifier_meta:
@@ -1038,6 +1206,14 @@ def parse_args() -> argparse.Namespace:
         help="Ollama model for question classifier (default: same as --model)",
     )
     parser.add_argument(
+        "--no-fast-path",
+        action="store_true",
+        help=(
+            "Disable the Fast Path whitelist: send every question to the LLM "
+            "classifier (slower; use to measure Fast Path false positives)"
+        ),
+    )
+    parser.add_argument(
         "--drop-subjective-candidates",
         action="store_true",
         help=(
@@ -1099,6 +1275,8 @@ def main() -> None:
     dropped_empty_count = 0
     dropped_not_visual: List[Dict[str, Any]] = []
     low_consensus_excluded_count = 0
+    validation_flagged_count = 0
+    rule_validation_reject_count = 0
 
     # Resume fast-path: skip load/rules/classifier when output JSON matches.
     # A different --min-consensus means the previous rows were filtered with
@@ -1134,6 +1312,9 @@ def main() -> None:
             )
             classifier_meta = prev_info.get("question_classifier")
             dropped_empty_count = int(prev_info.get("dropped_empty_count", 0))
+            rule_validation_reject_count = int(
+                prev_info.get("rule_validation_reject_count", 0)
+            )
             print(
                 f"Loaded checkpoint ({len(rows)} rows) az {output_path} "
                 f"— rules skip, LLM az ja-monde edame."
@@ -1147,6 +1328,7 @@ def main() -> None:
             duplicate_count,
             input_count,
             low_consensus_rows,
+            rule_validation_reject_count,
         ) = load_vqa_pairs(
             questions_json,
             annotations_json,
@@ -1171,9 +1353,11 @@ def main() -> None:
                     model=clf_model,
                 )
                 classifier_meta = clf.metadata()
+                classifier_meta["fast_path_enabled"] = not args.no_fast_path
                 print(
                     f"Question classifier: model={clf_model} "
-                    f"prompt={CLASSIFIER_PROMPT_VERSION}"
+                    f"prompt={CLASSIFIER_PROMPT_VERSION} "
+                    f"fast_path={'off' if args.no_fast_path else 'on'}"
                 )
             try:
                 rows, dropped_not_visual, lab_counts = filter_non_visual_questions(
@@ -1186,6 +1370,7 @@ def main() -> None:
                     resume=not args.no_resume,
                     classifier_meta=classifier_meta,
                     input_count=input_count,
+                    fast_path=not args.no_fast_path,
                 )
             except KeyboardInterrupt:
                 ckpt = load_classifier_checkpoint(ckpt_path)
@@ -1223,10 +1408,14 @@ def main() -> None:
 
     llm_meta: Optional[Dict[str, Any]] = None
     failure_log: Optional[LlmFailureLogger] = None
+    retry_audit: Optional[RetryAuditLogger] = None
     if args.llm:
         log_path = llm_failure_log_path(output_path)
         failure_log = LlmFailureLogger(log_path)
+        audit_path = retry_audit_path(output_path)
+        retry_audit = RetryAuditLogger(audit_path)
         print(f"LLM failure log -> {log_path}")
+        print(f"Retry audit log -> {audit_path}")
         llm_meta = {
             "model": args.model,
             "batch_size": args.batch_size,
@@ -1235,8 +1424,10 @@ def main() -> None:
             "prompt_version": PROMPT_VERSION,
             "num_ctx": 4096,
             "failure_log": str(log_path.resolve()),
+            "retry_audit_log": str(audit_path.resolve()),
             "validation": {
                 "single_retries": 1,
+                "salvage_single_retries": 1,
                 "tier": "lexical+semantic_judge",
                 "validator_version": VALIDATOR_VERSION,
                 "relation_min_ratio": RELATION_MIN_RATIO,
@@ -1267,6 +1458,7 @@ def main() -> None:
                     llm_meta=llm_meta,
                     resume_map=resume_map,
                     failure_log=failure_log,
+                    retry_audit=retry_audit,
                     single_retries=1,
                     ocr_excluded_count=ocr_excluded_count,
                     dropped_empty_count=dropped_empty_count,
@@ -1279,6 +1471,7 @@ def main() -> None:
                     classifier_meta=classifier_meta,
                     low_consensus_excluded_count=low_consensus_excluded_count,
                     min_consensus=args.min_consensus,
+                    rule_validation_reject_count=rule_validation_reject_count,
                 )
             )
         except KeyboardInterrupt:
@@ -1302,6 +1495,7 @@ def main() -> None:
                 classifier_meta=classifier_meta,
                 low_consensus_excluded_count=low_consensus_excluded_count,
                 min_consensus=args.min_consensus,
+                rule_validation_reject_count=rule_validation_reject_count,
             )
             still = sum(1 for r in rows if r["rule"] == "needs_llm")
             if failure_log is not None:
@@ -1315,6 +1509,9 @@ def main() -> None:
         finally:
             if failure_log is not None:
                 failure_log.close()
+            if retry_audit is not None:
+                print(f"Retry audit: {retry_audit.summary()} -> {retry_audit.path}")
+                retry_audit.close()
 
     # Never ship empty / needs_llm leftovers into the written dataset.
     # Keep validation_failure_count separate from dropped_empty_count so
@@ -1328,6 +1525,20 @@ def main() -> None:
             f"(validation_failure={validation_failure_count}, "
             f"other_empty={other_empty}; "
             f"total dropped_empty_count={dropped_empty_count})."
+        )
+
+    # Same validator for every caption, rule-based or LLM (Comments8 item 7).
+    rows, n_final_rejects, validation_flagged_count = final_validation_pass(rows)
+    if n_final_rejects:
+        validation_failure_count += n_final_rejects
+        print(
+            f"Final validation: dropped {n_final_rejects} captions that failed "
+            "a hard check."
+        )
+    if validation_flagged_count:
+        print(
+            f"Final validation: {validation_flagged_count} captions kept with "
+            "validation_flags for review."
         )
     rule_counts = recount_rules(rows)
 
@@ -1349,6 +1560,8 @@ def main() -> None:
         classifier_meta=classifier_meta,
         low_consensus_excluded_count=low_consensus_excluded_count,
         min_consensus=args.min_consensus,
+        validation_flagged_count=validation_flagged_count,
+        rule_validation_reject_count=rule_validation_reject_count,
     )
     delete_classifier_checkpoint(ckpt_path)
     print_stats(
