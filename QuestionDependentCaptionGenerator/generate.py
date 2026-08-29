@@ -1258,6 +1258,15 @@ def parse_args() -> argparse.Namespace:
         help="Ollama model for question classifier (default: same as --model)",
     )
     parser.add_argument(
+        "--classifier-batch-size",
+        type=int,
+        default=10,
+        help=(
+            "Pack N questions into one classifier Ollama call "
+            "(JSON array of labels; default 10)"
+        ),
+    )
+    parser.add_argument(
         "--no-fast-path",
         action="store_true",
         help=(
@@ -1307,6 +1316,8 @@ def main() -> None:
         raise ValueError("--checkpoint-every must be >= 1")
     if args.classifier_checkpoint_every < 1:
         raise ValueError("--classifier-checkpoint-every must be >= 1")
+    if args.classifier_batch_size < 1:
+        raise ValueError("--classifier-batch-size must be >= 1")
     if not 0.0 <= args.min_consensus <= 1.0:
         raise ValueError("--min-consensus must be between 0.0 and 1.0")
 
@@ -1413,9 +1424,11 @@ def main() -> None:
                 )
                 classifier_meta = clf.metadata()
                 classifier_meta["fast_path_enabled"] = not args.no_fast_path
+                classifier_meta["batch_size"] = args.classifier_batch_size
                 print(
                     f"Question classifier: model={clf_model} "
                     f"prompt={CLASSIFIER_PROMPT_VERSION} "
+                    f"batch-size={args.classifier_batch_size} "
                     f"fast_path={'off' if args.no_fast_path else 'on'}"
                 )
             try:
@@ -1432,6 +1445,7 @@ def main() -> None:
                     classifier_meta=classifier_meta,
                     input_count=input_count,
                     fast_path=not args.no_fast_path,
+                    batch_size=args.classifier_batch_size,
                 )
             except KeyboardInterrupt:
                 ckpt = load_classifier_checkpoint(clf_result_path)

@@ -279,7 +279,7 @@ flowchart LR
 | OCR regex / `question_type` | Always | Remove text-reading questions (now also `number on …`, `shirt/train number`, `street name`, `written/printed on …`, `letters/initials on …`) |
 | Answer consensus | `--min-consensus T` (off at `0.0`) | Drop pairs humans disagreed on; sidecar for dropped pairs |
 | Rule safety + validator | Always | Bad templates → LLM (`rule_validation_reject_count`) |
-| Binary classifier | `--classify-questions` | Fast Path whitelist only; everything else classified by the LLM; keep DIRECTLY_VISUAL; sidecar for NOT_DIRECTLY_VISUAL; `visual_filter_source` on every row |
+| Binary classifier | `--classify-questions` | Fast Path whitelist only; everything else classified by the LLM in packed batches (`--classifier-batch-size`, default 10, JSON labels); keep DIRECTLY_VISUAL; sidecar for NOT_DIRECTLY_VISUAL; `visual_filter_source` on every row |
 | Two-tier LLM validators | `--llm` | Hard reject → regenerate once → drop; suspicious → flag + Tier-2 |
 | Empty drop | Always at write | No empty/`needs_llm` in final annotations |
 | Final validator pass | Always at write | Hard checks on every caption; soft findings → `validation_flags` |
@@ -324,6 +324,7 @@ flowchart LR
       "model": "...",
       "prompt_version": "v8_visual_inference_default",
       "fast_path_enabled": true,
+      "batch_size": 10,
       "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 1390 }
     }
   },

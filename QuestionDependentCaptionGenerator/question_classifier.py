@@ -136,15 +136,7 @@ _SYSTEM_PROMPT = (
     "Return ONLY one label."
 )
 
-_USER_PROMPT_TEMPLATE = (
-    "Classify the following VQA question as DIRECTLY_VISUAL or "
-    "NOT_DIRECTLY_VISUAL.\n"
-    "DIRECTLY_VISUAL is the default: choose it whenever a human could "
-    "reasonably answer by looking at the image alone (including common "
-    "visual inference).\n"
-    "NOT_DIRECTLY_VISUAL only when answering needs OCR, personal opinion/"
-    "preference, or external factual knowledge unavailable from appearance.\n"
-    "Return ONLY one label.\n\n"
+_FEW_SHOT_BLOCK = (
     "Examples:\n"
     "Q: What type of animal is this?\n"
     "DIRECTLY_VISUAL\n"
@@ -201,9 +193,51 @@ _USER_PROMPT_TEMPLATE = (
     "Q: What breed is this dog?\n"
     "NOT_DIRECTLY_VISUAL\n"
     "Q: What is the price?\n"
-    "NOT_DIRECTLY_VISUAL\n\n"
-    "Question: {question}"
+    "NOT_DIRECTLY_VISUAL"
 )
+
+_USER_PROMPT_INTRO = (
+    "Classify the following VQA question as DIRECTLY_VISUAL or "
+    "NOT_DIRECTLY_VISUAL.\n"
+    "DIRECTLY_VISUAL is the default: choose it whenever a human could "
+    "reasonably answer by looking at the image alone (including common "
+    "visual inference).\n"
+    "NOT_DIRECTLY_VISUAL only when answering needs OCR, personal opinion/"
+    "preference, or external factual knowledge unavailable from appearance.\n"
+)
+
+_USER_PROMPT_TEMPLATE = (
+    _USER_PROMPT_INTRO
+    + "Return ONLY one label.\n\n"
+    + _FEW_SHOT_BLOCK
+    + "\n\nQuestion: {question}"
+)
+
+
+def _build_batch_user_prompt(questions: Sequence[str]) -> str:
+    """Pack numbered questions into one user prompt (JSON-array labels)."""
+    lines: List[str] = [
+        "Classify each VQA question below as DIRECTLY_VISUAL or "
+        "NOT_DIRECTLY_VISUAL.",
+        "DIRECTLY_VISUAL is the default: choose it whenever a human could "
+        "reasonably answer by looking at the image alone (including common "
+        "visual inference).",
+        "NOT_DIRECTLY_VISUAL only when answering needs OCR, personal "
+        "opinion/preference, or external factual knowledge unavailable "
+        "from appearance.",
+        "",
+        _FEW_SHOT_BLOCK,
+        "",
+        "Now classify the questions below.",
+        "Return ONLY a JSON array of label strings "
+        f"(length {len(questions)}, same order, no keys, no extra text):",
+        "",
+    ]
+    for i, q in enumerate(questions, start=1):
+        lines.append(f"{i}. Q: {q}")
+    lines.append("")
+    lines.append("JSON array:")
+    return "\n".join(lines)
 
 
 # Suspect gate: questions that MIGHT need something beyond the pixels.
@@ -386,6 +420,52 @@ def parse_classifier_label(raw: str) -> Optional[str]:
     return None
 
 
+def parse_classifier_label_list(
+    raw: str, expected: int
+) -> Tuple[Optional[List[str]], str]:
+    """Parse a JSON array of classifier labels (or one bare label when expected==1).
+
+    Returns:
+        (labels, detail) — labels is None on failure.
+    """
+    text = (raw or "").strip()
+    text = re.sub(r"^```(?:\w+)?\s*|\s*```$", "", text, flags=re.S).strip()
+    start = text.find("[")
+    end = text.rfind("]")
+
+    if start >= 0 and end > start:
+        arr_text = text[start : end + 1]
+        try:
+            data = json.loads(arr_text)
+        except json.JSONDecodeError as exc:
+            if expected != 1:
+                return None, f"parse_json_error:{exc}"
+            data = None
+        if isinstance(data, list):
+            if len(data) != expected:
+                return (
+                    None,
+                    f"parse_length_mismatch:expected {expected} got {len(data)}",
+                )
+            out: List[str] = []
+            for i, item in enumerate(data):
+                label = parse_classifier_label(str(item))
+                if label is None:
+                    return None, f"parse_item_fail:index {i} value={item!r}"
+                out.append(label)
+            return out, "ok"
+        if expected != 1:
+            return None, f"parse_not_a_list:{type(data).__name__}"
+
+    if expected == 1:
+        label = parse_classifier_label(text)
+        if label is not None:
+            return [label], "ok"
+        return None, f"parse_fail:{raw!r}"
+
+    return None, f"parse_no_json_array:{raw!r}"
+
+
 class QuestionClassifier:
     """Ollama-backed binary question classifier (captioning-free)."""
 
@@ -403,22 +483,21 @@ class QuestionClassifier:
         self.temperature = temperature
         self.num_ctx = num_ctx
 
-    def classify_one(self, question: str) -> Tuple[Optional[str], str]:
-        """Classify one question. Returns (label_or_None, detail)."""
+    def _chat(
+        self, user_content: str, *, num_predict: int
+    ) -> Tuple[Optional[str], str]:
+        """POST one /api/chat turn. Returns (content_or_None, detail)."""
         payload = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": _USER_PROMPT_TEMPLATE.format(question=question),
-                },
+                {"role": "user", "content": user_content},
             ],
             "stream": False,
             "options": {
                 "temperature": self.temperature,
                 "num_ctx": self.num_ctx,
-                "num_predict": 24,
+                "num_predict": num_predict,
             },
         }
         body = json.dumps(payload).encode("utf-8")
@@ -444,10 +523,44 @@ class QuestionClassifier:
         msg = raw.get("message") or {}
         if isinstance(msg, dict):
             content = str(msg.get("content") or "")
+        return content, "ok"
+
+    def classify_one(self, question: str) -> Tuple[Optional[str], str]:
+        """Classify one question. Returns (label_or_None, detail)."""
+        content, detail = self._chat(
+            _USER_PROMPT_TEMPLATE.format(question=question),
+            num_predict=24,
+        )
+        if content is None:
+            return None, detail
         label = parse_classifier_label(content)
         if label is None:
             return None, f"parse_fail:{content!r}"
         return label, "ok"
+
+    def classify_batch(
+        self, questions: Sequence[str]
+    ) -> Tuple[Optional[List[str]], str]:
+        """Classify a packed batch. Returns (labels_or_None, detail).
+
+        On parse/HTTP failure returns ``(None, detail)`` so the caller can
+        salvage with :meth:`classify_one` per question.
+        """
+        if not questions:
+            return [], "ok"
+        if len(questions) == 1:
+            label, detail = self.classify_one(questions[0])
+            if label is None:
+                return None, detail
+            return [label], detail
+
+        content, detail = self._chat(
+            _build_batch_user_prompt(questions),
+            num_predict=max(24, len(questions) * 8 + 16),
+        )
+        if content is None:
+            return None, detail
+        return parse_classifier_label_list(content, expected=len(questions))
 
     def metadata(self) -> Dict[str, str]:
         """Reproducibility fields for output JSON info."""
@@ -582,6 +695,7 @@ def filter_non_visual_questions(
     classifier_meta: Optional[Dict[str, Any]] = None,
     input_count: int = 0,
     fast_path: bool = True,
+    batch_size: int = 10,
 ) -> Tuple[List[Dict], List[Dict[str, Any]], Dict[str, int]]:
     """Keep DIRECTLY_VISUAL rows; collect NOT_DIRECTLY_VISUAL drops for a sidecar.
 
@@ -598,6 +712,9 @@ def filter_non_visual_questions(
         input_count: raw VQA input count before OCR/dedup (for validation).
         fast_path: when False, every question goes to the LLM classifier
             (``--no-fast-path``), for measuring Fast Path false positives.
+        batch_size: pack this many LLM-bound questions into one Ollama call
+            (JSON array of labels); salvage with :meth:`classify_one` on
+            batch parse failure.
 
     Returns:
         (kept_rows, dropped_rows, label_counts)
@@ -609,6 +726,7 @@ def filter_non_visual_questions(
     """
     n_total = len(rows)
     pre_classify_count = n_total
+    batch_n = max(1, int(batch_size))
 
     if classifier is not None and checkpoint_path is not None and resume:
         existing = load_classifier_checkpoint(checkpoint_path)
@@ -670,6 +788,7 @@ def filter_non_visual_questions(
             "status": status,
             "prompt_version": CLASSIFIER_PROMPT_VERSION,
             "fast_path_enabled": bool(fast_path),
+            "batch_size": batch_n,
             "input_count": input_count,
             "pre_classify_count": pre_classify_count,
             "label_counts": dict(label_counts),
@@ -713,7 +832,8 @@ def filter_non_visual_questions(
             f"Question classifier: {n_total} questions "
             f"(binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL), "
             f"{n_fast} on the conservative Fast Path whitelist (no LLM), "
-            f"{n_total - n_fast} to classify with the LLM"
+            f"{n_total - n_fast} to classify with the LLM "
+            f"(batch-size={batch_n})"
             + ("" if fast_path else " (--no-fast-path)")
             + "...",
             flush=True,
@@ -734,6 +854,58 @@ def filter_non_visual_questions(
     done = 0
     llm_calls = 0
     newly_classified = 0
+    # Buffer of (row, qid, question) awaiting a packed LLM call.
+    llm_buffer: List[Tuple[Dict, Optional[int], str]] = []
+
+    def _apply_llm_label(
+        row: Dict,
+        qid: Optional[int],
+        label: Optional[str],
+        detail: str,
+    ) -> None:
+        nonlocal newly_classified
+        if label is None:
+            label_counts["PARSE_FAIL_DROP"] += 1
+            label_counts["NOT_DIRECTLY_VISUAL"] += 1
+            dropped.append(
+                _drop_record(
+                    row,
+                    "NOT_DIRECTLY_VISUAL",
+                    detail or "parse_fail",
+                    VISUAL_FILTER_LLM,
+                )
+            )
+        else:
+            label_counts[label] = label_counts.get(label, 0) + 1
+            if label == "DIRECTLY_VISUAL":
+                row["visual_filter_source"] = VISUAL_FILTER_LLM
+                kept.append(row)
+            else:
+                dropped.append(
+                    _drop_record(row, label, detail, VISUAL_FILTER_LLM)
+                )
+        if qid is not None:
+            classified_ids.add(qid)
+        newly_classified += 1
+
+    def _flush_llm_buffer() -> None:
+        nonlocal llm_calls
+        if not llm_buffer or classifier is None:
+            return
+        questions = [q for _, _, q in llm_buffer]
+        llm_calls += 1
+        labels, detail = classifier.classify_batch(questions)
+        if labels is None:
+            # Salvage: one classify_one call per buffered question.
+            for row, qid, q in llm_buffer:
+                llm_calls += 1
+                label, one_detail = classifier.classify_one(q)
+                _apply_llm_label(row, qid, label, one_detail or detail)
+        else:
+            for (row, qid, _), label in zip(llm_buffer, labels):
+                _apply_llm_label(row, qid, label, detail)
+        llm_buffer.clear()
+        _maybe_save_checkpoint("in_progress")
 
     for row in rows:
         q = str(row.get("question") or "")
@@ -761,7 +933,7 @@ def filter_non_visual_questions(
             if done == 1 or done % progress_every == 0 or done == n_total:
                 print(
                     f"  classify progress: {len(classified_ids)}/{n_total} "
-                    f"(LLM calls: {llm_calls})",
+                    f"(LLM calls: {llm_calls}, buffered: {len(llm_buffer)})",
                     flush=True,
                 )
 
@@ -778,33 +950,16 @@ def filter_non_visual_questions(
                 _maybe_save_checkpoint("in_progress")
                 continue
 
-            llm_calls += 1
-            label, detail = classifier.classify_one(q)
-            if label is None:
-                label_counts["PARSE_FAIL_DROP"] += 1
-                label_counts["NOT_DIRECTLY_VISUAL"] += 1
-                dropped.append(
-                    _drop_record(
-                        row,
-                        "NOT_DIRECTLY_VISUAL",
-                        detail or "parse_fail",
-                        VISUAL_FILTER_LLM,
-                    )
-                )
-            else:
-                label_counts[label] = label_counts.get(label, 0) + 1
-                if label == "DIRECTLY_VISUAL":
-                    row["visual_filter_source"] = VISUAL_FILTER_LLM
-                    kept.append(row)
-                else:
-                    dropped.append(
-                        _drop_record(row, label, detail, VISUAL_FILTER_LLM)
-                    )
+            llm_buffer.append((row, qid, q))
+            if len(llm_buffer) >= batch_n:
+                _flush_llm_buffer()
+        except KeyboardInterrupt:
+            _maybe_save_checkpoint("in_progress", force=True)
+            raise
 
-            if qid is not None:
-                classified_ids.add(qid)
-            newly_classified += 1
-            _maybe_save_checkpoint("in_progress")
+    if classifier is not None:
+        try:
+            _flush_llm_buffer()
         except KeyboardInterrupt:
             _maybe_save_checkpoint("in_progress", force=True)
             raise

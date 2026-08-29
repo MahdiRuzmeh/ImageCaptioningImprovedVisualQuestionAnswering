@@ -382,13 +382,14 @@ Baghie be Qwen miran (`v8_visual_inference_default`). `Could this photo be from 
 
 `made of` suspect **nist** (material-e visible) vali `who made` hast (maker/brand knowledge). `text` / `says` / `words` OCR-suspect hastan. `can be seen` / `can you see` / `next to` / `on the right` / `trash can` / `city bus` / `can you spot` exempt hastan.
 
-Hazine: LLM call-haye classifier az ~170 be ~2200 ru hamun 4000 sample mire (va ~3600 ba `--no-fast-path`) — kondtar, vali daghigh-tar; hamin trade-off khaste shode bud.
+Hazine: ba Fast Path whitelist, ~2200 soal be LLM miran (va ~3600 ba `--no-fast-path`). Ba `--classifier-batch-size 10` in ha be ~220 (ya ~360) packed Ollama call tabdil mishan (JSON array of labels); parse fail → salvage ba `classify_one`.
 
 ### Flags
 
 | Flag | Chi mikone |
 |------|------------|
-| `--classify-questions` | Faghat whitelist-e Fast Path bedoon LLM label mikhore; baghie be Qwen miran. Drop + write sidecar. Resume via `*_classifier_checkpoint.json`. |
+| `--classify-questions` | Faghat whitelist-e Fast Path bedoon LLM label mikhore; baghie be Qwen miran (packed). Drop + write sidecar. Resume via `*_classifier_checkpoint.json`. |
+| `--classifier-batch-size` | `10` | Chand soal toye **yek** classifier Ollama call (JSON array of labels). Parse fail → per-item salvage. |
 | `--no-fast-path` | Whitelist ro kollan khamoosh mikone — hame soal ha be Qwen miran (hame row ha `visual_filter_source = "llm_classifier"`). Baraye moghayese-ye ba/bedoon Fast Path. |
 | `--classifier-checkpoint-every` | `50` | Save classifier progress every N questions |
 | `--drop-subjective-candidates` | Offline: regex candidates drop (bedoon Qwen). |
@@ -396,7 +397,8 @@ Hazine: LLM call-haye classifier az ~170 be ~2200 ru hamun 4000 sample mire (va 
 
 ```bash
 python generate.py --split train --llm --classify-questions \
-  --model qwen2.5:3b-instruct-q4_K_M --batch-size 10
+  --model qwen2.5:3b-instruct-q4_K_M --batch-size 10 \
+  --classifier-batch-size 10
 ```
 
 Sidecar: `outputs/v2_question_dependent_captions_{split}2014_not_directly_visual.json` — baraye tahlil-e ba'di. In filter **faghat** baraye dataset-e train-e Captioner ast; VQA2 asli baraye eval dastkhord nashavad.

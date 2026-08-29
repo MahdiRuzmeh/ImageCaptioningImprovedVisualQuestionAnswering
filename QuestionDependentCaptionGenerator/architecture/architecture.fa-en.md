@@ -286,7 +286,7 @@ flowchart LR
 |------|-------|--------|
 | OCR | Hamishe | Hazf-e soal-haye text-reading (hala `number on …`, `shirt/train number`, `street name`, `written/printed on …`, `letters/initials on …` ham) |
 | Rule safety + validator | Hamishe | Template-e kharab → LLM (`rule_validation_reject_count`) |
-| Binary classifier | Ba `--classify-questions` | Faghat whitelist-e Fast Path bedoon LLM; baghie label-e LLM mikhoran; sidecar baraye NOT_DIRECTLY_VISUAL; `visual_filter_source` roye har row |
+| Binary classifier | Ba `--classify-questions` | Faghat whitelist-e Fast Path bedoon LLM; baghie be LLM dar batch-haye packed (`--classifier-batch-size`, default 10, JSON labels); sidecar baraye NOT_DIRECTLY_VISUAL; `visual_filter_source` roye har row |
 | Two-tier validators | Ba `--llm` | Hard reject → 1 regenerate → drop; mashkuk → flag + Tier-2 |
 | Empty drop | Hengam-e neveshtan | Hich target-e khali vared-e train nemishe |
 | Validator-e nahayi | Hengam-e neveshtan | Check-e hard ru hame caption ha; mashkuk → `validation_flags` |
@@ -328,6 +328,7 @@ flowchart LR
     "question_classifier": {
       "prompt_version": "v8_visual_inference_default",
       "fast_path_enabled": true,
+      "batch_size": 10,
       "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 1390 }
     }
   },
