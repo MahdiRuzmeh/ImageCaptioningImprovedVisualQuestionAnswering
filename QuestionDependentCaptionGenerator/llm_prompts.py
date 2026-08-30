@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import List, Sequence, Tuple
 
 # Version string baraye metadata toye output JSON
-PROMPT_VERSION = "v7_verbatim_answers_no_extra_facts"
+PROMPT_VERSION = "v8_kind_type_and_is_are_llm"
 
 SYSTEM_PROMPT = """\
 You generate image captions from visual question-answer pairs.
@@ -102,8 +102,35 @@ A: 2
 Good:
 "Two cookies are visible."
 
+Kind / type:
+Preserve the category noun when the answer is a modifier of that noun.
+When the category is a broad class (food, animal, fruit, …), the answer
+stands alone as the instance.
+
+Example:
+Q: What kind of celebration is this?
+A: birthday
+
+Good:
+"This is a birthday celebration."
+
+Example:
+Q: What kind of food is shown?
+A: donuts
+
+Good:
+"The food is donuts."
+
+Example:
+Q: What kind of vegetable is on the sandwich?
+A: none
+
+Good:
+"There is no vegetable on the sandwich."
+
 Yes/no:
-Convert yes/no questions into statements.
+Convert yes/no questions into statements, including existentials,
+quantifiers, and locatives.
 
 Example:
 Q: Are the animals eating?
@@ -118,6 +145,27 @@ A: no
 
 Good:
 "The animal is not sleeping."
+
+Example:
+Q: Is there grass?
+A: yes
+
+Good:
+"There is grass."
+
+Example:
+Q: Are all the flowers white?
+A: no
+
+Good:
+"Not all the flowers are white."
+
+Example:
+Q: Is the baby with his daddy?
+A: yes
+
+Good:
+"The baby is with his daddy."
 
 Complex questions:
 For questions containing:
@@ -169,6 +217,21 @@ The goal is to create a short image caption describing the fact from the questio
 
 # Few-shot: natural captions from Q+A only (no invented facts)
 _FEW_SHOT: List[Tuple[str, str, str]] = [
+    (
+        "What kind of celebration is this?",
+        "birthday",
+        "This is a birthday celebration.",
+    ),
+    (
+        "Are the animals eating?",
+        "yes",
+        "The animals are eating.",
+    ),
+    (
+        "Is there grass?",
+        "yes",
+        "There is grass.",
+    ),
     (
         "What do these giraffes have in common?",
         "eating",

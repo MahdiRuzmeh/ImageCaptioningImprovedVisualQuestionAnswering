@@ -53,25 +53,15 @@ Tartib-e filter ha sabet ast: **OCR → consensus → dedup → rules → classi
 
 Excluded item ha kollan az `rows` biroon mimoonan (na `needs_llm`, na rule-e digei) — count-eshoon toye stdout print mishe va dar `info.ocr_excluded_count` save mishe.
 
-### Yes/No rule ha (jaye ye `is_are_yesno`-e omoomi)
+### Yes/No rule ha
 
-Be jaye ye rule-e omoomi, chand sub-rule-e narrow darim — har kodoom faghat baraye ye shape-e daghigh:
+Is/Are/Was/Were questions (existential, quantifier, locative, predicate, …)
+hamishe be LLM miran (`should_use_llm_for_is_are`). Faghat Does/Do/Did
+rule-e reference dar list mimoone — an ham apply nemishe:
 
 | Rule | Pattern | Mesal |
 |------|---------|-------|
-| `yesno_is_anyone` | `Is/Are anyone ...?` | "Is anyone wearing wrist protection?" + yes → "Someone is wearing wrist protection." |
-| `yesno_is_everyone` | `Is/Are everyone/everybody ...?` | "Is everyone wearing a hat?" + no → "Not everyone is wearing a hat." |
-| `yesno_are_any` | `Are any of ...?` | "Are any of the animals eating?" + yes → "At least one of the animals is eating." |
-| `yesno_are_all` | `Is/Are all ...?` | "Are all the flowers white?" + no → "Not all the flowers are white." |
-| `yesno_are_both` | `Are both ...?` | "Are both giraffes standing?" + no → "Not both giraffes are standing." |
 | `yesno_does_do` | `Does/Do/Did ...?` | **Routed to LLM** (rule kept, not applied) |
-| `yesno_is_this_a` | `Is/Are this/that a/an/the X?` | "Is this a horse?" + no → "This is not a horse." |
-| `yesno_is_are_possessive` | `Is/Are the X's Y ...?` | "Is the zebra's tail up?" + no → "The zebra's tail is not up." |
-| `yesno_is_are_coordinated` | `Is/Are the X and Y ...?` | "Are the clock and owl made ...?" + no → "The clock and owl are not made ..." |
-| `yesno_is_are_predicate` | Simple `Is/Are` + subject + predicate | "Are the animals eating?" + yes → "The animals are eating."; locative "Is the baby with his daddy?" + yes → "The baby is with his daddy."; PP leftover must be adjectival/participle (`squishy`) — bare-noun leftovers (`tourists`) and everyone/anyone → LLM or a dedicated rule |
-| `is_there` | `Is there (a/an/any) X?` | "Is there any window in the room?" + no → "There is no window in the room." (`any` as whole word — no `ny` bug) |
-
-A subject led by an indefinite article (`"a"`/`"an"`, e.g. `"Is a military person in the picture?"`) can't be split into a head noun without POS tagging, so those rules return `None` and defer to the SLM instead of guessing.
 
 ### Rule haye hazf-shode (Comments8)
 
@@ -84,6 +74,15 @@ Do rule kollan pak shodan, chon template-eshun grammar ro kharab mikard:
 
 `what_is_doing` hamchenan rule-e jodast va kar mikone.
 
+### Rule haye hazf-shode (Comments9)
+
+`what_kind_type` va tamame family-e Is/Are be LLM raftan:
+
+| Rule-e hazf-shode | Chera | Alan |
+|-------------------|-------|------|
+| `what_kind_type` (`What kind/type of ...?`) | Compound NP (`birthday celebration` vs identity head `donuts`) bedoon parser motmaen nist | Hame be LLM (`needs_llm`) |
+| Full Is/Are family (`is_there`, `are_there`, `yesno_is_anyone` / `everyone` / `are_any` / `are_all` / `are_both`, `yesno_is_this_a`, `yesno_is_are_possessive`, `yesno_is_are_coordinated`, `yesno_is_are_predicate`) | Subject/predicate split (locative, quantifier, PP leftover) fragile bud | Hame be LLM (`needs_llm`) |
+
 ### Routing (`caption_generation_strategy`)
 
 Some categories are too fragile for deterministic rewrite. Helpers in `caption_rules.py`:
@@ -91,12 +90,13 @@ Some categories are too fragile for deterministic rewrite. Helpers in `caption_r
 | Helper | Behavior |
 |--------|----------|
 | `should_use_llm_for_does_do` | **Always** LLM for Does/Do/Did (rule kept but never applied) |
-| `is_complex_is_are_question` | LLM when predicate has `trying to` / `enough to` / `able to` / `supposed to` / `going to` / `have in common` / `why`, is very long, or has multiple verbs |
+| `should_use_llm_for_what_kind_type` | **Always** LLM for `What kind/type of ...` |
+| `should_use_llm_for_is_are` | **Always** LLM for Is/Are/Was/Were |
 | `should_use_llm_for_who` | LLM for non-`Who is/are` (e.g. `Who made...`) or uncertain answers |
 | `can_generate_safe_rule_caption` | Rejects broken templates (`The in the...`, `the answer is...`, `with his is not trunk`) |
 | `caption_generation_strategy` | Returns `"rule"` or `"llm"` |
 
-Simple Is/Are (`Are the animals eating?`) stay rule-based.
+Remaining rule families: `what_color`, `how_many`, `what_is_doing`, `who`.
 
 ### How-many rule (narrowed)
 
@@ -317,7 +317,7 @@ If `--llm` finishes with any `needs_llm` left, the process exits with code `1` a
 }
 ```
 
-`rule` mishe yeki az: rule name ha (`what_color`, `how_many`, `yesno_are_all`, …), `needs_llm` (hanuz LLM nagerefte — `caption` khali), ya `llm_fallback` (LLM tolid karde).
+`rule` mishe yeki az: rule name ha (`what_color`, `how_many`, `what_is_doing`, `who`, …), `needs_llm` (hanuz LLM nagerefte — `caption` khali), ya `llm_fallback` (LLM tolid karde).
 
 `visual_filter_source` faghat ba `--classify-questions` neveshte mishe: `fast_path` (whitelist match kard, bedoon LLM) ya `llm_classifier` (Qwen label dad). Row-haye sidecar-e `*_not_directly_visual.json` ham hamin field ro daran, pas mishe did kodum filter chi ro rad karde.
 

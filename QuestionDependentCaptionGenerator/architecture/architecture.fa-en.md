@@ -137,7 +137,7 @@ flowchart TD
 2. **Hazf-e OCR** — Ba regex + chand `question_type`.
 3. **Ekhtiari: filter-e consensus** — `--min-consensus T` (default `0.0` = khamush) pair-hayi ke mode answer-eshun kamtar az `T` tavafogh-e annotator dare drop mikone: vaghti adam-ha tavafogh nadaran, oon caption target-e ghabel-e etemad nist. **Ghabl az dedup** ejra mishe ta pair-e drop-shode jaye dedup ro nagire. Drop-ha → `*_low_consensus.json` + `info.low_consensus_excluded_count`. Ru VQA v2 train ~11% zir-e `0.4` hastan va hame non-yes/no (javab-e binary ba 10 annotator nemitune zir-e `0.5` beshe), pas sahm-e yes/no dar dataset bala miravad.
 4. **Dedup** — Faghat avalin `(image_id, question, answer)`; `duplicate_count`.
-5. **Motor-e Rule** — Shamel `yesno_is_everyone` va `is_there` ba `any`-e dorost. Har caption-e rule ba hamun validator-e hard-e LLM check mishe: fail → `needs_llm` (`info.rule_validation_reject_count`), na template-e kharab.
+5. **Motor-e Rule** — Family-haye baghimande: `what_color`, `how_many`, `what_is_doing`, `who`. Har caption-e rule ba hamun validator-e hard-e LLM check mishe: fail → `needs_llm` (`info.rule_validation_reject_count`), na template-e kharab.
 6. **Ekhtiari: classifier-e binary** — Fast Path ye **whitelist** ast, na default: soal faghat vaghti bedoon LLM label mikhore ke `_FAST_PATH_VISUAL_RE` match kone (rang ba plural; `how many` / `number of`; `is/are there`; `do/can you see`; `is the sky`; `what animal(s)|shape|sport|game|activity|room|scene|place|food(s)|fruit(s)|dish`; `what is under/over/…`; spatial-e end-anchored; `what … doing|holding|wearing`-e end-anchored) **va** hich marker-e `_NON_VISUAL_SUSPECT_RE` nadashte bashe. Fast-path **nist** (UNKNOWN → LLM): bare `what is/are/do/does`, `what kind/type`, `is he/she`, `where is`, `could this`, `does this look`, `who is`, …. Baghie be Qwen miran (`v8_visual_inference_default`). `--no-fast-path` whitelist ro kollan khamoosh mikone. Har row `visual_filter_source` (`fast_path` / `llm_classifier`) migire — row-haye `*_not_directly_visual.json` ham. Checkpoint (`*_classifier_checkpoint.json`) har `--classifier-checkpoint-every N` save mishe va ba `fast_path_enabled` key mikhore, pas run-e Fast Path ba run-e `--no-fast-path` checkpoint share nemikonan.
 7. **Ekhtiari: LLM** — Tier-1 (hard reject + flag) + Tier-2; 1 regenerate; salvage ham ye single-item retry dare, pas parse failure-e batch bedoon test-e tanha drop nemishe. Har retry → `*_validation_audit.jsonl`.
 8. **Hazf-e sakht** — Caption-e khali / `needs_llm` toye file-e nahayi neveshte nemishe.
@@ -160,21 +160,19 @@ flowchart TD
   match -->|yes| cap[Caption + rule name]
   match -->|no next| tryRules
   match -->|hich kodom| needsLlm
-  tryRules --> families[Families: color / how_many / is_there / yesno_* / what_is_doing / ...]
+  tryRules --> families[Families: color / how_many / what_is_doing / who]
 ```
 
 ### Family-haye ghanun / Rule families
 
-Ghavanin-e khastar-tar aval ejra mishan (rang, tedad, type, who, vojud-i, yes/no-e takhasosi, ba'd predicate).
+Ghavanin-e khastar-tar aval ejra mishan (rang, tedad, doing, who).
 
 | Family | Mesal | Note |
 |--------|-------|------|
-| Attribute | `what_color`, `what_kind_type`, `what_is_doing` | Faghat pattern-e ghat'i |
-| Existential | `is_there`, `are_there` | `a`/`an`/`any` as whole words (`Is there any window?`) |
-| Yes/No takhasosi | anyone / everyone / any / all / both / this_a / … | Shape-e narrow |
-| Yes/No omoomi | `yesno_is_are_predicate` | Locative `Is X with/in/on Y?` = subject+PP; leftover-e PP bayad adjective/participle bashe; vagarna LLM. everyone/anyone → rule-e joda ya LLM |
+| Attribute | `what_color`, `what_is_doing` | Faghat pattern-e ghat'i |
+| Count | `how_many` | Faghat 2 shape (`are there` / `are in/on`) |
 | Wh- | `who` | Javab-e na-motmaen → LLM |
-| Hamishe LLM | Does/Do/Did, `Can/Could/Will/Would/Has/Have/Had`, hame-ye `What is …?`, Is/Are-e pichide | Az `caption_generation_strategy` + rule-haye hazf-shode |
+| Hamishe LLM | Does/Do/Did, hame-ye Is/Are/Was/Were, `What kind/type of …`, `Can/Could/Will/Would/Has/Have/Had`, hame-ye `What is …?` | Az `caption_generation_strategy` + rule-haye hazf-shode |
 
 ### Rule-haye hazf-shode (Comments8)
 
@@ -184,6 +182,13 @@ Ghavanin-e khastar-tar aval ejra mishan (rang, tedad, type, who, vojud-i, yes/no
 | `what_is` | Sub-type haye ziad-e `What is …?` bedoon parser mishkanand (`What is it called?`, `What is it for?`, `What is the weather like?`) | Hazf shod — hamishe `needs_llm` |
 
 `what_is_doing` rule-e jodast va avaz nashode.
+
+### Rule-haye hazf-shode (Comments9)
+
+| Rule | Moshkel | Alan |
+|------|---------|------|
+| `what_kind_type` | Compound NP (`birthday celebration` vs identity head `donuts`) bedoon parser motmaen nist | Hazf shod — hamishe `needs_llm` |
+| Family-e Is/Are (`is_there`, `are_there`, `yesno_is_*` / `yesno_are_*` / `yesno_is_are_*`) | Split-e subject/predicate (locative, quantifier, leftover-e PP) fragile bud | Hazf shod — hamishe `needs_llm` |
 
 ### Tor-e imeni / Safety net
 
@@ -199,7 +204,8 @@ Ghavanin-e khastar-tar aval ejra mishan (rang, tedad, type, who, vojud-i, yes/no
 | Function | Asar |
 |----------|------|
 | `should_use_llm_for_does_do` | Hamishe LLM |
-| `is_complex_is_are_question` | Jomle-haye pichide → LLM |
+| `should_use_llm_for_what_kind_type` | Hamishe LLM baraye `What kind/type of …` |
+| `should_use_llm_for_is_are` | Hamishe LLM baraye Is/Are/Was/Were |
 | `should_use_llm_for_who` | Who-e gheyr-sade → LLM |
 | `caption_generation_strategy` | `"rule"` vs `"llm"` |
 
@@ -315,7 +321,7 @@ flowchart LR
     "llm": {
       "model": "...",
       "batch_size": 10,
-      "prompt_version": "v7_...",
+      "prompt_version": "v8_kind_type_and_is_are_llm",
       "validation": {
         "single_retries": 1,
         "salvage_single_retries": 1,

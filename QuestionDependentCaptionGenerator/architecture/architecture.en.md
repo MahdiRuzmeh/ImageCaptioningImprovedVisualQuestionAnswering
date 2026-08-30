@@ -135,7 +135,7 @@ flowchart TD
 2. **OCR exclusion** — Heuristic regex + selected `question_type` prefixes.
 3. **Optional consensus filter** — `--min-consensus T` (default `0.0` = off) drops pairs whose mode answer got less than `T` annotator agreement: if humans cannot agree, the caption is not a trustworthy training target. Runs **before** dedup so a dropped pair does not occupy the dedup slot. Drops go to `*_low_consensus.json`; count in `info.low_consensus_excluded_count`. On VQA v2 train ~11% of pairs sit below `0.4` and all of them are non-yes/no (a binary answer over 10 annotators cannot fall below `0.5`), so the filter raises the yes/no share of the dataset.
 4. **Dedup** — Keep first `(image_id, question, answer)`; store `duplicate_count`.
-5. **Rule engine** — First safe match wins; else `needs_llm`. Includes `yesno_is_everyone` and fixed `is_there`/`any`. Every rule caption then goes through the same hard validator as an LLM caption: a failure becomes `needs_llm` (`info.rule_validation_reject_count`) instead of shipping a broken template.
+5. **Rule engine** — First safe match wins; else `needs_llm`. Remaining families: `what_color`, `how_many`, `what_is_doing`, `who`. Every rule caption then goes through the same hard validator as an LLM caption: a failure becomes `needs_llm` (`info.rule_validation_reject_count`) instead of shipping a broken template.
 6. **Optional binary classifier** — Fast Path is a **whitelist**, not a default: a question skips the LLM only when it matches `_FAST_PATH_VISUAL_RE` (colour incl. plurals; `how many` / `number of`; `is/are there`; `do/can you see`; `is the sky`; `what animal(s)|shape|sport|game|activity|room|scene|place|food(s)|fruit(s)|dish`; `what is under/over/…`; plain end-anchored spatial `Is the cat on the table?`; end-anchored `what … doing|holding|wearing`) **and** carries no `_NON_VISUAL_SUSPECT_RE` marker. Not whitelisted (UNKNOWN → LLM): bare `what is/are/do/does`, `what kind/type`, `is he/she`, `where is`, `could this`, `does this look`, `who is`, …. Everything else goes to Qwen (`v8_visual_inference_default`). `--no-fast-path` disables the whitelist entirely so every question is classified by the LLM. Each row records `visual_filter_source` (`fast_path` / `llm_classifier`), including the rows written to `*_not_directly_visual.json`. Incremental checkpoint (`*_classifier_checkpoint.json`) every `--classifier-checkpoint-every N` enables resume after interrupt and is keyed on `fast_path_enabled`, so a Fast Path run cannot resume a `--no-fast-path` run.
 7. **Optional LLM fallback** — Packed batches; Tier-1 hard rejects then Tier-2 semantic judge; **1** regenerate; salvage rounds also get one single-item retry so a batch parse failure is never dropped untested. Every retry is written to `*_validation_audit.jsonl`.
 8. **Hard drop** — Empty / short / `needs_llm` rows never enter the written set.
@@ -158,19 +158,17 @@ flowchart TD
   match -->|yes| cap[Caption + rule name]
   match -->|try next| tryRules
   match -->|none left| needsLlm
-  tryRules --> families[Families: color / how_many / is_there / yesno_* / what_is_doing / ...]
+  tryRules --> families[Families: color / how_many / what_is_doing / who]
 ```
 
 ### Rule families (order matters)
 
 | Family | Examples | Notes |
 |--------|----------|-------|
-| Attribute | `what_color`, `what_kind_type`, `what_is_doing` | Tight patterns only |
-| Existential | `is_there`, `are_there` | Includes bare nouns (`Is there grass?`) |
-| Yes/No specialized | `anyone`, `any`, `all`, `both`, `this_a`, possessive, coordinated | Narrow shapes |
-| Yes/No general | `yesno_is_are_predicate` | Locative `Is X with/in/on Y?` is subject+PP; PP leftover must be adjectival/participle; otherwise LLM |
+| Attribute | `what_color`, `what_is_doing` | Tight patterns only |
 | Wh- | `who` | Uncertain answers → LLM |
-| Always LLM | Does/Do/Did, `Can/Could/Will/Would/Has/Have/Had`, all `What is …?`, complex Is/Are, free-form which/where/… | Via `caption_generation_strategy` + deleted rules |
+| Count | `how_many` | Two shapes only (`are there` / `are in/on`) |
+| Always LLM | Does/Do/Did, all Is/Are/Was/Were, `What kind/type of …`, `Can/Could/Will/Would/Has/Have/Had`, all `What is …?`, free-form which/where/… | Via `caption_generation_strategy` + deleted rules |
 
 ### Deleted rules (Comments8)
 
@@ -181,6 +179,13 @@ flowchart TD
 
 `what_is_doing` is a separate rule and is unchanged.
 
+### Deleted rules (Comments9)
+
+| Rule | Failure mode | Now |
+|------|--------------|-----|
+| `what_kind_type` | Compound kind/type NPs (`birthday celebration` vs identity head `donuts`) need a real parser | Deleted — always `needs_llm` |
+| Full Is/Are family (`is_there`, `are_there`, `yesno_is_*` / `yesno_are_*` / `yesno_is_are_*`) | Subject/predicate splits (locative, quantifier, PP leftover) were too fragile | Deleted — always `needs_llm` |
+
 ### Safety net
 
 `can_generate_safe_rule_caption` rejects broken templates such as `The there …`, `The the …`, `… made of is …`, `the answer is …`, `with his is not …`.
@@ -190,7 +195,8 @@ flowchart TD
 | Helper | Effect |
 |--------|--------|
 | `should_use_llm_for_does_do` | Always LLM |
-| `is_complex_is_are_question` | Long / multi-verb / `enough to` / … → LLM |
+| `should_use_llm_for_what_kind_type` | Always LLM for `What kind/type of …` |
+| `should_use_llm_for_is_are` | Always LLM for Is/Are/Was/Were |
 | `should_use_llm_for_who` | Non-`Who is/are` or messy answers → LLM |
 | `caption_generation_strategy` | Top-level `"rule"` vs `"llm"` |
 
@@ -309,7 +315,7 @@ flowchart LR
     "llm": {
       "model": "qwen2.5:3b-instruct-q4_K_M",
       "batch_size": 10,
-      "prompt_version": "v7_verbatim_answers_no_extra_facts",
+      "prompt_version": "v8_kind_type_and_is_are_llm",
       "validation": {
         "single_retries": 1,
         "salvage_single_retries": 1,
