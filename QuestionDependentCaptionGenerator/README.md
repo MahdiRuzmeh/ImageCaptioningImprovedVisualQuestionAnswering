@@ -12,8 +12,8 @@ Pipeline:
 4. Optional `--classify-questions`: binary `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. The gate is a **conservative whitelist** (`_FAST_PATH_VISUAL_RE`: colour / count / existence / spatial / animal|sport|room|food|… / do-you-see / end-anchored doing|holding|wearing) — match + no suspect marker → `fast_path`; else UNKNOWN → Qwen (`v8_visual_inference_default`). Har row field-e `visual_filter_source` (`fast_path` ya `llm_classifier`) migire. `--no-fast-path` hame ro be LLM mifreste. Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad)
 5. Rule engine try mikone (`caption_rules.py`) — faghat pattern haye daghigh va motmaen
 6. Age hich rule match nakone, row `rule="needs_llm"` va `caption=""` mishe
-7. Age `--llm` on bashe → Ollama ba packed batch + **two-tier validator** (high-precision lexical reject → Qwen PASS/FAIL) + **1 regenerate** then drop
-8. Validator ru **hame** caption ha (rule ham) run mishe; moshkel haye mashkuk be jaye drop, `validation_flags` migiran. Har retry (validator ya generation) toye `*_validation_audit.jsonl` sabt mishe
+7. Age `--llm` on bashe → Ollama ba packed batch + **two-layer validator** (`validation/`: fast PASS/FAIL/UNKNOWN → batched LLM judge) + **1 regenerate** then drop
+8. Validator ru **hame** caption ha (rule ham) run mishe; `final_validation_pass` log-e kamel toye `*_validation_log.jsonl` va row haye FAIL toye `*_validation_failed.json`. Har retry (validator ya generation) toye `*_validation_audit.jsonl` ham sabt mishe
 
 ## Files
 
@@ -22,7 +22,8 @@ Pipeline:
 | `caption_rules.py` | Rule engine + helper ha |
 | `generate.py` | CLI: rules + optional LLM fallback |
 | `llm_prompts.py` | Packed prompt (chand Q+A toye yek request) |
-| `llm_client.py` | Ollama HTTP client + concurrent workers + two-tier validator |
+| `llm_client.py` | Ollama HTTP client + concurrent workers |
+| `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v4_fast_three_class_plus_batch_llm`) |
 | `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (conservative Fast Path whitelist; everything else goes to the LLM) |
 | `audit/audit_captions.py` | Post-hoc QC audit on a captions JSON (optional) |
 

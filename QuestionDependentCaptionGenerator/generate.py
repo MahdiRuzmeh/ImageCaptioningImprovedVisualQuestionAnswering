@@ -29,12 +29,7 @@ from caption_rules import answer_mode_stats, generate_caption, is_ocr_question
 from llm_client import (
     ItemOutcome,
     OllamaClient,
-    RELATION_MIN_RATIO,
-    VALIDATOR_VERSION,
-    caption_hard_reject_reason,
-    caption_soft_flags,
     run_batches_concurrent,
-    _VALIDATION_FAIL_REASONS,
 )
 from llm_prompts import PROMPT_VERSION
 from question_classifier import (
@@ -44,6 +39,16 @@ from question_classifier import (
     filter_non_visual_questions,
     load_classifier_checkpoint,
 )
+from validation import (
+    VALIDATOR_VERSION,
+    ValidationConfig,
+    ValidationLogWriter,
+    _VALIDATION_FAIL_REASONS,
+    fast_validate,
+    validation_log_path,
+)
+from validation.fast_validator import FastVerdict
+from validation.pipeline import validate_rows, ValidationStats
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 # VQA raw data az ../dataset; caption JSON inja save mishe
@@ -320,8 +325,8 @@ def load_vqa_pairs(
 
         caption, rule = generate_caption(q["question"], ans)
         if caption:
-            reject = caption_hard_reject_reason(ans, caption, q["question"])
-            if reject is not None:
+            fast = fast_validate(q["question"], ans, caption)
+            if fast.verdict == FastVerdict.FAIL:
                 rule_validation_rejects += 1
                 caption, rule = "", "needs_llm"
         rule_counts[rule] += 1
@@ -935,45 +940,35 @@ def apply_llm_fallbacks(
 
 def final_validation_pass(
     rows: List[Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], int, int]:
-    """Validate every caption once more, whatever produced it.
-
-    Comments8 item 7: the validator must not run on LLM captions only. This
-    last pass applies the same high-precision hard checks to rule captions
-    too, and records soft findings in ``validation_flags`` instead of
-    deleting anything that merely looks suspicious.
+    *,
+    client: Optional[OllamaClient] = None,
+    config: Optional[ValidationConfig] = None,
+    log_writer: Optional[ValidationLogWriter] = None,
+    use_llm: bool = True,
+) -> Tuple[List[Dict[str, Any]], int, int, List[Dict[str, Any]], ValidationStats]:
+    """Validate every caption once more via fast + batched LLM judge.
 
     Returns:
-        (kept_rows, dropped_count, flagged_count)
+        (kept_rows, dropped_count, flagged_count, failed_rows, stats)
     """
-    kept: List[Dict[str, Any]] = []
-    dropped = 0
-    flagged = 0
-    for row in rows:
-        caption = str(row.get("caption") or "")
-        question = str(row.get("question") or "")
-        answer = str(row.get("answer") or "")
-        reject = caption_hard_reject_reason(answer, caption, question)
-        if reject is not None:
-            dropped += 1
-            continue
-        flags = sorted(
-            set(row.get("validation_flags") or [])
-            | set(caption_soft_flags(question, answer, caption))
-        )
-        if flags:
-            row["validation_flags"] = flags
-            flagged += 1
-        else:
-            row.pop("validation_flags", None)
-        kept.append(row)
-    return kept, dropped, flagged
+    cfg = config or ValidationConfig()
+    kept, failed, stats = validate_rows(
+        rows,
+        config=cfg,
+        client=client,
+        use_llm=use_llm and client is not None,
+        log_writer=log_writer,
+    )
+    flagged = sum(1 for r in kept if r.get("validation_flags"))
+    return kept, len(failed), flagged, failed, stats
 
 
 def drop_empty_or_short_captions(
     rows: List[Dict[str, Any]],
+    *,
+    min_words: int = 3,
 ) -> Tuple[List[Dict[str, Any]], int]:
-    """Remove rows with empty, whitespace-only, or <2-word captions.
+    """Remove rows with empty, whitespace-only, or short captions.
 
     Also drops leftover ``needs_llm`` rows so they never reach a DataLoader.
     Returns (kept_rows, dropped_count).
@@ -983,7 +978,7 @@ def drop_empty_or_short_captions(
     for row in rows:
         cap = str(row.get("caption") or "").strip()
         rule = str(row.get("rule") or "")
-        if rule == "needs_llm" or not cap or len(cap.split()) < 2:
+        if rule == "needs_llm" or not cap or len(cap.split()) < min_words:
             dropped += 1
             continue
         kept.append(row)
@@ -1010,6 +1005,7 @@ def write_output_json(
     min_consensus: float = 0.0,
     validation_flagged_count: int = 0,
     rule_validation_reject_count: int = 0,
+    validation_meta: Optional[Dict[str, Any]] = None,
     process_started_at: Optional[str] = None,
 ) -> None:
     """Natije ro atomic be JSON file save kon (crash-safe)."""
@@ -1045,6 +1041,8 @@ def write_output_json(
             "VQA v2 question-dependent captions (rules + optional LLM fallback)"
         )
         info["llm"] = llm_meta
+    if validation_meta:
+        info["validation"] = validation_meta
 
     payload = {
         "info": info,
@@ -1341,6 +1339,7 @@ def main() -> None:
     low_consensus_excluded_count = 0
     validation_flagged_count = 0
     rule_validation_reject_count = 0
+    validation_meta: Optional[Dict[str, Any]] = None
 
     # Resume fast-path: skip load/rules/classifier when output JSON matches.
     # A different --min-consensus means the previous rows were filtered with
@@ -1486,6 +1485,8 @@ def main() -> None:
     llm_meta: Optional[Dict[str, Any]] = None
     failure_log: Optional[LlmFailureLogger] = None
     retry_audit: Optional[RetryAuditLogger] = None
+    validation_config = ValidationConfig()
+    ollama_client: Optional[OllamaClient] = None
     if args.llm:
         log_path = llm_failure_log_path(output_path)
         failure_log = LlmFailureLogger(log_path)
@@ -1505,9 +1506,12 @@ def main() -> None:
             "validation": {
                 "single_retries": 1,
                 "salvage_single_retries": 1,
-                "tier": "lexical+semantic_judge",
+                "tier": "fast_three_class+batch_llm_judge",
                 "validator_version": VALIDATOR_VERSION,
-                "relation_min_ratio": RELATION_MIN_RATIO,
+                "overlap_fail_threshold": validation_config.overlap_fail_threshold,
+                "overlap_pass_threshold": validation_config.overlap_pass_threshold,
+                "min_words": validation_config.min_words,
+                "max_words": validation_config.max_words,
             },
         }
         if args.no_resume:
@@ -1516,16 +1520,17 @@ def main() -> None:
         else:
             resume_map = load_existing_llm_map(output_path)
 
-        client = OllamaClient(
+        ollama_client = OllamaClient(
             host=args.ollama_host,
             model=args.model,
             num_ctx=4096,
+            validation_config=validation_config,
         )
         try:
             rule_counts, validation_retry_count, validation_failure_count = (
                 apply_llm_fallbacks(
                     rows,
-                    client=client,
+                    client=ollama_client,
                     batch_size=args.batch_size,
                     workers=args.workers,
                     checkpoint_every=args.checkpoint_every,
@@ -1607,7 +1612,42 @@ def main() -> None:
         )
 
     # Same validator for every caption, rule-based or LLM (Comments8 item 7).
-    rows, n_final_rejects, validation_flagged_count = final_validation_pass(rows)
+    val_log_path = validation_log_path(output_path)
+    val_log = ValidationLogWriter(val_log_path)
+    print(f"Validation log -> {val_log_path}")
+
+    final_client = ollama_client
+    if final_client is None and args.llm:
+        final_client = OllamaClient(
+            host=args.ollama_host,
+            model=args.model,
+            num_ctx=4096,
+            validation_config=validation_config,
+        )
+
+    rows, n_final_rejects, validation_flagged_count, _failed_rows, val_stats = (
+        final_validation_pass(
+            rows,
+            client=final_client,
+            config=validation_config,
+            log_writer=val_log,
+            use_llm=args.llm,
+        )
+    )
+    val_log.close()
+    failed_sidecar = val_log.write_failed_sidecar(output_path)
+    if failed_sidecar:
+        print(f"Validation failed sidecar -> {failed_sidecar}")
+
+    validation_meta = {
+        "validator_version": VALIDATOR_VERSION,
+        **validation_config.__dict__,
+        **val_stats.to_dict(),
+        "validation_log": str(val_log_path.resolve()),
+    }
+    if failed_sidecar:
+        validation_meta["validation_failed_sidecar"] = str(failed_sidecar.resolve())
+
     if n_final_rejects:
         validation_failure_count += n_final_rejects
         print(
@@ -1641,6 +1681,7 @@ def main() -> None:
         min_consensus=args.min_consensus,
         validation_flagged_count=validation_flagged_count,
         rule_validation_reject_count=rule_validation_reject_count,
+        validation_meta=validation_meta,
         process_started_at=process_started_at,
     )
     print_stats(
