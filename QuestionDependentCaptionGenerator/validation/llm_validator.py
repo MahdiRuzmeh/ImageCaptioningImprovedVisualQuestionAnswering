@@ -54,19 +54,120 @@ def _strip_fences(text: str) -> str:
     return t
 
 
+_JUDGE_SYSTEM_PROMPT = (
+    "You are validating captions generated from a Visual Question Answering "
+    "(VQA) dataset.\n"
+    "\n"
+    "Reply with ONLY a JSON array. "
+    'Each element must be {"id": <number>, "verdict": "PASS" or "FAIL"}.'
+)
+
+_JUDGE_RULES_AND_FEW_SHOTS = (
+    "Input for each item:\n"
+    "- Question\n"
+    "- Answer\n"
+    "- Caption\n"
+    "\n"
+    "Label each item PASS or FAIL.\n"
+    "\n"
+    "PASS if ALL of the following are true:\n"
+    "1. The caption is grammatically correct and natural.\n"
+    "2. The caption clearly expresses the answer.\n"
+    "3. Every piece of information in the caption can be inferred ONLY from "
+    "the question and answer.\n"
+    "4. The caption does not add extra facts, attributes, objects, actions, "
+    "colors, locations, numbers, or relationships that are not present in "
+    "the question and answer.\n"
+    "\n"
+    "Natural paraphrases are PASS when they express the answer and add no "
+    "extra facts (for example: omitting a location phrase already in the "
+    "question, using an antonym for a no-answer such as \"closed\" for "
+    "\"not open\", or rewriting \"What is X doing? / eating\" as "
+    "\"X is eating.\").\n"
+    "\n"
+    "FAIL if ANY of the following occur:\n"
+    "- Grammar errors.\n"
+    "- Awkward or unnatural wording.\n"
+    "- Missing or incorrect answer.\n"
+    "- Hallucinated information not supported by the question and answer.\n"
+    "- Changed meaning.\n"
+    "- Contradiction with the answer.\n"
+    "- Unnecessary extra details.\n"
+    "\n"
+    "Examples:\n"
+    "\n"
+    "Example 1\n"
+    "Question: How many tracks are in the snow?\n"
+    "Answer: 3\n"
+    "Caption: There are three tracks.\n"
+    "Label: PASS\n"
+    "\n"
+    "Example 2\n"
+    "Question: Is the train moving?\n"
+    "Answer: no\n"
+    "Caption: The train is not moving.\n"
+    "Label: PASS\n"
+    "\n"
+    "Example 3\n"
+    "Question: What game is being played?\n"
+    "Answer: soccer\n"
+    "Caption: Soccer is being played.\n"
+    "Label: PASS\n"
+    "\n"
+    "Example 4\n"
+    "Question: What are the animals doing?\n"
+    "Answer: eating\n"
+    "Caption: The animals are eating.\n"
+    "Label: PASS\n"
+    "\n"
+    "Example 5\n"
+    "Question: What color is the bus?\n"
+    "Answer: yellow\n"
+    "Caption: The bus is yellow.\n"
+    "Label: PASS\n"
+    "\n"
+    "Example 6\n"
+    "Question: What game is being played?\n"
+    "Answer: soccer\n"
+    "Caption: Two children are playing soccer.\n"
+    "Label: FAIL\n"
+    "\n"
+    "Example 7\n"
+    "Question: Is the dog sleeping?\n"
+    "Answer: yes\n"
+    "Caption: The brown dog is sleeping on the couch.\n"
+    "Label: FAIL\n"
+    "\n"
+    "Example 8\n"
+    "Question: How many people are there?\n"
+    "Answer: 2\n"
+    "Caption: Two people are smiling.\n"
+    "Label: FAIL\n"
+    "\n"
+    "Example 9\n"
+    "Question: What kind of weather it is?\n"
+    "Answer: sunny\n"
+    "Caption: The weather it is is a sunny weather it.\n"
+    "Label: FAIL\n"
+    "\n"
+    "Example 10\n"
+    "Question: Is there grass?\n"
+    "Answer: yes\n"
+    "Caption: The there is grass.\n"
+    "Label: FAIL"
+)
+
+
 def build_judge_prompt(items: Sequence[JudgeItem]) -> Tuple[str, str]:
     """Build system + user messages for a batched judge call.
 
     Each item is numbered independently; no cross-item context is shared.
     """
-    system = (
-        "You are a strict caption validator. Reply with ONLY a JSON array. "
-        "Each element must be {\"id\": <number>, \"verdict\": \"PASS\" or \"FAIL\"}."
-    )
-    lines = [
-        "For each numbered item below, return PASS only if the CAPTION correctly "
-        "expresses the ANSWER to the QUESTION and adds no unsupported facts. "
-        "Otherwise return FAIL.\n"
+    lines: List[str] = [
+        _JUDGE_RULES_AND_FEW_SHOTS,
+        "",
+        "Now classify the items below.",
+        "",
     ]
     for item in items:
         lines.append(f"--- Item {item.index} ---")
@@ -77,7 +178,7 @@ def build_judge_prompt(items: Sequence[JudgeItem]) -> Tuple[str, str]:
     lines.append(
         f'Return a JSON array of exactly {len(items)} objects with keys "id" and "verdict".'
     )
-    return system, "\n".join(lines)
+    return _JUDGE_SYSTEM_PROMPT, "\n".join(lines)
 
 
 def parse_judge_response(

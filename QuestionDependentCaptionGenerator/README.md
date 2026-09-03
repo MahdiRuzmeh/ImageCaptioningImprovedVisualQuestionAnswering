@@ -23,7 +23,7 @@ Pipeline:
 | `generate.py` | CLI: rules + always-on classifier + optional LLM fallback |
 | `llm_prompts.py` | Packed prompt (chand Q+A toye yek request) |
 | `llm_client.py` | Ollama HTTP client + concurrent workers |
-| `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v4_fast_three_class_plus_batch_llm`) |
+| `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v5_judge_rules_few_shot`) |
 | `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (conservative Fast Path whitelist; everything else goes to the LLM) |
 | `audit/audit_captions.py` | Post-hoc QC audit on a captions JSON (optional) |
 

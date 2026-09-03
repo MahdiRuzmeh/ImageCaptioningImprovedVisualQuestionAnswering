@@ -320,7 +320,7 @@ flowchart LR
         "single_retries": 1,
         "salvage_single_retries": 1,
         "tier": "lexical+semantic_judge",
-        "validator_version": "v3_high_precision_reject_plus_flags",
+        "validator_version": "v5_judge_rules_few_shot",
         "relation_min_ratio": 0.5
       },
       "failure_log": "...",

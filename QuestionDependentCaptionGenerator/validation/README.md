@@ -68,6 +68,12 @@ Hard rejects also include: `echoes_question`, `polarity_mismatch`,
 ## LLM judge
 
 - Input: items with `fast_verdict == UNKNOWN`
+- Prompt: VQA caption PASS/FAIL rules + 10 few-shot examples (5 PASS, 5 FAIL)
+  in `llm_validator.py` (`_JUDGE_RULES_AND_FEW_SHOTS`)
+- PASS when the caption is grammatical, expresses the answer, and adds no
+  facts beyond Q+A (natural paraphrases / antonyms for no-answers are PASS)
+- FAIL on grammar errors, missing/wrong answer, hallucinations, meaning
+  change, or unnecessary extra details
 - Output: JSON array `[{"id": 0, "verdict": "PASS"|"FAIL"}, ...]`
 - Fail-closed on parse errors
 - Default batch size: 10 (`ValidationConfig.llm_batch_size`)
@@ -82,7 +88,7 @@ Hard rejects also include: `echoes_question`, `polarity_mismatch`,
 | `overlap_pass_threshold` | 0.50 | More fast PASS vs more LLM calls |
 | `llm_batch_size` | 10 | Ollama throughput |
 
-`validator_version`: `v4_fast_three_class_plus_batch_llm`
+`validator_version`: `v5_judge_rules_few_shot`
 
 ## Output files
 

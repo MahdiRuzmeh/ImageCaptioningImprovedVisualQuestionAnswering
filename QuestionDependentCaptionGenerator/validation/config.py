@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 # Bumped whenever fast/LLM validator rules or defaults change.
-VALIDATOR_VERSION = "v4_fast_three_class_plus_batch_llm"
+VALIDATOR_VERSION = "v5_judge_rules_few_shot"
 
 
 @dataclass(frozen=True)
