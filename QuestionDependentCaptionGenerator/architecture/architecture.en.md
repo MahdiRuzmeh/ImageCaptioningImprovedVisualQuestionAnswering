@@ -71,7 +71,7 @@ QuestionDependentCaptionGenerator/
 ├── llm_prompts.py           # Packed batch prompt + few-shots
 ├── llm_client.py            # Ollama client + validators + retry
 ├── question_classifier.py   # Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL
-├── audit/audit_captions.py  # Post-hoc QC on output JSON
+├── audit/audit_captions.py  # LLM sample auditor (batched PASS/FAIL + P/R)
 ├── tests/                   # Unit tests for known failure cases
 ├── architecture/            # This documentation
 └── outputs/                 # Generated caption JSON (+ failure logs + sidecar)
@@ -84,7 +84,7 @@ QuestionDependentCaptionGenerator/
 | `llm_prompts.py` | System prompt, few-shots, packed user prompt (`PROMPT_VERSION`) |
 | `llm_client.py` | HTTP chat, parse JSON captions, Tier-1 lexical + Tier-2 semantic judge |
 | `question_classifier.py` | `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL` with a conservative Fast Path whitelist (colour / count / existence / spatial / animal|sport|room|food|… / do-you-see / doing|holding|wearing); everything else goes to the LLM (prompt `v8_visual_inference_default`) and every row records `visual_filter_source` |
-| `audit/audit_captions.py` | Count residual bugs (`The there`, `made of is`, empty captions, …) plus `visual_filter_source` / `validation_flags` / accounting identity |
+| `audit/audit_captions.py` | Sample `k` captions; batched Ollama PASS/FAIL audit + Q+A grounding precision/recall |
 
 ---
 
@@ -366,7 +366,7 @@ Sidecars: `{stem}_not_directly_visual.json` (classifier drops, each with `visual
 | Failure log | `*.json.llm_failures.log` with reason codes |
 | Retry audit log | `{stem}_validation_audit.jsonl`, one record per retried item (validator and generation retries) |
 | Reproducibility | Store model, host, `prompt_version`, batch size, classifier metadata |
-| QC audit | `python audit/audit_captions.py outputs/....json` |
+| QC audit | `python audit/audit_captions.py outputs/....json 50 --batch-size 10` |
 | Eval hygiene | DIRECTLY_VISUAL filter applies only to captioner supervision, not raw VQA2 eval |
 
 ### Recommended pilot before full train (~443k)
@@ -375,7 +375,7 @@ Sidecars: `{stem}_not_directly_visual.json` (classifier drops, each with `visual
 python generate.py --split train --llm --max-items 25000 --batch-size 10 \
   --model qwen2.5:3b-instruct-q4_K_M \
   --checkpoint-every 50 --output outputs/pilot_25k.json
-python audit/audit_captions.py outputs/pilot_25k.json
+python audit/audit_captions.py outputs/pilot_25k.json 100 --batch-size 10
 ```
 
 Freeze the generator only after manual spot-checks of rule vs LLM samples.

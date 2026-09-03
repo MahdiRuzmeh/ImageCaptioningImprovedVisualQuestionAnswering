@@ -73,7 +73,7 @@ QuestionDependentCaptionGenerator/
 ├── llm_prompts.py           # packed prompt + few-shot
 ├── llm_client.py            # Ollama client + validator + retry
 ├── question_classifier.py   # filter-e binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL
-├── audit_captions.py        # audit-e keyfiat rooye JSON
+├── audit_captions.py        # LLM sample auditor (batched PASS/FAIL + P/R)
 ├── tests/                   # unit test rooye bug-haye shenakhte-shode
 ├── architecture/            # hamin docs
 └── outputs/                 # caption JSON (+ failure log)
@@ -86,7 +86,7 @@ QuestionDependentCaptionGenerator/
 | `llm_prompts.py` | System prompt-e version-dar (`PROMPT_VERSION`) |
 | `llm_client.py` | Chat API, parse, Tier-1 lexical + Tier-2 semantic judge |
 | `question_classifier.py` | DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL — Fast Path ye **whitelist**-e mohtat (rang / tedad / vojud / makani / animal|sport|room|food|… / do-you-see / doing|holding|wearing); baghie hame be LLM miran (prompt `v8_visual_inference_default`) va har row `visual_filter_source` migire |
-| `audit/audit_captions.py` | Shomaresh-e bug-haye baghimande + `visual_filter_source` / `validation_flags` / check-e accounting |
+| `audit/audit_captions.py` | Sample `k` caption; batched Ollama PASS/FAIL + precision/recall (Q+A grounding) |
 
 ---
 
@@ -366,7 +366,7 @@ Sidecar-ha: `{stem}_not_directly_visual.json` (ba `visual_filter_source`), `{ste
 | Checkpoint | Save-e atomic har N batch; Ctrl+C ham save mikone |
 | Failure log | `*.json.llm_failures.log` ba dalil-e khata |
 | Retry audit log | `{stem}_validation_audit.jsonl` — yek record baraye har item-e retry-shode |
-| Audit | `python audit/audit_captions.py outputs/....json` |
+| Audit | `python audit/audit_captions.py outputs/....json 50 --batch-size 10` |
 
 ### Pilot-e pishnahadi ghabl az kol-e train (~443 hezar)
 
@@ -374,7 +374,7 @@ Sidecar-ha: `{stem}_not_directly_visual.json` (ba `visual_filter_source`), `{ste
 python generate.py --split train --llm --max-items 25000 --batch-size 10 \
   --model qwen2.5:3b-instruct-q4_K_M \
   --checkpoint-every 50 --output outputs/pilot_25k.json
-python audit/audit_captions.py outputs/pilot_25k.json
+python audit/audit_captions.py outputs/pilot_25k.json 100 --batch-size 10
 ```
 
 Bad az barresi-ye dasti-ye sample-haye Rule va LLM, version-e generator ro freeze konid.

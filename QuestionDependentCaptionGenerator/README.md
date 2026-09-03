@@ -25,7 +25,7 @@ Pipeline:
 | `llm_client.py` | Ollama HTTP client + concurrent workers |
 | `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v5_judge_rules_few_shot`) |
 | `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (conservative Fast Path whitelist; everything else goes to the LLM) |
-| `audit/audit_captions.py` | Post-hoc QC audit on a captions JSON (optional) |
+| `audit/audit_captions.py` | LLM sample auditor — random k captions, batched PASS/FAIL + precision/recall ([audit/README.md](audit/README.md)) |
 
 Progress logs (flush): VQA load, rules scan, classify `i/N`, and
 `LLM batch k/N calling Ollama...` **before** each batch (so long waits are visible).
@@ -410,14 +410,15 @@ Note: `prompt_version` (`v8_visual_inference_default`) avaz shode va checkpoint 
 
 ## Tests + audit
 
-`audit/audit_captions.py` **ekhtiari** hast.
+`audit/audit_captions.py` ye LLM sample auditor hast (Ollama lazem ast). Details: [audit/README.md](audit/README.md).
 
 ```bash
 cd QuestionDependentCaptionGenerator
-python audit/audit_captions.py outputs/v2_question_dependent_captions_train2014.json
+python audit/audit_captions.py outputs/vqa_v2_question_dependent_captions_train2014.json 50
+python audit/audit_captions.py outputs/vqa_v2_question_dependent_captions_train2014.json 50 --batch-size 10
 ```
 
-Report shamel: `visual_filter_source_counts`, `rows_with_validation_flags` + `validation_flag_counts`, counter-haye jadid-e `info` (`validation_flagged_count`, `rule_validation_reject_count`), `fast_path_enabled`, va `accounting_input_vs_accounted` (bayad `difference: 0` bashe). Age row-i hanooz `rule` = `what_is` / `yesno_modal_have` dashte bashe (`retired_rule_rows`), yani file ghadimi'e va audit FAIL mide.
+Output: `{stem}_llm_caption_audit_k{k}_seed42.json` ba `label` / `error_type` / `reason` va per-item + mean **precision** / **recall** (Q+A grounding: recall = answer words in caption; precision = caption words supported by Q∪A).
 
 ## Re-pilot (before full 443k)
 
@@ -425,7 +426,7 @@ Report shamel: `visual_filter_source_counts`, `rows_with_validation_flags` + `va
 python generate.py --split train --llm --max-items 25000 --batch-size 10 \
   --model qwen2.5:3b-instruct-q4_K_M \
   --checkpoint-every 50 --output outputs/pilot_25k.json
-python audit/audit_captions.py outputs/pilot_25k.json
+python audit/audit_captions.py outputs/pilot_25k.json 100 --batch-size 10
 ```
 
 ## Notes
