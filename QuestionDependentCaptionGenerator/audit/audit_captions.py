@@ -54,6 +54,11 @@ _AUDITOR_RULES_AND_FEW_SHOTS = (
     "- Caption naturally expresses the answer.\n"
     "- Caption does not add any information beyond the question and answer.\n"
     "- Caption meaning matches the answer.\n"
+    "- Restating the answer in a full sentence is PASS (this is expected).\n"
+    "- Answer words/phrases in the caption are allowed and required when they "
+    "express the answer.\n"
+    "- Reusing question words plus grammar (a/an/the, is/are, looking at, "
+    "used for) is not extra information.\n"
     "\n"
     "FAIL — choose one error_type:\n"
     "\n"
@@ -61,8 +66,9 @@ _AUDITOR_RULES_AND_FEW_SHOTS = (
     "The caption has grammatical mistakes or unnatural language.\n"
     "\n"
     "HALLUCINATION:\n"
-    "The caption contains information not supported by the question and "
-    "answer.\n"
+    "Only when the caption adds facts not present in the question or the "
+    "answer (e.g. colors, counts, locations not in Q/A). "
+    "Do not mark HALLUCINATION for including the answer text.\n"
     "\n"
     "WRONG_CAPTION:\n"
     "The caption does not correctly represent the answer or contradicts it.\n"
@@ -135,13 +141,41 @@ _AUDITOR_RULES_AND_FEW_SHOTS = (
     '"reason": "Caption paraphrases the answer naturally."}\n'
     "\n"
     "Example 10\n"
+    "Question: What is leaning against the wall?\n"
+    "Answer: skateboard\n"
+    "Caption: Skateboard is leaning against the wall.\n"
+    'Output: {"label": "PASS", "error_type": "NONE", '
+    '"reason": "Caption restates the answer with the question context."}\n'
+    "\n"
+    "Example 11\n"
+    "Question: What is the object in the water used for?\n"
+    "Answer: entertainment\n"
+    "Caption: The object in the water is used for entertainment.\n"
+    'Output: {"label": "PASS", "error_type": "NONE", '
+    '"reason": "Caption restates the answer; answer words are allowed."}\n'
+    "\n"
+    "Example 12\n"
+    "Question: What color is the disk?\n"
+    "Answer: yellow and blue\n"
+    "Caption: The disk is yellow and blue.\n"
+    'Output: {"label": "PASS", "error_type": "NONE", '
+    '"reason": "Caption correctly restates the multi-word answer."}\n'
+    "\n"
+    "Example 13\n"
+    "Question: What is the giraffe looking at?\n"
+    "Answer: camera\n"
+    "Caption: The giraffe is looking at a camera.\n"
+    'Output: {"label": "PASS", "error_type": "NONE", '
+    '"reason": "Caption matches the answer; article a is fine."}\n'
+    "\n"
+    "Example 14\n"
     "Question: What kind of weather it is?\n"
     "Answer: sunny\n"
     "Caption: The weather it is is a sunny weather it.\n"
     'Output: {"label": "FAIL", "error_type": "GRAMMAR_ERROR", '
     '"reason": "Caption has incorrect grammar and unnatural wording."}\n'
     "\n"
-    "Example 11\n"
+    "Example 15\n"
     "Question: What game is being played?\n"
     "Answer: soccer\n"
     "Caption: Two children are playing soccer.\n"
@@ -149,21 +183,21 @@ _AUDITOR_RULES_AND_FEW_SHOTS = (
     '"reason": "The number of children is not provided in the question '
     'or answer."}\n'
     "\n"
-    "Example 12\n"
+    "Example 16\n"
     "Question: Is the dog sleeping?\n"
     "Answer: yes\n"
     "Caption: The brown dog is sleeping on the couch.\n"
     'Output: {"label": "FAIL", "error_type": "HALLUCINATION", '
     '"reason": "Color and location information are not provided."}\n'
     "\n"
-    "Example 13\n"
+    "Example 17\n"
     "Question: How many birds are flying?\n"
     "Answer: 4\n"
     "Caption: Three birds are flying.\n"
     'Output: {"label": "FAIL", "error_type": "WRONG_CAPTION", '
     '"reason": "Caption gives an incorrect number."}\n'
     "\n"
-    "Example 14\n"
+    "Example 18\n"
     "Question: What is the woman holding?\n"
     "Answer: umbrella\n"
     "Caption: The woman is standing.\n"
