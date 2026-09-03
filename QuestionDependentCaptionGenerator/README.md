@@ -9,7 +9,7 @@ Pipeline:
 1. VQA questions + annotations ro load mikone (`input_count`)
 2. OCR-dependent Q/A pair ha (`is_ocr_question`) — soal hayi ke javab-eshun faghat az ru-ye reading-e text/adad-e ru-ye tasvir mishe fahmid (sign, logo, brand, plate, jersey number, clock) — kollan hazf mishan, chon `SimpleImageCaptioner` OCR nadare va nemitune in target ha ro yad begire; count-esh dar `info.ocr_excluded_count` save mishe
 3. Duplicate `(image_id, question, answer)` rows drop mishan (`info.duplicate_count`)
-4. Optional `--classify-questions`: binary `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. The gate is a **conservative whitelist** (`_FAST_PATH_VISUAL_RE`: colour / count / existence / spatial / animal|sport|room|food|… / do-you-see / end-anchored doing|holding|wearing) — match + no suspect marker → `fast_path`; else UNKNOWN → Qwen (`v8_visual_inference_default`). Har row field-e `visual_filter_source` (`fast_path` ya `llm_classifier`) migire. `--no-fast-path` hame ro be LLM mifreste. Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad)
+4. Binary classifier (hamishe): `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. The gate is a **conservative whitelist** (`_FAST_PATH_VISUAL_RE`: colour / count / existence / spatial / animal|sport|room|food|… / do-you-see / end-anchored doing|holding|wearing) — match + no suspect marker → `fast_path`; else UNKNOWN → Qwen (`v8_visual_inference_default`). Har row field-e `visual_filter_source` (`fast_path` ya `llm_classifier`) migire. `--no-fast-path` hame ro be LLM mifreste. Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad). Ollama baraye in marhale lazem ast hata bedoon `--llm`.
 5. Rule engine try mikone (`caption_rules.py`) — faghat pattern haye daghigh va motmaen
 6. Age hich rule match nakone, row `rule="needs_llm"` va `caption=""` mishe
 7. Age `--llm` on bashe → Ollama ba packed batch + **two-layer validator** (`validation/`: fast PASS/FAIL/UNKNOWN → batched LLM judge) + **1 regenerate** then drop
@@ -20,7 +20,7 @@ Pipeline:
 | File | Kar |
 |------|-----|
 | `caption_rules.py` | Rule engine + helper ha |
-| `generate.py` | CLI: rules + optional LLM fallback |
+| `generate.py` | CLI: rules + always-on classifier + optional LLM fallback |
 | `llm_prompts.py` | Packed prompt (chand Q+A toye yek request) |
 | `llm_client.py` | Ollama HTTP client + concurrent workers |
 | `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v4_fast_three_class_plus_batch_llm`) |
@@ -109,6 +109,8 @@ Remaining rule families: `what_color`, `how_many`, `what_is_doing`, `who`.
 Har chizi dige (`"...can you see eating?"`, `"...are standing?"`, `"...can be seen?"`) → `needs_llm`. Count agreement: count=1 singularizes (`"windows"` → `"window"`); count>1 / zero pluralizes (`"light post"` → `"light posts"`).
 
 ## Run (rules only)
+
+Classifier hanooz ejra mishe (Ollama lazem ast). `--llm` faghat baraye caption-e `needs_llm` ast.
 
 ```bash
 cd QuestionDependentCaptionGenerator
@@ -243,7 +245,7 @@ Resume: age `--min-consensus` ba run-e ghabli fargh dashte bashe, checkpoint qab
 
 ### Resume / checkpoint
 
-**Classifier (`--classify-questions`):**
+**Classifier (always on):**
 
 - Progress saved every `--classifier-checkpoint-every N` classifications (default 50) to `{output_stem}_classifier_checkpoint.json`.
 - `Ctrl+C` during classification → checkpoint saved; rerun same command to continue.
@@ -260,7 +262,7 @@ Resume: age `--min-consensus` ba run-e ghabli fargh dashte bashe, checkpoint qab
 
 ```bash
 # start / continue (same command)
-python generate.py --split train --llm --classify-questions \
+python generate.py --split train --llm \
   --model qwen2.5:3b-instruct-q4_K_M --batch-size 10 \
   --checkpoint-every 100 --classifier-checkpoint-every 50
 ```
@@ -320,7 +322,7 @@ If `--llm` finishes with any `needs_llm` left, the process exits with code `1` a
 
 `rule` mishe yeki az: rule name ha (`what_color`, `how_many`, `what_is_doing`, `who`, …), `needs_llm` (hanuz LLM nagerefte — `caption` khali), ya `llm_fallback` (LLM tolid karde).
 
-`visual_filter_source` faghat ba `--classify-questions` neveshte mishe: `fast_path` (whitelist match kard, bedoon LLM) ya `llm_classifier` (Qwen label dad). Row-haye sidecar-e `*_not_directly_visual.json` ham hamin field ro daran, pas mishe did kodum filter chi ro rad karde.
+`visual_filter_source` hamishe neveshte mishe: `fast_path` (whitelist match kard, bedoon LLM) ya `llm_classifier` (Qwen label dad). Row-haye sidecar-e `*_not_directly_visual.json` ham hamin field ro daran, pas mishe did kodum filter chi ro rad karde.
 
 `validation_flags` (age vojood dashte bashe) list-e moshkel-haye mashkuk ast; oon row ha toye dataset **mimoonan**.
 
@@ -338,7 +340,7 @@ Accounting fields (bayad jam beshan):
 | `min_consensus` | Threshold used for this run |
 | `duplicate_count` | Dedup drops |
 | `post_filter_count` | Rows kept after OCR/dedup/classifier (for resume matching) |
-| `directly_visual_count` | Classifier kept (ya hame rows age classify off) |
+| `directly_visual_count` | Classifier kept |
 | `not_directly_visual_count` | Classifier dropped |
 | `dropped_empty_count` | Empty/short (excluding counted validation failures) |
 | `validation_retry_count` | Per-item regenerations |
@@ -357,7 +359,7 @@ Beyond format checks, accepted LLM captions must pass Tier-1 relation / verbatim
 
 ## DIRECTLY_VISUAL filter
 
-**Off by default.** Bedoon flag, `question_classifier.py` call nemishe.
+**Hamishe on.** Har generate classifier ro run mikone (Ollama lazem ast).
 
 `DIRECTLY_VISUAL` = soal ba negah kardan be tasvir javab dade mishe (object, rang, tedad, position, action, material, room/scene, sport/activity, weather, sen-e taghribi, expression, occupation az appearance, meal type, "could this be…", common visual inference) — **default hamin hast**.
 
@@ -389,15 +391,13 @@ Hazine: ba Fast Path whitelist, ~2200 soal be LLM miran (va ~3600 ba `--no-fast-
 
 | Flag | Chi mikone |
 |------|------------|
-| `--classify-questions` | Faghat whitelist-e Fast Path bedoon LLM label mikhore; baghie be Qwen miran (packed). Drop + write sidecar. Resume via `*_classifier_checkpoint.json`. |
-| `--classifier-batch-size` | `10` | Chand soal toye **yek** classifier Ollama call (JSON array of labels). Parse fail → per-item salvage. |
+| `--classifier-batch-size` | Chand soal toye **yek** classifier Ollama call (JSON array of labels, default `10`). Parse fail → per-item salvage. |
 | `--no-fast-path` | Whitelist ro kollan khamoosh mikone — hame soal ha be Qwen miran (hame row ha `visual_filter_source = "llm_classifier"`). Baraye moghayese-ye ba/bedoon Fast Path. |
-| `--classifier-checkpoint-every` | `50` | Save classifier progress every N questions |
-| `--drop-subjective-candidates` | Offline: regex candidates drop (bedoon Qwen). |
+| `--classifier-checkpoint-every` | Save classifier progress every N questions (default `50`). |
 | `--classifier-model` | Model Ollama baraye classifier; default = `--model` |
 
 ```bash
-python generate.py --split train --llm --classify-questions \
+python generate.py --split train --llm \
   --model qwen2.5:3b-instruct-q4_K_M --batch-size 10 \
   --classifier-batch-size 10
 ```
@@ -423,7 +423,7 @@ Report shamel: `visual_filter_source_counts`, `rows_with_validation_flags` + `va
 
 ```bash
 python generate.py --split train --llm --max-items 25000 --batch-size 10 \
-  --classify-questions --model qwen2.5:3b-instruct-q4_K_M \
+  --model qwen2.5:3b-instruct-q4_K_M \
   --checkpoint-every 50 --output outputs/pilot_25k.json
 python audit/audit_captions.py outputs/pilot_25k.json
 ```

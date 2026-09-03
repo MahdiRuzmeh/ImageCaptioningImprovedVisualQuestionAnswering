@@ -29,7 +29,8 @@ flowchart LR
 Captioner-e Stage 1 faghat visual feature mibine va **OCR nadare**. Pas in generator:
 
 1. Soal-haye text-reading (**OCR-dependent**) ro hazf mikone.
-2. Caption-hayi misaze ke az rooye image + question ghabile yadgiri bashan.
+2. Soal-haye **NOT_DIRECTLY_VISUAL** ro ba classifier-e binary (hamishe on) drop mikone (OCR-e baghimande, nazar shakhsi, knowledge-e biruni).
+3. Caption-hayi misaze ke az rooye image + question ghabile yadgiri bashan.
 
 ---
 
@@ -105,16 +106,15 @@ flowchart TD
   ruleVal -->|fail| needs
   ruleVal -->|pass| row[Row ba caption]
   rules -->|na-motmaen| needs[needs_llm + caption khali]
-  row --> subjOpt
-  needs --> subjOpt{--classify-questions?}
-  subjOpt -->|yes| fast{Whitelist-e Fast Path va bedoon suspect?}
+  row --> fast{Whitelist-e Fast Path va bedoon suspect?}
+  needs --> fast
   fast -->|bale: fast_path| llmOpt
   fast -->|na| clf[Qwen binary classify: llm_classifier]
   clf -->|save| clfCkpt[classifier_checkpoint.json]
   clfCkpt -->|resume| clf
   clf -->|NOT_DIRECTLY_VISUAL| side[Sidecar JSON]
   clf -->|DIRECTLY_VISUAL| llmOpt
-  subjOpt -->|no| llmOpt{--llm?}
+  llmOpt{--llm?}
   llmOpt -->|yes| batch[Ollama batch max 10]
   batch --> tier1[Tier1 hard reject + flag]
   tier1 -->|suspect ya flag| tier2[Tier2 PASS/FAIL]
@@ -138,7 +138,7 @@ flowchart TD
 3. **Ekhtiari: filter-e consensus** — `--min-consensus T` (default `0.0` = khamush) pair-hayi ke mode answer-eshun kamtar az `T` tavafogh-e annotator dare drop mikone: vaghti adam-ha tavafogh nadaran, oon caption target-e ghabel-e etemad nist. **Ghabl az dedup** ejra mishe ta pair-e drop-shode jaye dedup ro nagire. Drop-ha → `*_low_consensus.json` + `info.low_consensus_excluded_count`. Ru VQA v2 train ~11% zir-e `0.4` hastan va hame non-yes/no (javab-e binary ba 10 annotator nemitune zir-e `0.5` beshe), pas sahm-e yes/no dar dataset bala miravad.
 4. **Dedup** — Faghat avalin `(image_id, question, answer)`; `duplicate_count`.
 5. **Motor-e Rule** — Family-haye baghimande: `what_color`, `how_many`, `what_is_doing`, `who`. Har caption-e rule ba hamun validator-e hard-e LLM check mishe: fail → `needs_llm` (`info.rule_validation_reject_count`), na template-e kharab.
-6. **Ekhtiari: classifier-e binary** — Fast Path ye **whitelist** ast, na default: soal faghat vaghti bedoon LLM label mikhore ke `_FAST_PATH_VISUAL_RE` match kone (rang ba plural; `how many` / `number of`; `is/are there`; `do/can you see`; `is the sky`; `what animal(s)|shape|sport|game|activity|room|scene|place|food(s)|fruit(s)|dish`; `what is under/over/…`; spatial-e end-anchored; `what … doing|holding|wearing`-e end-anchored) **va** hich marker-e `_NON_VISUAL_SUSPECT_RE` nadashte bashe. Fast-path **nist** (UNKNOWN → LLM): bare `what is/are/do/does`, `what kind/type`, `is he/she`, `where is`, `could this`, `does this look`, `who is`, …. Baghie be Qwen miran (`v8_visual_inference_default`). `--no-fast-path` whitelist ro kollan khamoosh mikone. Har row `visual_filter_source` (`fast_path` / `llm_classifier`) migire — row-haye `*_not_directly_visual.json` ham. Checkpoint (`*_classifier_checkpoint.json`) har `--classifier-checkpoint-every N` save mishe va ba `fast_path_enabled` key mikhore, pas run-e Fast Path ba run-e `--no-fast-path` checkpoint share nemikonan.
+6. **Classifier-e binary (hamishe on)** — Fast Path ye **whitelist** ast, na default: soal faghat vaghti bedoon LLM label mikhore ke `_FAST_PATH_VISUAL_RE` match kone (rang ba plural; `how many` / `number of`; `is/are there`; `do/can you see`; `is the sky`; `what animal(s)|shape|sport|game|activity|room|scene|place|food(s)|fruit(s)|dish`; `what is under/over/…`; spatial-e end-anchored; `what … doing|holding|wearing`-e end-anchored) **va** hich marker-e `_NON_VISUAL_SUSPECT_RE` nadashte bashe. Fast-path **nist** (UNKNOWN → LLM): bare `what is/are/do/does`, `what kind/type`, `is he/she`, `where is`, `could this`, `does this look`, `who is`, …. Baghie be Qwen miran (`v8_visual_inference_default`). `--no-fast-path` whitelist ro kollan khamoosh mikone. Har row `visual_filter_source` (`fast_path` / `llm_classifier`) migire — row-haye `*_not_directly_visual.json` ham. Checkpoint (`*_classifier_checkpoint.json`) har `--classifier-checkpoint-every N` save mishe va ba `fast_path_enabled` key mikhore, pas run-e Fast Path ba run-e `--no-fast-path` checkpoint share nemikonan. Ollama baraye in marhale lazem ast hata bedoon `--llm`.
 7. **Ekhtiari: LLM** — Tier-1 (hard reject + flag) + Tier-2; 1 regenerate; salvage ham ye single-item retry dare, pas parse failure-e batch bedoon test-e tanha drop nemishe. Har retry → `*_validation_audit.jsonl`.
 8. **Hazf-e sakht** — Caption-e khali / `needs_llm` toye file-e nahayi neveshte nemishe.
 9. **Pass-e nahayi-e validator** — Check-haye hard ye bar dige ru **hame** caption ha (rule + LLM); moshkel-haye mashkuk → `validation_flags` va row mimoone (`info.validation_flagged_count`).
@@ -292,7 +292,7 @@ flowchart LR
 |------|-------|--------|
 | OCR | Hamishe | Hazf-e soal-haye text-reading (hala `number on …`, `shirt/train number`, `street name`, `written/printed on …`, `letters/initials on …` ham) |
 | Rule safety + validator | Hamishe | Template-e kharab → LLM (`rule_validation_reject_count`) |
-| Binary classifier | Ba `--classify-questions` | Faghat whitelist-e Fast Path bedoon LLM; baghie be LLM dar batch-haye packed (`--classifier-batch-size`, default 10, JSON labels); sidecar baraye NOT_DIRECTLY_VISUAL; `visual_filter_source` roye har row |
+| Binary classifier | Hamishe | Faghat whitelist-e Fast Path bedoon LLM; baghie be LLM dar batch-haye packed (`--classifier-batch-size`, default 10, JSON labels); sidecar baraye NOT_DIRECTLY_VISUAL; `visual_filter_source` roye har row |
 | Two-tier validators | Ba `--llm` | Hard reject → 1 regenerate → drop; mashkuk → flag + Tier-2 |
 | Empty drop | Hengam-e neveshtan | Hich target-e khali vared-e train nemishe |
 | Validator-e nahayi | Hengam-e neveshtan | Check-e hard ru hame caption ha; mashkuk → `validation_flags` |
@@ -372,7 +372,7 @@ Sidecar-ha: `{stem}_not_directly_visual.json` (ba `visual_filter_source`), `{ste
 
 ```bash
 python generate.py --split train --llm --max-items 25000 --batch-size 10 \
-  --classify-questions --model qwen2.5:3b-instruct-q4_K_M \
+  --model qwen2.5:3b-instruct-q4_K_M \
   --checkpoint-every 50 --output outputs/pilot_25k.json
 python audit/audit_captions.py outputs/pilot_25k.json
 ```

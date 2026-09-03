@@ -1,6 +1,6 @@
 """Binary filter for questions that are not directly answerable from a static image.
 
-When ``--classify-questions`` is on, questions are labeled:
+Dataset generation always labels questions:
 
     DIRECTLY_VISUAL | NOT_DIRECTLY_VISUAL
 
@@ -21,8 +21,9 @@ Every classified row records where its decision came from in
 ``visual_filter_source`` (``fast_path`` or ``llm_classifier``) so error
 analysis can separate the two.
 
-Offline ``--drop-subjective-candidates`` still uses a cheap regex candidate
-gate (no LLM) and drops matching rows as NOT_DIRECTLY_VISUAL.
+``generate.py`` always constructs a ``QuestionClassifier`` (Ollama). The
+offline ``--drop-subjective-candidates`` regex gate remains available on
+:func:`filter_non_visual_questions` for tests, but the CLI ignores it.
 """
 
 from __future__ import annotations

@@ -10,6 +10,9 @@ Run az in folder:
 
 Output default: ./outputs/vqa_v2_question_dependent_captions_{train,val}2014.json
 
+Har run classifier-e binary (DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL) ro
+ejra mikone — Ollama baraye classifier lazem ast hata bedoon ``--llm``.
+
 Resume (Ctrl+C safe):
     hamoon command ro dobare bezan — classifier + LLM az checkpoint edame mide.
 """
@@ -1236,17 +1239,9 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Save classifier progress every N classified questions "
             "(default 50; enables resume after interrupt). Final result is "
-            "kept as vqa_v2_question_classification_result[.json]."
-        ),
-    )
-    parser.add_argument(
-        "--classify-questions",
-        action="store_true",
-        help=(
-            "Run binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL classifier "
-            "on every question and drop NOT_DIRECTLY_VISUAL "
-            "(writes *_not_directly_visual.json sidecar and "
-            "vqa_v2_question_classification_result.json)"
+            "kept as vqa_v2_question_classification_result[.json]. "
+            "The binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL classifier "
+            "always runs."
         ),
     )
     parser.add_argument(
@@ -1276,15 +1271,15 @@ def parse_args() -> argparse.Namespace:
         "--drop-subjective-candidates",
         action="store_true",
         help=(
-            "Without calling the classifier, drop regex non-visual "
-            "candidates (offline conservative mode)"
+            "Deprecated no-op: the binary classifier always runs. "
+            "Previously dropped regex non-visual candidates without Qwen."
         ),
     )
     return parser.parse_args()
 
 
 def main() -> None:
-    """Entry point — rule caption + optional LLM fallback + resume."""
+    """Entry point — classifier (always) + rule caption + optional LLM fallback + resume."""
     args = parse_args()
     process_started_at = now_iso()
     paths = SPLIT_PATHS[args.split]
@@ -1413,74 +1408,65 @@ def main() -> None:
             )
             print(f"Low-consensus sidecar -> {side}")
 
-        if args.classify_questions or args.drop_subjective_candidates:
-            clf: Optional[QuestionClassifier] = None
-            if args.classify_questions:
-                clf_model = args.classifier_model or args.model
-                clf = QuestionClassifier(
-                    host=args.ollama_host,
-                    model=clf_model,
-                )
-                classifier_meta = clf.metadata()
-                classifier_meta["fast_path_enabled"] = not args.no_fast_path
-                classifier_meta["batch_size"] = args.classifier_batch_size
-                print(
-                    f"Question classifier: model={clf_model} "
-                    f"prompt={CLASSIFIER_PROMPT_VERSION} "
-                    f"batch-size={args.classifier_batch_size} "
-                    f"fast_path={'off' if args.no_fast_path else 'on'}"
-                )
-            try:
-                rows, dropped_not_visual, lab_counts = filter_non_visual_questions(
-                    rows,
-                    clf,
-                    offline_drop_candidates=args.drop_subjective_candidates
-                    and not args.classify_questions,
-                    checkpoint_path=(
-                        clf_result_path if args.classify_questions else None
-                    ),
-                    checkpoint_every=args.classifier_checkpoint_every,
-                    resume=not args.no_resume,
-                    classifier_meta=classifier_meta,
-                    input_count=input_count,
-                    fast_path=not args.no_fast_path,
-                    batch_size=args.classifier_batch_size,
-                )
-            except KeyboardInterrupt:
-                ckpt = load_classifier_checkpoint(clf_result_path)
-                done = 0
-                total = len(rows)
-                if ckpt:
-                    info = ckpt.get("info") or {}
-                    done = int(info.get("classified_count", 0))
-                    total = int(info.get("total_to_classify", total))
-                print(
-                    f"\nInterrupted during classification — "
-                    f"checkpoint saved -> {clf_result_path} "
-                    f"({done}/{total} done). Rerun the same command to continue."
-                )
-                raise SystemExit(130) from None
-            not_directly_visual_count = len(dropped_not_visual)
-            directly_visual_count = len(rows)
-            rule_counts = recount_rules(rows)
-            if classifier_meta is None:
-                classifier_meta = {
-                    "prompt_version": CLASSIFIER_PROMPT_VERSION,
-                    "mode": "offline_candidates",
-                }
-            classifier_meta = dict(classifier_meta)
-            classifier_meta["label_counts"] = dict(lab_counts)
-            side = write_not_directly_visual_sidecar(output_path, dropped_not_visual)
+        if args.drop_subjective_candidates:
             print(
-                f"Classifier filter: kept {directly_visual_count} DIRECTLY_VISUAL, "
-                f"dropped {not_directly_visual_count} NOT_DIRECTLY_VISUAL; "
-                f"sidecar -> {side}; "
-                f"classification result -> {clf_result_path}; "
-                f"label_counts={dict(lab_counts)}"
+                "WARNING: --drop-subjective-candidates is ignored; "
+                "the DIRECTLY_VISUAL classifier always runs."
             )
-        else:
-            directly_visual_count = len(rows)
-            not_directly_visual_count = 0
+        clf_model = args.classifier_model or args.model
+        clf = QuestionClassifier(
+            host=args.ollama_host,
+            model=clf_model,
+        )
+        classifier_meta = clf.metadata()
+        classifier_meta["fast_path_enabled"] = not args.no_fast_path
+        classifier_meta["batch_size"] = args.classifier_batch_size
+        print(
+            f"Question classifier: model={clf_model} "
+            f"prompt={CLASSIFIER_PROMPT_VERSION} "
+            f"batch-size={args.classifier_batch_size} "
+            f"fast_path={'off' if args.no_fast_path else 'on'}"
+        )
+        try:
+            rows, dropped_not_visual, lab_counts = filter_non_visual_questions(
+                rows,
+                clf,
+                offline_drop_candidates=False,
+                checkpoint_path=clf_result_path,
+                checkpoint_every=args.classifier_checkpoint_every,
+                resume=not args.no_resume,
+                classifier_meta=classifier_meta,
+                input_count=input_count,
+                fast_path=not args.no_fast_path,
+                batch_size=args.classifier_batch_size,
+            )
+        except KeyboardInterrupt:
+            ckpt = load_classifier_checkpoint(clf_result_path)
+            done = 0
+            total = len(rows)
+            if ckpt:
+                info = ckpt.get("info") or {}
+                done = int(info.get("classified_count", 0))
+                total = int(info.get("total_to_classify", total))
+            print(
+                f"\nInterrupted during classification — "
+                f"checkpoint saved -> {clf_result_path} "
+                f"({done}/{total} done). Rerun the same command to continue."
+            )
+            raise SystemExit(130) from None
+        not_directly_visual_count = len(dropped_not_visual)
+        directly_visual_count = len(rows)
+        rule_counts = recount_rules(rows)
+        classifier_meta = dict(classifier_meta)
+        classifier_meta["label_counts"] = dict(lab_counts)
+        side = write_not_directly_visual_sidecar(output_path, dropped_not_visual)
+        print(
+            f"Classifier filter: kept {directly_visual_count} DIRECTLY_VISUAL, "
+            f"dropped {not_directly_visual_count} NOT_DIRECTLY_VISUAL; "
+            f"sidecar -> {side}; "
+            f"classification result -> {clf_result_path}; "
+            f"label_counts={dict(lab_counts)}"
+        )
 
     llm_meta: Optional[Dict[str, Any]] = None
     failure_log: Optional[LlmFailureLogger] = None

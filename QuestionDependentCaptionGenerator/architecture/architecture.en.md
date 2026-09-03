@@ -27,7 +27,8 @@ flowchart LR
 The Stage-1 captioner sees pooled visual region features only (no glyph reading). Therefore this generator:
 
 1. **Drops OCR-dependent questions** (signs, websites, letters, logos, …).
-2. Produces captions that a non-OCR model can plausibly learn from vision + question context.
+2. **Drops questions that are not directly visual** (OCR leftovers, opinion, external knowledge) via the always-on binary classifier.
+3. Produces captions that a non-OCR model can plausibly learn from vision + question context.
 
 ---
 
@@ -103,16 +104,15 @@ flowchart TD
   ruleVal -->|fail| needs
   ruleVal -->|pass| row[Caption row]
   rules -->|uncertain| needs[needs_llm empty caption]
-  row --> subjOpt
-  needs --> subjOpt{--classify-questions?}
-  subjOpt -->|yes| fast{Fast Path whitelist match and no suspect marker?}
+  row --> fast{Fast Path whitelist match and no suspect marker?}
+  needs --> fast
   fast -->|yes: fast_path| llmOpt
   fast -->|no| clf[Qwen binary classify: llm_classifier]
   clf -->|periodic save| clfCkpt[classifier_checkpoint.json]
   clfCkpt -->|resume| clf
   clf -->|NOT_DIRECTLY_VISUAL| side[Write sidecar JSON]
   clf -->|DIRECTLY_VISUAL| llmOpt
-  subjOpt -->|no| llmOpt{--llm?}
+  llmOpt{--llm?}
   llmOpt -->|yes| batch[Packed Ollama batches size ≤ 10]
   batch --> tier1[Tier1 hard rejects + soft flags]
   tier1 -->|suspect or flagged| tier2[Tier2 Qwen PASS/FAIL]
@@ -136,7 +136,7 @@ flowchart TD
 3. **Optional consensus filter** — `--min-consensus T` (default `0.0` = off) drops pairs whose mode answer got less than `T` annotator agreement: if humans cannot agree, the caption is not a trustworthy training target. Runs **before** dedup so a dropped pair does not occupy the dedup slot. Drops go to `*_low_consensus.json`; count in `info.low_consensus_excluded_count`. On VQA v2 train ~11% of pairs sit below `0.4` and all of them are non-yes/no (a binary answer over 10 annotators cannot fall below `0.5`), so the filter raises the yes/no share of the dataset.
 4. **Dedup** — Keep first `(image_id, question, answer)`; store `duplicate_count`.
 5. **Rule engine** — First safe match wins; else `needs_llm`. Remaining families: `what_color`, `how_many`, `what_is_doing`, `who`. Every rule caption then goes through the same hard validator as an LLM caption: a failure becomes `needs_llm` (`info.rule_validation_reject_count`) instead of shipping a broken template.
-6. **Optional binary classifier** — Fast Path is a **whitelist**, not a default: a question skips the LLM only when it matches `_FAST_PATH_VISUAL_RE` (colour incl. plurals; `how many` / `number of`; `is/are there`; `do/can you see`; `is the sky`; `what animal(s)|shape|sport|game|activity|room|scene|place|food(s)|fruit(s)|dish`; `what is under/over/…`; plain end-anchored spatial `Is the cat on the table?`; end-anchored `what … doing|holding|wearing`) **and** carries no `_NON_VISUAL_SUSPECT_RE` marker. Not whitelisted (UNKNOWN → LLM): bare `what is/are/do/does`, `what kind/type`, `is he/she`, `where is`, `could this`, `does this look`, `who is`, …. Everything else goes to Qwen (`v8_visual_inference_default`). `--no-fast-path` disables the whitelist entirely so every question is classified by the LLM. Each row records `visual_filter_source` (`fast_path` / `llm_classifier`), including the rows written to `*_not_directly_visual.json`. Incremental checkpoint (`*_classifier_checkpoint.json`) every `--classifier-checkpoint-every N` enables resume after interrupt and is keyed on `fast_path_enabled`, so a Fast Path run cannot resume a `--no-fast-path` run.
+6. **Binary classifier (always on)** — Fast Path is a **whitelist**, not a default: a question skips the LLM only when it matches `_FAST_PATH_VISUAL_RE` (colour incl. plurals; `how many` / `number of`; `is/are there`; `do/can you see`; `is the sky`; `what animal(s)|shape|sport|game|activity|room|scene|place|food(s)|fruit(s)|dish`; `what is under/over/…`; plain end-anchored spatial `Is the cat on the table?`; end-anchored `what … doing|holding|wearing`) **and** carries no `_NON_VISUAL_SUSPECT_RE` marker. Not whitelisted (UNKNOWN → LLM): bare `what is/are/do/does`, `what kind/type`, `is he/she`, `where is`, `could this`, `does this look`, `who is`, …. Everything else goes to Qwen (`v8_visual_inference_default`). `--no-fast-path` disables the whitelist entirely so every question is classified by the LLM. Each row records `visual_filter_source` (`fast_path` / `llm_classifier`), including the rows written to `*_not_directly_visual.json`. Incremental checkpoint (`*_classifier_checkpoint.json`) every `--classifier-checkpoint-every N` enables resume after interrupt and is keyed on `fast_path_enabled`, so a Fast Path run cannot resume a `--no-fast-path` run. Ollama is required for this stage even when `--llm` is off.
 7. **Optional LLM fallback** — Packed batches; Tier-1 hard rejects then Tier-2 semantic judge; **1** regenerate; salvage rounds also get one single-item retry so a batch parse failure is never dropped untested. Every retry is written to `*_validation_audit.jsonl`.
 8. **Hard drop** — Empty / short / `needs_llm` rows never enter the written set.
 9. **Final validation pass** — The hard validator runs once more over **all** remaining captions (rule and LLM alike); soft findings are stored as `validation_flags` and the row is kept (`info.validation_flagged_count`).
@@ -285,7 +285,7 @@ flowchart LR
 | OCR regex / `question_type` | Always | Remove text-reading questions (now also `number on …`, `shirt/train number`, `street name`, `written/printed on …`, `letters/initials on …`) |
 | Answer consensus | `--min-consensus T` (off at `0.0`) | Drop pairs humans disagreed on; sidecar for dropped pairs |
 | Rule safety + validator | Always | Bad templates → LLM (`rule_validation_reject_count`) |
-| Binary classifier | `--classify-questions` | Fast Path whitelist only; everything else classified by the LLM in packed batches (`--classifier-batch-size`, default 10, JSON labels); keep DIRECTLY_VISUAL; sidecar for NOT_DIRECTLY_VISUAL; `visual_filter_source` on every row |
+| Binary classifier | Always | Fast Path whitelist only; everything else classified by the LLM in packed batches (`--classifier-batch-size`, default 10, JSON labels); keep DIRECTLY_VISUAL; sidecar for NOT_DIRECTLY_VISUAL; `visual_filter_source` on every row |
 | Two-tier LLM validators | `--llm` | Hard reject → regenerate once → drop; suspicious → flag + Tier-2 |
 | Empty drop | Always at write | No empty/`needs_llm` in final annotations |
 | Final validator pass | Always at write | Hard checks on every caption; soft findings → `validation_flags` |
@@ -352,7 +352,7 @@ flowchart LR
 
 Sidecars: `{stem}_not_directly_visual.json` (classifier drops, each with `visual_filter_source`), `{stem}_low_consensus.json` (`--min-consensus` drops), and `{stem}_validation_audit.jsonl` (one record per retried item) keep dropped and retried questions for later analysis.
 
-`rule` is a rule name, `llm_fallback`, or (transiently before drop) `needs_llm`. `visual_filter_source` is written only when `--classify-questions` ran; `validation_flags` only when a soft check fired.
+`rule` is a rule name, `llm_fallback`, or (transiently before drop) `needs_llm`. `visual_filter_source` is written on every classified row; `validation_flags` only when a soft check fired.
 
 ---
 
@@ -373,7 +373,7 @@ Sidecars: `{stem}_not_directly_visual.json` (classifier drops, each with `visual
 
 ```bash
 python generate.py --split train --llm --max-items 25000 --batch-size 10 \
-  --classify-questions --model qwen2.5:3b-instruct-q4_K_M \
+  --model qwen2.5:3b-instruct-q4_K_M \
   --checkpoint-every 50 --output outputs/pilot_25k.json
 python audit/audit_captions.py outputs/pilot_25k.json
 ```
