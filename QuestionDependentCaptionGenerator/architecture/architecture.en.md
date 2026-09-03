@@ -84,7 +84,7 @@ QuestionDependentCaptionGenerator/
 | `llm_prompts.py` | System prompt, few-shots, packed user prompt (`PROMPT_VERSION`) |
 | `llm_client.py` | HTTP chat, parse JSON captions, Tier-1 lexical + Tier-2 semantic judge |
 | `question_classifier.py` | `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL` with a conservative Fast Path whitelist (colour / count / existence / spatial / animal|sport|room|food|… / do-you-see / doing|holding|wearing); everything else goes to the LLM (prompt `v8_visual_inference_default`) and every row records `visual_filter_source` |
-| `audit/audit_captions.py` | Sample `k` captions; batched Ollama PASS/FAIL audit + Q+A grounding precision/recall |
+| `audit/audit_captions.py` | Sample `k` captions; batched Ollama PASS/FAIL audit |
 
 ---
 

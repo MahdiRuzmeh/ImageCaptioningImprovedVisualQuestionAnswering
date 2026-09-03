@@ -5,7 +5,7 @@ LLM-based sample auditor for question-dependent captions produced by
 
 Randomly samples `test_item_count` non-empty captions from a dataset JSON,
 sends them to Ollama in batches, and writes a structured audit report with
-PASS/FAIL labels plus automatic caption **precision** / **recall**.
+PASS/FAIL labels.
 
 ## Prerequisites
 
@@ -47,25 +47,10 @@ Output path (next to the input file):
 - **HALLUCINATION** — extra objects, attributes, actions, etc.
 - **WRONG_CAPTION** — missing / wrong / contradictory answer
 
-Parse failures are fail-closed (`label=FAIL`, `error_type=NONE`, reason notes the parse/LLM error).
-
-## Precision and recall
-
-Automatic Q+A grounding metrics (no human gold labels):
-
-- \(C\) = content words in caption
-- \(A\) = content words in answer
-- \(S\) = content words in question ∪ answer
-
-| Metric | Formula | Meaning |
-|--------|---------|---------|
-| **Recall** | \(\|C \cap A\| / \|A\|\) | How much of the answer appears in the caption |
-| **Precision** | \(\|C \cap S\| / \|C\|\) | How much of the caption is supported by Q+A |
-
-Empty answer → recall `1.0` if caption non-empty else `0.0`.  
-Empty caption content → precision `0.0`.
-
-Reported per record and as `info.mean_precision` / `info.mean_recall`.
+Parse/LLM batch failures are **retried once as a batch**. Items that still fail
+are kept as FAIL in the report and appended to
+`audit/llm_caption_audit_errors.jsonl`. Truncated batch JSON is salvaged when
+complete objects can still be extracted.
 
 ## Output schema
 
@@ -81,9 +66,7 @@ Reported per record and as `info.mean_precision` / `info.mean_recall`.
     "pool_size": 390,
     "num_audited": 50,
     "label_counts": {"PASS": 40, "FAIL": 10},
-    "error_type_counts": {"NONE": 40, "HALLUCINATION": 5},
-    "mean_precision": 0.91,
-    "mean_recall": 0.88
+    "error_type_counts": {"NONE": 40, "HALLUCINATION": 5}
   },
   "records": [
     {
@@ -92,9 +75,7 @@ Reported per record and as `info.mean_precision` / `info.mean_recall`.
       "caption": "...",
       "label": "PASS",
       "reason": "...",
-      "error_type": "NONE",
-      "precision": 1.0,
-      "recall": 1.0
+      "error_type": "NONE"
     }
   ]
 }

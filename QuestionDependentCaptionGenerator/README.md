@@ -25,7 +25,7 @@ Pipeline:
 | `llm_client.py` | Ollama HTTP client + concurrent workers |
 | `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v5_judge_rules_few_shot`) |
 | `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (conservative Fast Path whitelist; everything else goes to the LLM) |
-| `audit/audit_captions.py` | LLM sample auditor — random k captions, batched PASS/FAIL + precision/recall ([audit/README.md](audit/README.md)) |
+| `audit/audit_captions.py` | LLM sample auditor — random k captions, batched PASS/FAIL ([audit/README.md](audit/README.md)) |
 
 Progress logs (flush): VQA load, rules scan, classify `i/N`, and
 `LLM batch k/N calling Ollama...` **before** each batch (so long waits are visible).
@@ -418,7 +418,7 @@ python audit/audit_captions.py outputs/vqa_v2_question_dependent_captions_train2
 python audit/audit_captions.py outputs/vqa_v2_question_dependent_captions_train2014.json 50 --batch-size 10
 ```
 
-Output: `{stem}_llm_caption_audit_k{k}_seed42.json` ba `label` / `error_type` / `reason` va per-item + mean **precision** / **recall** (Q+A grounding: recall = answer words in caption; precision = caption words supported by Q∪A).
+Output: `{stem}_llm_caption_audit_k{k}_seed42.json` ba `label` / `error_type` / `reason`.
 
 ## Re-pilot (before full 443k)
 

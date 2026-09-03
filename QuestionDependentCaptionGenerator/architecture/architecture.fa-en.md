@@ -86,7 +86,7 @@ QuestionDependentCaptionGenerator/
 | `llm_prompts.py` | System prompt-e version-dar (`PROMPT_VERSION`) |
 | `llm_client.py` | Chat API, parse, Tier-1 lexical + Tier-2 semantic judge |
 | `question_classifier.py` | DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL — Fast Path ye **whitelist**-e mohtat (rang / tedad / vojud / makani / animal|sport|room|food|… / do-you-see / doing|holding|wearing); baghie hame be LLM miran (prompt `v8_visual_inference_default`) va har row `visual_filter_source` migire |
-| `audit/audit_captions.py` | Sample `k` caption; batched Ollama PASS/FAIL + precision/recall (Q+A grounding) |
+| `audit/audit_captions.py` | Sample `k` caption; batched Ollama PASS/FAIL |
 
 ---
 

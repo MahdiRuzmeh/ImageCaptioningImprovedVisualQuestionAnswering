@@ -17,37 +17,27 @@ import urllib.error
 import urllib.request
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 DEFAULT_SEED = 42
 DEFAULT_MODEL = "qwen2.5:3b-instruct-q4_K_M"
 DEFAULT_HOST = "http://localhost:11434"
 DEFAULT_BATCH_SIZE = 10
 DEFAULT_TIMEOUT_S = 300.0
+AUDIT_DIR = Path(__file__).resolve().parent
+ERROR_LOG_PATH = AUDIT_DIR / "llm_caption_audit_errors.jsonl"
 
 LABELS = frozenset({"PASS", "FAIL"})
 ERROR_TYPES = frozenset(
     {"NONE", "GRAMMAR_ERROR", "HALLUCINATION", "WRONG_CAPTION"}
 )
 
-_STOPWORDS = {
-    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-    "to", "of", "in", "on", "at", "for", "with", "and", "or", "this", "that",
-    "these", "those", "there", "here", "it", "its", "do", "does", "did",
-    "can", "could", "will", "would", "have", "has", "had", "you", "your",
-    "what", "which", "who", "where", "when", "why", "how", "many", "much",
-    "any", "some", "from", "by", "as", "if", "than", "then", "so", "too",
-    "very", "just", "about", "into", "over", "after", "before", "between",
-    "out", "up", "down", "off", "again", "further", "once", "all", "both",
-    "each", "few", "more", "most", "other", "such", "only", "own", "same",
-    "i", "me", "my", "we", "our", "he", "she", "they", "them", "his", "her",
-    "their", "no", "not", "nor", "never", "none",
-}
-
 _AUDITOR_SYSTEM_PROMPT = (
     "You are a strict VQA caption auditor.\n"
     "\n"
     "Reply with ONLY a JSON array. "
+    "Use the same id numbers shown in each --- Item <id> --- header "
+    "(0-based). "
     'Each element must be {"id": <number>, "label": "PASS" or "FAIL", '
     '"error_type": "NONE" or "GRAMMAR_ERROR" or "HALLUCINATION" or '
     '"WRONG_CAPTION", "reason": "<short explanation>"}.'
@@ -117,13 +107,41 @@ _AUDITOR_RULES_AND_FEW_SHOTS = (
     '"reason": "Caption correctly describes the answer."}\n'
     "\n"
     "Example 6\n"
+    "Question: Is that a stove?\n"
+    "Answer: yes\n"
+    "Caption: That is a stove.\n"
+    'Output: {"label": "PASS", "error_type": "NONE", '
+    '"reason": "Caption affirms the yes answer as a statement."}\n'
+    "\n"
+    "Example 7\n"
+    "Question: Are they at a zoo?\n"
+    "Answer: yes\n"
+    "Caption: They are at a zoo.\n"
+    'Output: {"label": "PASS", "error_type": "NONE", '
+    '"reason": "Caption affirms the yes answer as a statement."}\n'
+    "\n"
+    "Example 8\n"
+    "Question: What is the color scheme of the photo?\n"
+    "Answer: black and white\n"
+    "Caption: The color scheme of the photo is black and white.\n"
+    'Output: {"label": "PASS", "error_type": "NONE", '
+    '"reason": "Caption restates the answer without extras."}\n'
+    "\n"
+    "Example 9\n"
+    "Question: What color plate is this?\n"
+    "Answer: white\n"
+    "Caption: A white plate is shown.\n"
+    'Output: {"label": "PASS", "error_type": "NONE", '
+    '"reason": "Caption paraphrases the answer naturally."}\n'
+    "\n"
+    "Example 10\n"
     "Question: What kind of weather it is?\n"
     "Answer: sunny\n"
     "Caption: The weather it is is a sunny weather it.\n"
     'Output: {"label": "FAIL", "error_type": "GRAMMAR_ERROR", '
     '"reason": "Caption has incorrect grammar and unnatural wording."}\n'
     "\n"
-    "Example 7\n"
+    "Example 11\n"
     "Question: What game is being played?\n"
     "Answer: soccer\n"
     "Caption: Two children are playing soccer.\n"
@@ -131,54 +149,27 @@ _AUDITOR_RULES_AND_FEW_SHOTS = (
     '"reason": "The number of children is not provided in the question '
     'or answer."}\n'
     "\n"
-    "Example 8\n"
+    "Example 12\n"
     "Question: Is the dog sleeping?\n"
     "Answer: yes\n"
     "Caption: The brown dog is sleeping on the couch.\n"
     'Output: {"label": "FAIL", "error_type": "HALLUCINATION", '
     '"reason": "Color and location information are not provided."}\n'
     "\n"
-    "Example 9\n"
+    "Example 13\n"
     "Question: How many birds are flying?\n"
     "Answer: 4\n"
     "Caption: Three birds are flying.\n"
     'Output: {"label": "FAIL", "error_type": "WRONG_CAPTION", '
     '"reason": "Caption gives an incorrect number."}\n'
     "\n"
-    "Example 10\n"
+    "Example 14\n"
     "Question: What is the woman holding?\n"
     "Answer: umbrella\n"
     "Caption: The woman is standing.\n"
     'Output: {"label": "FAIL", "error_type": "WRONG_CAPTION", '
     '"reason": "Caption does not contain the answer."}'
 )
-
-
-def content_words(text: str) -> Set[str]:
-    """Lowercase alphanumeric tokens minus a small stopword list."""
-    tokens = re.findall(r"[a-z0-9]+", (text or "").lower())
-    return {t for t in tokens if t and t not in _STOPWORDS}
-
-
-def caption_precision_recall(
-    question: str, answer: str, caption: str
-) -> Tuple[float, float]:
-    """Q+A grounding precision and answer recall for one caption."""
-    c_words = content_words(caption)
-    a_words = content_words(answer)
-    s_words = content_words(f"{question} {answer}")
-
-    if not c_words:
-        precision = 0.0
-    else:
-        precision = len(c_words & s_words) / len(c_words)
-
-    if not a_words:
-        recall = 1.0 if (caption or "").strip() else 0.0
-    else:
-        recall = len(c_words & a_words) / len(a_words)
-
-    return precision, recall
 
 
 def _strip_fences(text: str) -> str:
@@ -208,7 +199,8 @@ def build_auditor_prompt(
         lines.append("")
     lines.append(
         f'Return a JSON array of exactly {len(items)} objects with keys '
-        f'"id", "label", "error_type", and "reason".'
+        f'"id", "label", "error_type", and "reason". '
+        f"Keep each reason under 12 words."
     )
     return _AUDITOR_SYSTEM_PROMPT, "\n".join(lines)
 
@@ -242,16 +234,106 @@ def _normalize_verdict(
     return label, error_type, reason
 
 
+def _extract_json_objects(text: str) -> List[Dict[str, Any]]:
+    """Pull complete ``{...}`` JSON objects from possibly truncated text."""
+    objects: List[Dict[str, Any]] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] != "{":
+            i += 1
+            continue
+        depth = 0
+        in_str = False
+        escape = False
+        start = i
+        j = i
+        closed = False
+        while j < n:
+            ch = text[j]
+            if in_str:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_str = False
+            else:
+                if ch == '"':
+                    in_str = True
+                elif ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        chunk = text[start : j + 1]
+                        try:
+                            obj = json.loads(chunk)
+                        except json.JSONDecodeError:
+                            break
+                        if isinstance(obj, dict):
+                            objects.append(obj)
+                        i = j + 1
+                        closed = True
+                        break
+            j += 1
+        if not closed:
+            break
+    return objects
+
+
+def _entries_from_response(raw: str) -> Tuple[List[Any], str]:
+    """Return (list_entries, error_detail). error_detail empty when usable."""
+    text = _strip_fences(raw)
+    start = text.find("[")
+    end = text.rfind("]")
+
+    if start >= 0 and end > start:
+        try:
+            data = json.loads(text[start : end + 1])
+            if isinstance(data, list):
+                return data, ""
+            return [], "parse_not_a_list"
+        except json.JSONDecodeError as exc:
+            objects = _extract_json_objects(text)
+            if objects:
+                return objects, ""
+            return [], f"parse_json_error:{exc}"
+
+    objects = _extract_json_objects(text)
+    if objects:
+        return objects, ""
+    return [], "parse_no_json_array"
+
+
+_PARSE_FAILURE_PREFIXES = (
+    "parse_",
+    "missing_id_in_response",
+    "empty_auditor_response",
+    "llm_auditor_error:",
+)
+
+
+def _is_parse_failure(reason: str) -> bool:
+    r = reason or ""
+    return any(r.startswith(p) for p in _PARSE_FAILURE_PREFIXES)
+
+
 def parse_auditor_response(
     raw: str,
     expected_ids: Sequence[int],
 ) -> Dict[int, Dict[str, str]]:
-    """Parse JSON array into id -> {label, error_type, reason}. Fail-closed."""
-    text = _strip_fences(raw)
-    start = text.find("[")
-    end = text.rfind("]")
-    id_set = set(expected_ids)
-    results: Dict[int, Dict[str, str]] = {}
+    """Parse JSON array into id -> {label, error_type, reason}. Fail-closed.
+
+    Robust to common small-model quirks:
+    - truncated JSON arrays (salvage complete objects)
+    - missing ``id`` (fill by array order)
+    - 1-based ids when expected ids are 0-based
+    - extra/unknown ids ignored
+    """
+    id_list = list(expected_ids)
+    id_set = set(id_list)
+    n = len(id_list)
 
     def fail_all(detail: str) -> Dict[int, Dict[str, str]]:
         return {
@@ -260,43 +342,78 @@ def parse_auditor_response(
                 "error_type": "NONE",
                 "reason": detail,
             }
-            for i in expected_ids
+            for i in id_list
         }
 
-    if start < 0 or end <= start:
-        return fail_all("parse_no_json_array")
+    data, err = _entries_from_response(raw)
+    if not data:
+        return fail_all(err or "parse_no_json_array")
 
-    try:
-        data = json.loads(text[start : end + 1])
-    except json.JSONDecodeError as exc:
-        return fail_all(f"parse_json_error:{exc}")
-
-    if not isinstance(data, list):
-        return fail_all("parse_not_a_list")
-
+    parsed: List[Tuple[Optional[int], Dict[str, str]]] = []
+    raw_ids: List[int] = []
     for entry in data:
         if not isinstance(entry, dict):
             continue
-        idx = entry.get("id")
-        try:
-            idx_int = int(idx)
-        except (TypeError, ValueError):
+        if not any(k in entry for k in ("label", "verdict", "error_type", "reason")):
             continue
-        if idx_int not in id_set:
-            continue
+        label_raw = entry.get("label", entry.get("verdict", ""))
         label, error_type, reason = _normalize_verdict(
-            label_raw=str(entry.get("label", "")),
+            label_raw=str(label_raw),
             error_type_raw=str(entry.get("error_type", "")),
             reason_raw=str(entry.get("reason", "")),
         )
-        results[idx_int] = {
+        verdict = {
             "label": label,
             "error_type": error_type,
             "reason": reason,
         }
+        idx = entry.get("id", entry.get("index", entry.get("item")))
+        idx_int: Optional[int] = None
+        if idx is not None:
+            try:
+                idx_int = int(idx)
+                raw_ids.append(idx_int)
+            except (TypeError, ValueError):
+                idx_int = None
+        parsed.append((idx_int, verdict))
+
+    if not parsed:
+        return fail_all(err or "parse_no_verdict_objects")
+
+    one_based = False
+    if (
+        n > 0
+        and id_list == list(range(n))
+        and raw_ids
+        and 0 not in raw_ids
+        and all(1 <= i <= n for i in raw_ids)
+    ):
+        one_based = True
+
+    results: Dict[int, Dict[str, str]] = {}
+    unmatched_entries: List[Dict[str, str]] = []
+
+    for idx_int, verdict in parsed:
+        if idx_int is None:
+            unmatched_entries.append(verdict)
+            continue
+        mapped = idx_int - 1 if one_based else idx_int
+        if mapped in id_set and mapped not in results:
+            results[mapped] = verdict
+        else:
+            unmatched_entries.append(verdict)
+
+    next_slot = 0
+    for verdict in unmatched_entries:
+        while next_slot < n and id_list[next_slot] in results:
+            next_slot += 1
+        if next_slot >= n:
+            break
+        results[id_list[next_slot]] = verdict
+        next_slot += 1
 
     out: Dict[int, Dict[str, str]] = {}
-    for i in expected_ids:
+    for i in id_list:
         if i in results:
             out[i] = results[i]
         else:
@@ -327,7 +444,7 @@ def ollama_chat(
         "stream": False,
         "options": {
             "temperature": 0.0,
-            "num_ctx": 4096,
+            "num_ctx": 8192,
             "num_predict": num_predict,
         },
     }
@@ -362,29 +479,18 @@ def sample_rows(
     return rng.sample(pool, k)
 
 
-def audit_batch(
-    batch_rows: Sequence[Dict[str, Any]],
+def _call_batch_verdicts(
+    items: Sequence[Dict[str, Any]],
     *,
     host: str,
     model: str,
-    start_id: int = 0,
-) -> List[Dict[str, Any]]:
-    """Audit one batch; return records with label/error_type/reason/P/R."""
-    items = []
-    for offset, row in enumerate(batch_rows):
-        items.append(
-            {
-                "id": start_id + offset,
-                "question": str(row.get("question") or ""),
-                "answer": str(row.get("answer") or ""),
-                "caption": str(row.get("caption") or ""),
-            }
-        )
-
-    system, user = build_auditor_prompt(items)
+) -> Dict[int, Dict[str, str]]:
+    """One Ollama batch call → id -> verdict (ids must be 0..n-1)."""
     expected_ids = [int(it["id"]) for it in items]
-    num_predict = max(128, len(items) * 48 + 64)
-
+    if not items:
+        return {}
+    system, user = build_auditor_prompt(items)
+    num_predict = max(512, len(items) * 160 + 256)
     try:
         content = ollama_chat(
             host=host,
@@ -394,7 +500,7 @@ def audit_batch(
             num_predict=num_predict,
         )
     except Exception as exc:
-        verdicts = {
+        return {
             i: {
                 "label": "FAIL",
                 "error_type": "NONE",
@@ -402,45 +508,153 @@ def audit_batch(
             }
             for i in expected_ids
         }
-    else:
-        if not content.strip():
-            verdicts = {
-                i: {
-                    "label": "FAIL",
-                    "error_type": "NONE",
-                    "reason": "empty_auditor_response",
-                }
-                for i in expected_ids
+    if not content.strip():
+        return {
+            i: {
+                "label": "FAIL",
+                "error_type": "NONE",
+                "reason": "empty_auditor_response",
             }
-        else:
-            verdicts = parse_auditor_response(content, expected_ids)
-
-    records: List[Dict[str, Any]] = []
-    for offset, row in enumerate(batch_rows):
-        idx = start_id + offset
-        question = str(row.get("question") or "")
-        answer = str(row.get("answer") or "")
-        caption = str(row.get("caption") or "")
-        precision, recall = caption_precision_recall(question, answer, caption)
-        verdict = verdicts[idx]
-        rec: Dict[str, Any] = {
-            "question": question,
-            "answer": answer,
-            "caption": caption,
-            "label": verdict["label"],
-            "reason": verdict["reason"],
-            "error_type": verdict["error_type"],
-            "precision": round(precision, 4),
-            "recall": round(recall, 4),
+            for i in expected_ids
         }
-        if "question_id" in row:
-            rec["question_id"] = row["question_id"]
-        if "image_id" in row:
-            rec["image_id"] = row["image_id"]
-        if "rule" in row:
-            rec["rule"] = row["rule"]
-        records.append(rec)
-    return records
+    return parse_auditor_response(content, expected_ids)
+
+
+def _row_to_record(
+    row: Dict[str, Any],
+    verdict: Dict[str, str],
+) -> Dict[str, Any]:
+    question = str(row.get("question") or "")
+    answer = str(row.get("answer") or "")
+    caption = str(row.get("caption") or "")
+    rec: Dict[str, Any] = {
+        "question": question,
+        "answer": answer,
+        "caption": caption,
+        "label": verdict["label"],
+        "reason": verdict["reason"],
+        "error_type": verdict["error_type"],
+    }
+    if "question_id" in row:
+        rec["question_id"] = row["question_id"]
+    if "image_id" in row:
+        rec["image_id"] = row["image_id"]
+    if "rule" in row:
+        rec["rule"] = row["rule"]
+    return rec
+
+
+def audit_batch(
+    batch_rows: Sequence[Dict[str, Any]],
+    *,
+    host: str,
+    model: str,
+) -> List[Dict[str, Any]]:
+    """Audit one batch; return records with label/error_type/reason.
+
+    Item ids sent to the LLM are always batch-local ``0 .. n-1``.
+    """
+    items = [
+        {
+            "id": offset,
+            "question": str(row.get("question") or ""),
+            "answer": str(row.get("answer") or ""),
+            "caption": str(row.get("caption") or ""),
+        }
+        for offset, row in enumerate(batch_rows)
+    ]
+    verdicts = _call_batch_verdicts(items, host=host, model=model)
+    return [
+        _row_to_record(row, verdicts[offset])
+        for offset, row in enumerate(batch_rows)
+    ]
+
+
+def _retry_parse_failures_batched(
+    records: List[Dict[str, Any]],
+    *,
+    batch_size: int,
+    host: str,
+    model: str,
+) -> List[Dict[str, Any]]:
+    """One batched retry for parse/missing failures; return still-failed records."""
+    fail_idxs = [
+        i
+        for i, rec in enumerate(records)
+        if _is_parse_failure(str(rec.get("reason") or ""))
+    ]
+    if not fail_idxs:
+        return []
+
+    print(
+        f"  retry batch: {len(fail_idxs)} parse/missing failures "
+        f"(batch_size={batch_size})",
+        flush=True,
+    )
+    still_failed: List[Dict[str, Any]] = []
+    batch_n = max(1, int(batch_size))
+    for start in range(0, len(fail_idxs), batch_n):
+        chunk_idxs = fail_idxs[start : start + batch_n]
+        items = [
+            {
+                "id": j,
+                "question": str(records[idx].get("question") or ""),
+                "answer": str(records[idx].get("answer") or ""),
+                "caption": str(records[idx].get("caption") or ""),
+            }
+            for j, idx in enumerate(chunk_idxs)
+        ]
+        verdicts = _call_batch_verdicts(items, host=host, model=model)
+        for j, idx in enumerate(chunk_idxs):
+            # Preserve ids from the original record while refreshing verdict.
+            base = {
+                k: records[idx][k]
+                for k in ("question_id", "image_id", "rule")
+                if k in records[idx]
+            }
+            base.update(
+                {
+                    "question": records[idx]["question"],
+                    "answer": records[idx]["answer"],
+                    "caption": records[idx]["caption"],
+                }
+            )
+            updated = _row_to_record(base, verdicts[j])
+            records[idx] = updated
+            if _is_parse_failure(str(updated.get("reason") or "")):
+                still_failed.append(dict(updated))
+    return still_failed
+
+
+def log_audit_errors(
+    error_path: Path,
+    failures: Sequence[Dict[str, Any]],
+    *,
+    source: Path,
+) -> None:
+    """Append remaining parse/LLM failures to a JSONL log under audit/."""
+    if not failures:
+        return
+    error_path.parent.mkdir(parents=True, exist_ok=True)
+    with error_path.open("a", encoding="utf-8") as f:
+        for rec in failures:
+            entry = {
+                "source": str(source.resolve()),
+                "question_id": rec.get("question_id"),
+                "image_id": rec.get("image_id"),
+                "question": rec.get("question"),
+                "answer": rec.get("answer"),
+                "caption": rec.get("caption"),
+                "rule": rec.get("rule"),
+                "label": rec.get("label"),
+                "error_type": rec.get("error_type"),
+                "reason": rec.get("reason"),
+            }
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    print(
+        f"  logged {len(failures)} remaining parse/LLM errors -> {error_path}",
+        flush=True,
+    )
 
 
 def run_audit(
@@ -451,8 +665,13 @@ def run_audit(
     seed: int = DEFAULT_SEED,
     host: str = DEFAULT_HOST,
     model: str = DEFAULT_MODEL,
+    error_log_path: Optional[Path] = None,
+    source: Optional[Path] = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
-    """Sample and audit; return (records, pool_size)."""
+    """Sample and audit; return (records, pool_size).
+
+    Parse/missing failures are retried once as a batch; leftovers are logged.
+    """
     pool = [r for r in rows if str(r.get("caption") or "").strip()]
     sampled = sample_rows(rows, test_item_count, seed=seed)
     if not sampled:
@@ -469,8 +688,19 @@ def run_audit(
             f"(batch_size={len(chunk)})",
             flush=True,
         )
-        all_records.extend(
-            audit_batch(chunk, host=host, model=model, start_id=start)
+        all_records.extend(audit_batch(chunk, host=host, model=model))
+
+    still_failed = _retry_parse_failures_batched(
+        all_records,
+        batch_size=batch_n,
+        host=host,
+        model=model,
+    )
+    if still_failed and error_log_path is not None:
+        log_audit_errors(
+            error_log_path,
+            still_failed,
+            source=source or Path("."),
         )
     return all_records, len(pool)
 
@@ -490,14 +720,6 @@ def write_report(
     """Write audit JSON and return the payload."""
     label_counts = Counter(str(r.get("label")) for r in records)
     error_counts = Counter(str(r.get("error_type")) for r in records)
-    if records:
-        mean_precision = sum(float(r["precision"]) for r in records) / len(
-            records
-        )
-        mean_recall = sum(float(r["recall"]) for r in records) / len(records)
-    else:
-        mean_precision = 0.0
-        mean_recall = 0.0
 
     payload = {
         "info": {
@@ -511,8 +733,6 @@ def write_report(
             "num_audited": len(records),
             "label_counts": dict(label_counts),
             "error_type_counts": dict(error_counts),
-            "mean_precision": round(mean_precision, 4),
-            "mean_recall": round(mean_recall, 4),
         },
         "records": records,
     }
@@ -573,6 +793,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         seed=DEFAULT_SEED,
         host=DEFAULT_HOST,
         model=DEFAULT_MODEL,
+        error_log_path=ERROR_LOG_PATH,
+        source=caption_path,
     )
     k = len(records)
     out_path = caption_path.with_name(
@@ -594,10 +816,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     print(f"  pool_size={pool_size}")
     print(f"  label_counts={info['label_counts']}")
     print(f"  error_type_counts={info['error_type_counts']}")
-    print(
-        f"  mean_precision={info['mean_precision']} "
-        f"mean_recall={info['mean_recall']}"
-    )
 
 
 if __name__ == "__main__":
