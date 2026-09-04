@@ -85,7 +85,7 @@ QuestionDependentCaptionGenerator/
 | `caption_rules.py` | `is_ocr_question`, ghavanin-e rewrite, `generate_caption` |
 | `llm_prompts.py` | System prompt-e version-dar (`PROMPT_VERSION`) |
 | `llm_client.py` | Chat API, parse, Tier-1 lexical + Tier-2 semantic judge |
-| `question_classifier.py` | DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL — Fast Path ye **whitelist**-e mohtat (rang / tedad / vojud / makani / animal|sport|room|food|… / do-you-see / doing|holding|wearing); baghie hame be LLM miran (prompt `v8_visual_inference_default`) va har row `visual_filter_source` migire |
+| `question_classifier.py` | DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL — **blacklist gate** (`_NON_VISUAL_CANDIDATE_RE`: OCR / knowledge / opinion); bedoon marker → `default_visual`; ba marker → LLM confirm (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, prompt `v12_expanded_blacklist_2`); Fast Path faghat exemption; har row `visual_filter_source` migire |
 | `audit/audit_captions.py` | Sample `k` caption; batched Ollama PASS/FAIL |
 
 ---
@@ -106,10 +106,12 @@ flowchart TD
   ruleVal -->|fail| needs
   ruleVal -->|pass| row[Row ba caption]
   rules -->|na-motmaen| needs[needs_llm + caption khali]
-  row --> fast{Whitelist-e Fast Path va bedoon suspect?}
-  needs --> fast
-  fast -->|bale: fast_path| llmOpt
-  fast -->|na| clf[Qwen binary classify: llm_classifier]
+  row --> exempt{Fast Path exemption?}
+  needs --> exempt
+  exempt -->|bale: fast_path| llmOpt
+  exempt -->|na| bl{_NON_VISUAL_CANDIDATE_RE?}
+  bl -->|na: default_visual| llmOpt
+  bl -->|bale| clf[Qwen confirm: OCR/KNOWLEDGE/OPINION/VISUAL]
   clf -->|save| clfCkpt[classifier_checkpoint.json]
   clfCkpt -->|resume| clf
   clf -->|NOT_DIRECTLY_VISUAL| side[Sidecar JSON]
@@ -138,7 +140,7 @@ flowchart TD
 3. **Ekhtiari: filter-e consensus** — `--min-consensus T` (default `0.0` = khamush) pair-hayi ke mode answer-eshun kamtar az `T` tavafogh-e annotator dare drop mikone: vaghti adam-ha tavafogh nadaran, oon caption target-e ghabel-e etemad nist. **Ghabl az dedup** ejra mishe ta pair-e drop-shode jaye dedup ro nagire. Drop-ha → `*_low_consensus.json` + `info.low_consensus_excluded_count`. Ru VQA v2 train ~11% zir-e `0.4` hastan va hame non-yes/no (javab-e binary ba 10 annotator nemitune zir-e `0.5` beshe), pas sahm-e yes/no dar dataset bala miravad.
 4. **Dedup** — Faghat avalin `(image_id, question, answer)`; `duplicate_count`.
 5. **Motor-e Rule** — Family-haye baghimande: `what_color`, `how_many`, `what_is_doing`, `who`. Har caption-e rule ba hamun validator-e hard-e LLM check mishe: fail → `needs_llm` (`info.rule_validation_reject_count`), na template-e kharab.
-6. **Classifier-e binary (hamishe on)** — Fast Path ye **whitelist** ast, na default: soal faghat vaghti bedoon LLM label mikhore ke `_FAST_PATH_VISUAL_RE` match kone (rang ba plural; `how many` / `number of`; `is/are there`; `do/can you see`; `is the sky`; `what animal(s)|shape|sport|game|activity|room|scene|place|food(s)|fruit(s)|dish`; `what is under/over/…`; spatial-e end-anchored; `what … doing|holding|wearing`-e end-anchored) **va** hich marker-e `_NON_VISUAL_SUSPECT_RE` nadashte bashe. Fast-path **nist** (UNKNOWN → LLM): bare `what is/are/do/does`, `what kind/type`, `is he/she`, `where is`, `could this`, `does this look`, `who is`, …. Baghie be Qwen miran (`v8_visual_inference_default`). `--no-fast-path` whitelist ro kollan khamoosh mikone. Har row `visual_filter_source` (`fast_path` / `llm_classifier`) migire — row-haye `*_not_directly_visual.json` ham. Checkpoint (`*_classifier_checkpoint.json`) har `--classifier-checkpoint-every N` save mishe va ba `fast_path_enabled` key mikhore, pas run-e Fast Path ba run-e `--no-fast-path` checkpoint share nemikonan. Ollama baraye in marhale lazem ast hata bedoon `--llm`.
+6. **Classifier-e binary (hamishe on)** — Blacklist gate: soal default `DIRECTLY_VISUAL` (`visual_filter_source=default_visual`). Faghat match-haye `_NON_VISUAL_CANDIDATE_RE` (OCR / knowledge / opinion / senses / place identity) be Qwen miran baraye confirm (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, prompt `v12_expanded_blacklist_2`). Fast Path (`_FAST_PATH_VISUAL_RE`) faghat **exemption** ast. `--no-fast-path` exemption ro khamoosh mikone (non-candidate ha hanuz default visual). Drop-ha mitunan `non_visual_reason` dashte bashan. Checkpoint har `--classifier-checkpoint-every N`, keyed on `prompt_version` va `fast_path_enabled`. Ollama lazem ast hata bedoon `--llm`.
 7. **Ekhtiari: LLM** — Tier-1 (hard reject + flag) + Tier-2; 1 regenerate; salvage ham ye single-item retry dare, pas parse failure-e batch bedoon test-e tanha drop nemishe. Har retry → `*_validation_audit.jsonl`.
 8. **Hazf-e sakht** — Caption-e khali / `needs_llm` toye file-e nahayi neveshte nemishe.
 9. **Pass-e nahayi-e validator** — Check-haye hard ye bar dige ru **hame** caption ha (rule + LLM); moshkel-haye mashkuk → `validation_flags` va row mimoone (`info.validation_flagged_count`).
@@ -292,7 +294,7 @@ flowchart LR
 |------|-------|--------|
 | OCR | Hamishe | Hazf-e soal-haye text-reading (hala `number on …`, `shirt/train number`, `street name`, `written/printed on …`, `letters/initials on …` ham) |
 | Rule safety + validator | Hamishe | Template-e kharab → LLM (`rule_validation_reject_count`) |
-| Binary classifier | Hamishe | Faghat whitelist-e Fast Path bedoon LLM; baghie be LLM dar batch-haye packed (`--classifier-batch-size`, default 10, JSON labels); sidecar baraye NOT_DIRECTLY_VISUAL; `visual_filter_source` roye har row |
+| Binary classifier | Hamishe | Blacklist gate; ~9% LLM confirm dar batch-haye packed (`--classifier-batch-size`, default 10); sidecar baraye NOT_DIRECTLY_VISUAL ba optional `non_visual_reason`; `visual_filter_source` roye har row |
 | Two-tier validators | Ba `--llm` | Hard reject → 1 regenerate → drop; mashkuk → flag + Tier-2 |
 | Empty drop | Hengam-e neveshtan | Hich target-e khali vared-e train nemishe |
 | Validator-e nahayi | Hengam-e neveshtan | Check-e hard ru hame caption ha; mashkuk → `validation_flags` |
@@ -332,10 +334,10 @@ flowchart LR
       "retry_audit_log": "..."
     },
     "question_classifier": {
-      "prompt_version": "v8_visual_inference_default",
+      "prompt_version": "v12_expanded_blacklist_2",
       "fast_path_enabled": true,
       "batch_size": 10,
-      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 1390 }
+      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 1390, "DEFAULT_VISUAL": 2000 }
     }
   },
   "annotations": [
@@ -351,7 +353,7 @@ flowchart LR
 }
 ```
 
-Sidecar-ha: `{stem}_not_directly_visual.json` (ba `visual_filter_source`), `{stem}_low_consensus.json`, va `{stem}_validation_audit.jsonl`. Filter-ha faghat baraye train-e Captioner; VQA2 eval dast nakhord.
+Sidecar-ha: `{stem}_not_directly_visual.json` (ba `visual_filter_source` va optional `non_visual_reason`), `{stem}_low_consensus.json`, va `{stem}_validation_audit.jsonl`. Filter-ha faghat baraye train-e Captioner; VQA2 eval dast nakhord.
 
 `answer_consensus` = tavaghof-e annotator-ha; sample-haye consensus-e payin default **hazf nemishan** (faghat ba `--min-consensus T`).
 

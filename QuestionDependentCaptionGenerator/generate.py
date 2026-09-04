@@ -1263,8 +1263,9 @@ def parse_args() -> argparse.Namespace:
         "--no-fast-path",
         action="store_true",
         help=(
-            "Disable the Fast Path whitelist: send every question to the LLM "
-            "classifier (slower; use to measure Fast Path false positives)"
+            "Disable Fast Path exemption: blacklist candidates always go to "
+            "the LLM confirm stage (non-candidates still default to "
+            "DIRECTLY_VISUAL)"
         ),
     )
     parser.add_argument(
