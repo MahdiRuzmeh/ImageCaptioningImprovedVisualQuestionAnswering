@@ -1,9 +1,10 @@
-"""Re-run the binary question classifier on a not_directly_visual sidecar.
+"""Re-run the blacklist-gate question classifier on a not_directly_visual sidecar.
 
 Usage (from QuestionDependentCaptionGenerator/):
 
     python audit/reclassify_questions.py outputs/vqa_v2_question_dependent_captions_train2014_not_directly_visual.json
     python audit/reclassify_questions.py outputs/vqa_v2_question_dependent_captions_train2014_not_directly_visual.json 9002
+    python audit/reclassify_questions.py outputs/vqa_v2_question_dependent_captions_train2014_not_directly_visual.json --batch-size 10
 """
 
 from __future__ import annotations
@@ -22,11 +23,12 @@ if str(_PKG_DIR) not in sys.path:
 from question_classifier import (  # noqa: E402
     QuestionClassifier,
     is_fast_path_visual,
-    is_non_visual_suspect,
+    is_non_visual_candidate,
 )
 
 DEFAULT_MODEL = "qwen2.5:3b-instruct-q4_K_M"
 DEFAULT_HOST = "http://localhost:11434"
+DEFAULT_BATCH_SIZE = 10
 OUTPUTS_DIR = _PKG_DIR / "outputs"
 
 
@@ -64,23 +66,27 @@ def select_rows(
     return matched
 
 
-def diagnose_and_reclassify(
-    row: Dict[str, Any],
-    classifier: QuestionClassifier,
+def _base_record(row: Dict[str, Any], question: str) -> Dict[str, Any]:
+    """Shared fields for one reclassify record (before label fill)."""
+    return {
+        "question_id": row.get("question_id"),
+        "image_id": row.get("image_id"),
+        "question": question,
+        "answer": row.get("answer"),
+        "prior_label": row.get("label"),
+        "prior_visual_filter_source": row.get("visual_filter_source"),
+    }
+
+
+def _with_flip(
+    record: Dict[str, Any],
+    *,
+    new_label: Optional[str],
+    detail: str,
+    non_visual_reason: Optional[str],
 ) -> Dict[str, Any]:
-    """Fast-path diagnostics + classify_one for one annotation."""
-    question = str(row.get("question") or "").strip()
-    prior_label = row.get("label")
-    prior_source = row.get("visual_filter_source")
-
-    fast_path = is_fast_path_visual(question)
-    suspect = is_non_visual_suspect(question)
-    would_skip_llm = bool(fast_path)
-
-    # Always call the LLM so the report tests the classifier itself;
-    # would_skip_llm shows what the production Fast Path gate would do.
-    new_label, detail = classifier.classify_one(question)
-
+    """Attach new_label / detail / reason / flipped onto a partial record."""
+    prior_label = record.get("prior_label")
     flipped = False
     if (
         prior_label is not None
@@ -88,21 +94,75 @@ def diagnose_and_reclassify(
         and str(prior_label).strip().upper() != str(new_label).strip().upper()
     ):
         flipped = True
+    record["new_label"] = new_label
+    record["non_visual_reason"] = non_visual_reason
+    record["detail"] = detail
+    record["flipped"] = flipped
+    return record
 
-    return {
-        "question_id": row.get("question_id"),
-        "image_id": row.get("image_id"),
-        "question": question,
-        "answer": row.get("answer"),
-        "prior_label": prior_label,
-        "prior_visual_filter_source": prior_source,
-        "fast_path_match": fast_path,
-        "suspect_match": suspect,
-        "would_skip_llm": would_skip_llm,
-        "new_label": new_label,
-        "detail": detail,
-        "flipped": flipped,
-    }
+
+def diagnose_gate(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Decide gate without calling the LLM.
+
+    For ``llm_confirm`` rows, ``new_label`` is left unset until a batch
+    confirm fills it.
+    """
+    question = str(row.get("question") or "").strip()
+    record = _base_record(row, question)
+
+    exempt_match = is_fast_path_visual(question)
+    blacklist_match = is_non_visual_candidate(question)
+    record["exempt_match"] = exempt_match
+    record["blacklist_match"] = blacklist_match
+
+    if exempt_match:
+        record["gate"] = "fast_path"
+        return _with_flip(
+            record,
+            new_label="DIRECTLY_VISUAL",
+            detail="fast_path",
+            non_visual_reason=None,
+        )
+    if not blacklist_match:
+        record["gate"] = "default_visual"
+        return _with_flip(
+            record,
+            new_label="DIRECTLY_VISUAL",
+            detail="default_visual",
+            non_visual_reason=None,
+        )
+
+    record["gate"] = "llm_confirm"
+    # Label filled later by batched classify.
+    record["new_label"] = None
+    record["non_visual_reason"] = None
+    record["detail"] = "pending"
+    record["flipped"] = False
+    return record
+
+
+def _apply_llm_result(
+    record: Dict[str, Any],
+    *,
+    label: Optional[str],
+    detail: str,
+    non_visual_reason: Optional[str],
+) -> Dict[str, Any]:
+    """Fill an llm_confirm record after classify_batch / salvage."""
+    if label is None:
+        # Fail-closed, same as production filter.
+        return _with_flip(
+            record,
+            new_label="NOT_DIRECTLY_VISUAL",
+            detail=detail or "parse_fail",
+            non_visual_reason=None,
+        )
+    return _with_flip(
+        record,
+        new_label=label,
+        detail=detail,
+        non_visual_reason=non_visual_reason,
+    )
 
 
 def run_reclassify(
@@ -110,14 +170,53 @@ def run_reclassify(
     *,
     host: str = DEFAULT_HOST,
     model: str = DEFAULT_MODEL,
+    batch_size: int = DEFAULT_BATCH_SIZE,
 ) -> List[Dict[str, Any]]:
-    """Reclassify each row; log progress."""
+    """Reclassify rows; LLM confirms are packed into batches."""
     classifier = QuestionClassifier(host=host, model=model)
-    records: List[Dict[str, Any]] = []
-    total = len(rows)
-    for i, row in enumerate(rows, start=1):
-        print(f"  reclassify: {i}/{total}", flush=True)
-        records.append(diagnose_and_reclassify(row, classifier))
+    batch_n = max(1, int(batch_size))
+
+    records: List[Dict[str, Any]] = [diagnose_gate(row) for row in rows]
+    llm_indices = [
+        i for i, rec in enumerate(records) if rec.get("gate") == "llm_confirm"
+    ]
+    n_llm = len(llm_indices)
+    print(
+        f"  gates done: {len(records)} rows, "
+        f"{n_llm} llm_confirm (batch_size={batch_n})",
+        flush=True,
+    )
+    if not llm_indices:
+        return records
+
+    for start in range(0, n_llm, batch_n):
+        chunk_idxs = llm_indices[start : start + batch_n]
+        questions = [str(records[i]["question"] or "") for i in chunk_idxs]
+        end = start + len(chunk_idxs)
+        print(
+            f"  llm_confirm batch: {start + 1}-{end}/{n_llm} "
+            f"(size={len(chunk_idxs)})",
+            flush=True,
+        )
+        results, detail = classifier.classify_batch(questions)
+        if results is None:
+            # Salvage: one classify_one per item in this batch.
+            for i, q in zip(chunk_idxs, questions):
+                label, one_detail, reason = classifier.classify_one(q)
+                records[i] = _apply_llm_result(
+                    records[i],
+                    label=label,
+                    detail=one_detail or detail,
+                    non_visual_reason=reason,
+                )
+        else:
+            for i, (label, reason) in zip(chunk_idxs, results):
+                records[i] = _apply_llm_result(
+                    records[i],
+                    label=label,
+                    detail=detail,
+                    non_visual_reason=reason,
+                )
     return records
 
 
@@ -140,11 +239,13 @@ def write_report(
     question_id: Optional[int],
     model: str,
     host: str,
+    batch_size: int,
 ) -> Dict[str, Any]:
     """Write reclassify JSON and return the payload."""
     new_counts = Counter(
         str(r.get("new_label") or "None") for r in records
     )
+    gate_counts = Counter(str(r.get("gate") or "None") for r in records)
     flip_count = sum(1 for r in records if r.get("flipped"))
     payload = {
         "info": {
@@ -152,9 +253,11 @@ def write_report(
             "question_id_filter": question_id,
             "model": model,
             "host": host,
+            "batch_size": batch_size,
             "num_input": num_input,
             "num_reclassified": len(records),
             "new_label_counts": dict(new_counts),
+            "gate_counts": dict(gate_counts),
             "flip_count": flip_count,
         },
         "records": records,
@@ -193,6 +296,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         default=DEFAULT_MODEL,
         help=f"Ollama model (default {DEFAULT_MODEL})",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_BATCH_SIZE,
+        help=f"llm_confirm items per Ollama call (default {DEFAULT_BATCH_SIZE})",
+    )
     return parser.parse_args(argv)
 
 
@@ -201,6 +310,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     source: Path = args.not_directly_visual_path
     if not source.is_file():
         raise FileNotFoundError(f"Sidecar file not found: {source}")
+    if args.batch_size < 1:
+        raise ValueError("--batch-size must be >= 1")
 
     rows = load_sidecar(source)
     selected = select_rows(rows, args.question_id)
@@ -214,7 +325,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     )
     print(
         f"Classifier retest: source={source} {qid_msg} "
-        f"n={len(selected)} model={args.model}",
+        f"n={len(selected)} model={args.model} "
+        f"batch_size={args.batch_size}",
         flush=True,
     )
 
@@ -222,6 +334,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         selected,
         host=args.host,
         model=args.model,
+        batch_size=args.batch_size,
     )
     out_path = output_path_for(source, args.question_id)
     payload = write_report(
@@ -232,11 +345,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         question_id=args.question_id,
         model=args.model,
         host=args.host,
+        batch_size=args.batch_size,
     )
     info = payload["info"]
     print(f"Wrote {len(records)} reclassify records -> {out_path}")
     print(
         f"  new_label_counts={info['new_label_counts']} "
+        f"gate_counts={info['gate_counts']} "
         f"flip_count={info['flip_count']}",
         flush=True,
     )

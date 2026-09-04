@@ -115,6 +115,7 @@ python audit/reclassify_questions.py outputs/vqa_v2_question_dependent_captions_
 |-----|---------|
 | `not_directly_visual_path` | Sidecar JSON (`info` + `annotations`) |
 | `question_id` | Optional: reclassify only this id (default: all) |
+| `--batch-size` | `llm_confirm` items per Ollama call (default `10`) |
 
 Optional: `--host`, `--model` (defaults match the pipeline classifier).
 
@@ -125,5 +126,8 @@ Always under `outputs/`:
 - All items: `{stem}_reclassify.json`
 - One id: `{stem}_reclassify_qid{question_id}.json`
 
-Each record includes `prior_label`, `fast_path_match`, `suspect_match`,
-`would_skip_llm`, `new_label`, `detail`, and `flipped`.
+Each record includes `prior_label`, `exempt_match`, `blacklist_match`,
+`gate` (`fast_path` / `default_visual` / `llm_confirm`), `new_label`,
+`non_visual_reason`, `detail`, and `flipped`. Only `llm_confirm` items call
+Ollama, packed in batches (`classify_batch`; salvage with `classify_one` on
+parse failure).
