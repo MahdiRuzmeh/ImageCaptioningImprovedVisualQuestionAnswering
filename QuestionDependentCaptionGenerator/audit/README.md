@@ -1,4 +1,10 @@
-# Caption Auditor (`audit/`)
+# Audit tools (`audit/`)
+
+Tools for inspecting caption quality and the binary question classifier.
+
+---
+
+## Caption Auditor (`audit_captions.py`)
 
 LLM-based sample auditor for question-dependent captions produced by
 [`generate.py`](../generate.py).
@@ -80,3 +86,44 @@ complete objects can still be extracted.
   ]
 }
 ```
+
+---
+
+## Classifier retest (`reclassify_questions.py`)
+
+Re-runs [`question_classifier.py`](../question_classifier.py) on a
+`*_not_directly_visual.json` sidecar so you can debug false
+`NOT_DIRECTLY_VISUAL` drops.
+
+For each item it records Fast Path / suspect diagnostics, calls
+`classify_one`, and marks whether the new label **flipped** vs the prior
+sidecar label.
+
+### Usage
+
+From `QuestionDependentCaptionGenerator/`:
+
+```bash
+# All dropped questions
+python audit/reclassify_questions.py outputs/vqa_v2_question_dependent_captions_train2014_not_directly_visual.json
+
+# Single question_id
+python audit/reclassify_questions.py outputs/vqa_v2_question_dependent_captions_train2014_not_directly_visual.json 9002
+```
+
+| Arg | Meaning |
+|-----|---------|
+| `not_directly_visual_path` | Sidecar JSON (`info` + `annotations`) |
+| `question_id` | Optional: reclassify only this id (default: all) |
+
+Optional: `--host`, `--model` (defaults match the pipeline classifier).
+
+### Output
+
+Always under `outputs/`:
+
+- All items: `{stem}_reclassify.json`
+- One id: `{stem}_reclassify_qid{question_id}.json`
+
+Each record includes `prior_label`, `fast_path_match`, `suspect_match`,
+`would_skip_llm`, `new_label`, `detail`, and `flipped`.
