@@ -1,0 +1,7029 @@
+{
+  "info": {
+    "description": "GoldAuditor classifier set balanced 500/500 (DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL).",
+    "seed": 42,
+    "per_class": 500,
+    "sample_size": 1000,
+    "num_records": 1000,
+    "manual_label_values": [
+      "DIRECTLY_VISUAL",
+      "NOT_DIRECTLY_VISUAL"
+    ],
+    "manual_label_status": "filled",
+    "manual_label_method": "comments11_agent_rules_v1_balanced",
+    "pool_sizes": {
+      "NOT_DIRECTLY_VISUAL": 1500,
+      "DIRECTLY_VISUAL": 3628
+    },
+    "sources": {
+      "classifier_checkpoint": "E:\\Master files\\Master Thesis\\Implementations\\1-1 Image captioning improved visual question answering\\src\\QuestionDependentCaptionGenerator\\outputs\\vqa_v2_question_classification_result.json",
+      "questions": "E:\\Master files\\Master Thesis\\Implementations\\1-1 Image captioning improved visual question answering\\src\\dataset\\v2_OpenEnded_mscoco_train2014_questions.json"
+    },
+    "manual_label_counts": {
+      "DIRECTLY_VISUAL": 500,
+      "NOT_DIRECTLY_VISUAL": 500
+    }
+  },
+  "records": [
+    {
+      "question": "Is this an urban area?",
+      "question_id": 1523000,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a shipyard?",
+      "question_id": 1166005,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the lady about to do?",
+      "question_id": 3532001,
+      "answer_id": 2,
+      "answer": "swing",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of purse is the first one?",
+      "question_id": 3751007,
+      "answer_id": 1,
+      "answer": "leather",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is sticking out of the concrete slab?",
+      "question_id": 3398001,
+      "answer_id": 2,
+      "answer": "rope",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the grass?",
+      "question_id": 3124001,
+      "answer_id": 1,
+      "answer": "green",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this breakfast?",
+      "question_id": 1261006,
+      "answer_id": 5,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this giraffe sad?",
+      "question_id": 224248002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a banana on the plate?",
+      "question_id": 4719009,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Who made this chair for children?",
+      "question_id": 538555000,
+      "answer_id": 3,
+      "answer": "don't know",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this edible object high in sugar?",
+      "question_id": 455322014,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this cat standing?",
+      "question_id": 5244001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where is the person eating?",
+      "question_id": 2645000,
+      "answer_id": 6,
+      "answer": "outside",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the heart drawn in?",
+      "question_id": 1025001,
+      "answer_id": 1,
+      "answer": "sand",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old is this picture?",
+      "question_id": 18614002,
+      "answer_id": 2,
+      "answer": "not very old",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign in white say?",
+      "question_id": 554453001,
+      "answer_id": 2,
+      "answer": "barber shop",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many breaks are visible?",
+      "question_id": 4901000,
+      "answer_id": 1,
+      "answer": "4",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the word Afterlife?",
+      "question_id": 71507001,
+      "answer_id": 1,
+      "answer": "digitally",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the people standing outside happy to take a trip in this vehicle?",
+      "question_id": 579752010,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What breed of dog is it?",
+      "question_id": 127284017,
+      "answer_id": 3,
+      "answer": "lab",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the purpose of the traffic cone?",
+      "question_id": 221184001,
+      "answer_id": 1,
+      "answer": "stop traffic",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the cat scared?",
+      "question_id": 397543062,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are these people doing at the beach?",
+      "question_id": 4129000,
+      "answer_id": 1,
+      "answer": "sunbathing",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the letters of the plane?",
+      "question_id": 67456007,
+      "answer_id": 1,
+      "answer": "delta",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do the giraffes like each other?",
+      "question_id": 236998004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a passenger plane?",
+      "question_id": 913000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a flag in the background?",
+      "question_id": 41890002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What animal is in the picture?",
+      "question_id": 490002,
+      "answer_id": 1,
+      "answer": "dog",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the dog looked scared?",
+      "question_id": 73174002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many cars are there?",
+      "question_id": 656004,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a grass track?",
+      "question_id": 529000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What room of the house is this?",
+      "question_id": 2544000,
+      "answer_id": 1,
+      "answer": "bathroom",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of room is this?",
+      "question_id": 1902000,
+      "answer_id": 1,
+      "answer": "bedroom",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Have you ever seen such a kite?",
+      "question_id": 350115008,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these professional players?",
+      "question_id": 74090004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of shoes are these?",
+      "question_id": 3293003,
+      "answer_id": 1,
+      "answer": "heels",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are they happy or sad?",
+      "question_id": 399774002,
+      "answer_id": 1,
+      "answer": "happy",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old do you think this building is?",
+      "question_id": 545370002,
+      "answer_id": 2,
+      "answer": "100 years",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Have you ever been to this intersection?",
+      "question_id": 250001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What year was this picture taken?",
+      "question_id": 3160000,
+      "answer_id": 2,
+      "answer": "1990",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Can you make out the license plate?",
+      "question_id": 358189001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of computer is in the image?",
+      "question_id": 643004,
+      "answer_id": 1,
+      "answer": "dell",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is it safe to cross?",
+      "question_id": 3602009,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What sport is being played?",
+      "question_id": 1815003,
+      "answer_id": 1,
+      "answer": "tennis",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the man surfing?",
+      "question_id": 828001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What's in the glass?",
+      "question_id": 4834001,
+      "answer_id": 1,
+      "answer": "soda",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What letters are on the woman's sleeve?",
+      "question_id": 137516000,
+      "answer_id": 1,
+      "answer": "ny",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a fence in the background?",
+      "question_id": 1323003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the woman carrying?",
+      "question_id": 4404007,
+      "answer_id": 1,
+      "answer": "umbrella",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you think this man is an expert on technology?",
+      "question_id": 53339029,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where is the license plate located?",
+      "question_id": 129859007,
+      "answer_id": 3,
+      "answer": "front",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of animal is in the picture?",
+      "question_id": 4410002,
+      "answer_id": 1,
+      "answer": "cat",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Can you tell what time of day it is by the shadow?",
+      "question_id": 1709001,
+      "answer_id": 2,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you think this man is a computer engineer?",
+      "question_id": 13292002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the trees old?",
+      "question_id": 76001040,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a healthy breakfast?",
+      "question_id": 517981007,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the man appear to be afraid of the bear?",
+      "question_id": 29538005,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the price for diesel?",
+      "question_id": 253532004,
+      "answer_id": 1,
+      "answer": "not listed",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "In what language is the sign written?",
+      "question_id": 256565010,
+      "answer_id": 1,
+      "answer": "english",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Who owns this photo?",
+      "question_id": 406356003,
+      "answer_id": 1,
+      "answer": "neezy gfx",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of banana is this?",
+      "question_id": 182812003,
+      "answer_id": 1,
+      "answer": "chiquita",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people are in the water?",
+      "question_id": 4173001,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this food healthy?",
+      "question_id": 81504004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many keys do you need to wind this clock?",
+      "question_id": 85302002,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How long is the plane?",
+      "question_id": 2258000,
+      "answer_id": 2,
+      "answer": "long",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the word in red say?",
+      "question_id": 260481000,
+      "answer_id": 2,
+      "answer": "meleno",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the bear sad?",
+      "question_id": 223950001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Who owns this picture?",
+      "question_id": 467193002,
+      "answer_id": 1,
+      "answer": "baseball team",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do the trees cover the entire ground?",
+      "question_id": 1111001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old is the boy?",
+      "question_id": 3118003,
+      "answer_id": 3,
+      "answer": "18",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of trees are in the background?",
+      "question_id": 1111002,
+      "answer_id": 2,
+      "answer": "pine",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many pairs of shoes are there?",
+      "question_id": 5142008,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a fountain in the photo?",
+      "question_id": 1084019,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are both of these animals the same size?",
+      "question_id": 934009,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is this person doing?",
+      "question_id": 781000,
+      "answer_id": 5,
+      "answer": "windsurfing",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "If this critter bites that object much deeper what will happen?",
+      "question_id": 106835000,
+      "answer_id": 1,
+      "answer": "break",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the wall?",
+      "question_id": 3866002,
+      "answer_id": 2,
+      "answer": "brown",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these pastries popular based on the amount shown?",
+      "question_id": 73302008,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of orange juice?",
+      "question_id": 317227055,
+      "answer_id": 1,
+      "answer": "none",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Would you say the riders are over 50 years of age?",
+      "question_id": 283825003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people can be seen?",
+      "question_id": 5505010,
+      "answer_id": 2,
+      "answer": "many",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many hot dogs are there?",
+      "question_id": 4719010,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the building have a clock on it?",
+      "question_id": 4555000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color are these birds?",
+      "question_id": 5564001,
+      "answer_id": 1,
+      "answer": "brown",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the plane say above the wing?",
+      "question_id": 548428001,
+      "answer_id": 2,
+      "answer": "super mainliner",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is he wearing?",
+      "question_id": 2555002,
+      "answer_id": 1,
+      "answer": "wetsuit",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the sky?",
+      "question_id": 1515001,
+      "answer_id": 1,
+      "answer": "gray",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the animals eating?",
+      "question_id": 25003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the plaza?",
+      "question_id": 1997002,
+      "answer_id": 1,
+      "answer": "rockefeller",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Would it be safe to ride a motorcycle dressed like this?",
+      "question_id": 439185003,
+      "answer_id": 2,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of fence is behind the girl?",
+      "question_id": 3157001,
+      "answer_id": 1,
+      "answer": "crowd fence",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the mirror clean?",
+      "question_id": 3040000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What appliance is that?",
+      "question_id": 2281000,
+      "answer_id": 1,
+      "answer": "refrigerator",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are there antique items here?",
+      "question_id": 4893003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is it high tide?",
+      "question_id": 5210000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What language is the sign written in?",
+      "question_id": 230567001,
+      "answer_id": 2,
+      "answer": "chinese",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the boy sad?",
+      "question_id": 461114098,
+      "answer_id": 2,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is outside the window?",
+      "question_id": 3249006,
+      "answer_id": 1,
+      "answer": "bird",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Why do her arms look so odd?",
+      "question_id": 5165006,
+      "answer_id": 1,
+      "answer": "standing",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old is the boy?",
+      "question_id": 548318002,
+      "answer_id": 2,
+      "answer": "1",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do they look like they're having fun?",
+      "question_id": 532789003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the building old?",
+      "question_id": 801001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What sound does this animal make?",
+      "question_id": 825000,
+      "answer_id": 1,
+      "answer": "meow",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the person sitting on?",
+      "question_id": 5312002,
+      "answer_id": 1,
+      "answer": "grass",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the person doing?",
+      "question_id": 1330002,
+      "answer_id": 2,
+      "answer": "throwing",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color are the buses?",
+      "question_id": 4032002,
+      "answer_id": 2,
+      "answer": "yellow",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many zebras are sitting?",
+      "question_id": 4318000,
+      "answer_id": 2,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the sex of the player?",
+      "question_id": 431001,
+      "answer_id": 1,
+      "answer": "male",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of soda is featured?",
+      "question_id": 150300003,
+      "answer_id": 3,
+      "answer": "coca cola",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the elephant old?",
+      "question_id": 263003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What letters are on the hydrant?",
+      "question_id": 556088010,
+      "answer_id": 2,
+      "answer": "c",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are they dancing?",
+      "question_id": 1271002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the woman wearing an apron?",
+      "question_id": 3915004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is this room?",
+      "question_id": 2197003,
+      "answer_id": 1,
+      "answer": "bathroom",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand is this computer?",
+      "question_id": 268195016,
+      "answer_id": 1,
+      "answer": "apple",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this pic have a fork?",
+      "question_id": 5383002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the plate?",
+      "question_id": 1510005,
+      "answer_id": 1,
+      "answer": "white",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is printed on the triangle shaped sign on the left side?",
+      "question_id": 514997000,
+      "answer_id": 2,
+      "answer": "give",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country is this?",
+      "question_id": 1720007,
+      "answer_id": 4,
+      "answer": "usa",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is he doing a dangerous jump?",
+      "question_id": 2758000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are there any visible animals?",
+      "question_id": 1515007,
+      "answer_id": 2,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these computers still manufactured?",
+      "question_id": 277161000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the plane in the air?",
+      "question_id": 1168000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the cat happy?",
+      "question_id": 3474006,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the meat old?",
+      "question_id": 87137032,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is printed on his shirt?",
+      "question_id": 365525005,
+      "answer_id": 1,
+      "answer": "best coast",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What design was the cake made into?",
+      "question_id": 1424001,
+      "answer_id": 1,
+      "answer": "castle",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is that rice?",
+      "question_id": 3911046,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is it?",
+      "question_id": 432914006,
+      "answer_id": 1,
+      "answer": "1:00",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the name say on the blocks of wood?",
+      "question_id": 152529001,
+      "answer_id": 1,
+      "answer": "chippewa",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Will the train be coming soon?",
+      "question_id": 46936002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many donuts are there?",
+      "question_id": 1455011,
+      "answer_id": 3,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you think this is a palace?",
+      "question_id": 272343001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the cat lying on?",
+      "question_id": 2606005,
+      "answer_id": 1,
+      "answer": "windowsill",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are they drinking water?",
+      "question_id": 4065004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the woman happy about the cake?",
+      "question_id": 24159000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this man playing professional tennis?",
+      "question_id": 521204000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where can you buy all these articles?",
+      "question_id": 95085000,
+      "answer_id": 1,
+      "answer": "drugstore",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the word inside the white circle?",
+      "question_id": 155138004,
+      "answer_id": 1,
+      "answer": "photo",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the airplane?",
+      "question_id": 421995004,
+      "answer_id": 1,
+      "answer": "delta",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many bicycles are on the background of the computer?",
+      "question_id": 3259000,
+      "answer_id": 1,
+      "answer": "3",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does everyone look happy?",
+      "question_id": 471698001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the bus doors open?",
+      "question_id": 4595006,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Can this bird swim?",
+      "question_id": 3517000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the building?",
+      "question_id": 934007,
+      "answer_id": 1,
+      "answer": "blue",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does his tag say?",
+      "question_id": 423414004,
+      "answer_id": 5,
+      "answer": "nothing",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the man holding metal?",
+      "question_id": 1403002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old is this photo?",
+      "question_id": 142100002,
+      "answer_id": 3,
+      "answer": "100 years",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign probably say on the front?",
+      "question_id": 352959002,
+      "answer_id": 5,
+      "answer": "stop",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Could you live here?",
+      "question_id": 576343001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name on the batter's Jersey?",
+      "question_id": 9045004,
+      "answer_id": 1,
+      "answer": "machado",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is he wearing a hat?",
+      "question_id": 4993001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is around the cows neck?",
+      "question_id": 3321003,
+      "answer_id": 1,
+      "answer": "collar",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many bicycles can you find in the image?",
+      "question_id": 440032006,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What mountain was this taken at?",
+      "question_id": 201002,
+      "answer_id": 1,
+      "answer": "loon mountain",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign say?",
+      "question_id": 211051004,
+      "answer_id": 1,
+      "answer": "lukoil",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these people before a group?",
+      "question_id": 3870000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What do you see in the window?",
+      "question_id": 927004,
+      "answer_id": 1,
+      "answer": "reflection",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the brand name of the remote control?",
+      "question_id": 373623000,
+      "answer_id": 1,
+      "answer": "wii",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is sticking out of the truck window?",
+      "question_id": 1518004,
+      "answer_id": 2,
+      "answer": "broccoli",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is on the boarders right wrist?",
+      "question_id": 1774004,
+      "answer_id": 1,
+      "answer": "watch",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is this kitchen appliance?",
+      "question_id": 1526001,
+      "answer_id": 1,
+      "answer": "microwave",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many utensils are there?",
+      "question_id": 3911058,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is he having fun?",
+      "question_id": 246608005,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people are in the water?",
+      "question_id": 3365004,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the weather like?",
+      "question_id": 4546013,
+      "answer_id": 1,
+      "answer": "cloudy",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Can you recycle what the cat is sitting on?",
+      "question_id": 567278003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the purple flower match the decor?",
+      "question_id": 3915015,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is everyone in the picture on the elephant?",
+      "question_id": 5085000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What utensil is clearly seen?",
+      "question_id": 3911047,
+      "answer_id": 1,
+      "answer": "fork",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the plane facing the mountains?",
+      "question_id": 4920006,
+      "answer_id": 3,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many numbers are in the bus number?",
+      "question_id": 186113005,
+      "answer_id": 2,
+      "answer": "3",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these walls in good shape?",
+      "question_id": 539553000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time does the clock read?",
+      "question_id": 414439000,
+      "answer_id": 1,
+      "answer": "5:32",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a real horse?",
+      "question_id": 671002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Would you trust your sister to feed you?",
+      "question_id": 129753000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a big burger on the plate?",
+      "question_id": 3911061,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What side is the kickstand on?",
+      "question_id": 3682004,
+      "answer_id": 1,
+      "answer": "left",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many men are playing with the ball?",
+      "question_id": 4139000,
+      "answer_id": 1,
+      "answer": "0",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is in the picture?",
+      "question_id": 3249001,
+      "answer_id": 1,
+      "answer": "bird",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the shower curtain red?",
+      "question_id": 2776001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a clock in the photo?",
+      "question_id": 1295002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name on the top street sign?",
+      "question_id": 280532000,
+      "answer_id": 1,
+      "answer": "eight mile",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Have you ever made such a pasta dish?",
+      "question_id": 111606007,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What language is the signs written in?",
+      "question_id": 467050009,
+      "answer_id": 1,
+      "answer": "french",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the toppings on the pizza?",
+      "question_id": 3911001,
+      "answer_id": 4,
+      "answer": "pepperoni cheese",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the elephant young?",
+      "question_id": 4477002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many meters are there?",
+      "question_id": 3148000,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many children are in view?",
+      "question_id": 4616001,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is it?",
+      "question_id": 425150005,
+      "answer_id": 4,
+      "answer": "11:15",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are they happy?",
+      "question_id": 334616000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these animals native to Iceland?",
+      "question_id": 1238001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sticker on the lower door say?",
+      "question_id": 477321000,
+      "answer_id": 1,
+      "answer": "bush",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the letters in red?",
+      "question_id": 467678002,
+      "answer_id": 1,
+      "answer": "tdf",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the cabinet?",
+      "question_id": 5453001,
+      "answer_id": 1,
+      "answer": "brown",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Did one of the guys just take off his shirt?",
+      "question_id": 2774004,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the cafe on the mug?",
+      "question_id": 366408003,
+      "answer_id": 3,
+      "answer": "20th street cafe",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the street?",
+      "question_id": 127377003,
+      "answer_id": 1,
+      "answer": "se pleasant st",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of shoes is this tennis player wearing?",
+      "question_id": 119057004,
+      "answer_id": 1,
+      "answer": "adidas",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Has it snowed recently?",
+      "question_id": 4571001,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What type of food is this?",
+      "question_id": 2843001,
+      "answer_id": 1,
+      "answer": "pizza",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of keyboard is this?",
+      "question_id": 410436003,
+      "answer_id": 3,
+      "answer": "dell",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the child holding?",
+      "question_id": 4843002,
+      "answer_id": 1,
+      "answer": "umbrella",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the bus company?",
+      "question_id": 114844009,
+      "answer_id": 1,
+      "answer": "jurassic coast",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What logo is on the closest car?",
+      "question_id": 200788000,
+      "answer_id": 1,
+      "answer": "phoenix",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Would this be a typical first aid kit for a home?",
+      "question_id": 280926004,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What type of animals are these?",
+      "question_id": 706004,
+      "answer_id": 1,
+      "answer": "giraffe",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are they happy?",
+      "question_id": 371824002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where are the paper towels?",
+      "question_id": 5373002,
+      "answer_id": 2,
+      "answer": "under cabinet",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is she wearing glasses?",
+      "question_id": 1145001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the woman young?",
+      "question_id": 1569004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the train in the country or in the city?",
+      "question_id": 264396003,
+      "answer_id": 1,
+      "answer": "city",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What colors are the plane?",
+      "question_id": 5396003,
+      "answer_id": 1,
+      "answer": "silver and yellow",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the fork prongs touching the table?",
+      "question_id": 4719013,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What type of pizza is on the table?",
+      "question_id": 3911004,
+      "answer_id": 3,
+      "answer": "pepperoni",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are those birds in the air?",
+      "question_id": 5210001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these girls young?",
+      "question_id": 438294004,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Which color is the man's jeans?",
+      "question_id": 4947002,
+      "answer_id": 1,
+      "answer": "blue",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many bears are there?",
+      "question_id": 1737001,
+      "answer_id": 2,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Why would this be in black and white?",
+      "question_id": 203336003,
+      "answer_id": 1,
+      "answer": "artsy",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are they doing?",
+      "question_id": 4259000,
+      "answer_id": 2,
+      "answer": "cutting cake",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do these people like snow?",
+      "question_id": 33828001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What word runs across the back of the bus at the bottom?",
+      "question_id": 23203002,
+      "answer_id": 1,
+      "answer": "leyland",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the cat standing in front of?",
+      "question_id": 5142012,
+      "answer_id": 1,
+      "answer": "suitcase",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this dog happy?",
+      "question_id": 336741005,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country did this take place in?",
+      "question_id": 229995001,
+      "answer_id": 1,
+      "answer": "pakistan",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the number of the train?",
+      "question_id": 250844006,
+      "answer_id": 1,
+      "answer": "377 606",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the color of the sky?",
+      "question_id": 1515006,
+      "answer_id": 1,
+      "answer": "gray",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color are the spots on the giraffe?",
+      "question_id": 2066001,
+      "answer_id": 1,
+      "answer": "brown",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the standing man going to do?",
+      "question_id": 4714002,
+      "answer_id": 1,
+      "answer": "play guitar",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there more than one speaker in this picture?",
+      "question_id": 3877001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the brand name of the laptop?",
+      "question_id": 56435017,
+      "answer_id": 1,
+      "answer": "hp",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are jeans on the bed?",
+      "question_id": 4463001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the people doing?",
+      "question_id": 3713003,
+      "answer_id": 1,
+      "answer": "snowboarding",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the man trying to catch a Frisbee?",
+      "question_id": 322005,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the giraffe eating the tree?",
+      "question_id": 25007,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many men are wearing red tanks?",
+      "question_id": 4376001,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the face above the flowers?",
+      "question_id": 3866003,
+      "answer_id": 2,
+      "answer": "red",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a professional photo shoot?",
+      "question_id": 343634001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the water cold?",
+      "question_id": 2555001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many miles to Essex hall?",
+      "question_id": 3602005,
+      "answer_id": 1,
+      "answer": "20",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What city is listed on the court?",
+      "question_id": 1764003,
+      "answer_id": 1,
+      "answer": "melbourne",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many cars are there?",
+      "question_id": 4080001,
+      "answer_id": 1,
+      "answer": "0",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the table made of?",
+      "question_id": 2347001,
+      "answer_id": 1,
+      "answer": "glass",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What breed is this dog?",
+      "question_id": 73610002,
+      "answer_id": 4,
+      "answer": "poodle",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the cake say?",
+      "question_id": 292970001,
+      "answer_id": 1,
+      "answer": "happy birthday chips",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Would this break if dropped on concrete?",
+      "question_id": 292009003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Will the flowers fit in the vase?",
+      "question_id": 177058002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the vase valuable?",
+      "question_id": 566646000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the ball?",
+      "question_id": 1596004,
+      "answer_id": 1,
+      "answer": "yellow",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people are shown?",
+      "question_id": 529005,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Which donut would you prefer?",
+      "question_id": 1455006,
+      "answer_id": 3,
+      "answer": "none",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color are the scissor handles?",
+      "question_id": 1674001,
+      "answer_id": 1,
+      "answer": "yellow",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these screens showing the same website?",
+      "question_id": 375820003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old is the girl?",
+      "question_id": 244844003,
+      "answer_id": 2,
+      "answer": "3",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What word is on the sign?",
+      "question_id": 555088001,
+      "answer_id": 2,
+      "answer": "take over",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the planes being fueled?",
+      "question_id": 5557000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the people young?",
+      "question_id": 83672000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the blue sign say?",
+      "question_id": 541134000,
+      "answer_id": 3,
+      "answer": "psychic",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this animal carnivorous?",
+      "question_id": 4705002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many books are on the shelf?",
+      "question_id": 5115023,
+      "answer_id": 2,
+      "answer": "many",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there any window in the room?",
+      "question_id": 2429000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of hat is the bear wearing?",
+      "question_id": 3048003,
+      "answer_id": 1,
+      "answer": "none",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a microwave?",
+      "question_id": 5172005,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is one of the edibles shown here high in vitamin A?",
+      "question_id": 3911041,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the toilet?",
+      "question_id": 4893004,
+      "answer_id": 1,
+      "answer": "white",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Can you prepare a meal on the center table?",
+      "question_id": 148239001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What sound might this animal be making right now?",
+      "question_id": 299180001,
+      "answer_id": 3,
+      "answer": "purr",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old is the boy who is kneeling?",
+      "question_id": 387058026,
+      "answer_id": 2,
+      "answer": "3",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How is the ottoman patterned?",
+      "question_id": 1906002,
+      "answer_id": 3,
+      "answer": "chevron",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the man on the right drinking?",
+      "question_id": 1271001,
+      "answer_id": 1,
+      "answer": "beer",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the field?",
+      "question_id": 497572000,
+      "answer_id": 1,
+      "answer": "safeco field",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old is the child?",
+      "question_id": 386036003,
+      "answer_id": 3,
+      "answer": "16",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time does the clock say?",
+      "question_id": 506322001,
+      "answer_id": 1,
+      "answer": "4:30",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the woman looking forward to the meal?",
+      "question_id": 2466001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the woman staring at an empty screen?",
+      "question_id": 2459000,
+      "answer_id": 2,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is in the sky?",
+      "question_id": 2951002,
+      "answer_id": 1,
+      "answer": "clouds",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is on the shelves?",
+      "question_id": 5115015,
+      "answer_id": 1,
+      "answer": "books",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the water?",
+      "question_id": 4173007,
+      "answer_id": 1,
+      "answer": "blue",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Have the adult sheep been sheared?",
+      "question_id": 4624001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many elephants are there?",
+      "question_id": 934003,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this at a home or hotel?",
+      "question_id": 4442003,
+      "answer_id": 1,
+      "answer": "hotel",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many women in the room?",
+      "question_id": 3827020,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color are the counters?",
+      "question_id": 3911050,
+      "answer_id": 1,
+      "answer": "brown",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the fruit ripe?",
+      "question_id": 2902000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the purpose of this tent?",
+      "question_id": 90744006,
+      "answer_id": 1,
+      "answer": "food",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the hydrant?",
+      "question_id": 4426005,
+      "answer_id": 2,
+      "answer": "gray",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Can we use this fancy bathroom?",
+      "question_id": 560002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a professional game?",
+      "question_id": 199326003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Can you see a blue bus?",
+      "question_id": 1366001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Why would this man not be able to access the web like most people with phones?",
+      "question_id": 255669007,
+      "answer_id": 3,
+      "answer": "not smart phone",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the woman tired?",
+      "question_id": 3293026,
+      "answer_id": 2,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people have their arms outstretched?",
+      "question_id": 5508004,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the plane going to land immediately?",
+      "question_id": 263599008,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of vodka is in the background?",
+      "question_id": 481530001,
+      "answer_id": 1,
+      "answer": "triple",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these people happy?",
+      "question_id": 45672002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a television set in this bedroom?",
+      "question_id": 3442003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Would this clock have an alarm set?",
+      "question_id": 84651002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of this park?",
+      "question_id": 181837002,
+      "answer_id": 1,
+      "answer": "william g million park",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is to the left of the keyboard?",
+      "question_id": 4488000,
+      "answer_id": 3,
+      "answer": "food",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Can you count all of the mice?",
+      "question_id": 371927002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand made the black shorts the man is wearing?",
+      "question_id": 550955000,
+      "answer_id": 2,
+      "answer": "izod",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Can you send a message on this?",
+      "question_id": 319937001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this picture taken in the midwest?",
+      "question_id": 47617001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand is the mouse pad?",
+      "question_id": 254360001,
+      "answer_id": 2,
+      "answer": "hp",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the bakery?",
+      "question_id": 411624006,
+      "answer_id": 1,
+      "answer": "dunkin donuts",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many ladies have on glasses?",
+      "question_id": 4065008,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How was the sandwich cooked?",
+      "question_id": 4931027,
+      "answer_id": 1,
+      "answer": "toasted",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Can you ride this elephant?",
+      "question_id": 544301003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where does the protein live before it's caught?",
+      "question_id": 32893021,
+      "answer_id": 2,
+      "answer": "farm",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign say the altitude is?",
+      "question_id": 546937001,
+      "answer_id": 1,
+      "answer": "2000",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the dog sad?",
+      "question_id": 98760001,
+      "answer_id": 4,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Which room of the house would this be?",
+      "question_id": 558246000,
+      "answer_id": 2,
+      "answer": "patio",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What state was this taken in?",
+      "question_id": 193677002,
+      "answer_id": 1,
+      "answer": "wisconsin",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Which train has the most windows?",
+      "question_id": 349006,
+      "answer_id": 2,
+      "answer": "yellow",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is it?",
+      "question_id": 508030001,
+      "answer_id": 1,
+      "answer": "11:10",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign say?",
+      "question_id": 504850001,
+      "answer_id": 1,
+      "answer": "stop",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What number is printed on the train?",
+      "question_id": 105761009,
+      "answer_id": 1,
+      "answer": "4158",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many pizzas are on the racks?",
+      "question_id": 620002,
+      "answer_id": 1,
+      "answer": "3",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these animals tall?",
+      "question_id": 4319003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country are they in?",
+      "question_id": 433232002,
+      "answer_id": 2,
+      "answer": "england",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this homemade?",
+      "question_id": 4719006,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there an A-10 Warthog in the photo?",
+      "question_id": 913001,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where are the pillows?",
+      "question_id": 4970004,
+      "answer_id": 2,
+      "answer": "bed",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the baby doing?",
+      "question_id": 1790000,
+      "answer_id": 3,
+      "answer": "brushing teeth",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the child wearing socks?",
+      "question_id": 5219001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color are the baskets?",
+      "question_id": 2093002,
+      "answer_id": 5,
+      "answer": "blue and white",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the sheep safe in this area?",
+      "question_id": 534917000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is the clock displaying?",
+      "question_id": 304849005,
+      "answer_id": 4,
+      "answer": "1:55",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of medical professional would tend to these?",
+      "question_id": 564508002,
+      "answer_id": 1,
+      "answer": "veterinarian",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the wall's color?",
+      "question_id": 3877007,
+      "answer_id": 1,
+      "answer": "white",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the orange flag look like a golf flag?",
+      "question_id": 405461011,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of dog is it?",
+      "question_id": 5288000,
+      "answer_id": 1,
+      "answer": "terrier",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Did they make a mess?",
+      "question_id": 3915003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the phone?",
+      "question_id": 4441001,
+      "answer_id": 1,
+      "answer": "black",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many birds can you see?",
+      "question_id": 1507003,
+      "answer_id": 1,
+      "answer": "0",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the flag?",
+      "question_id": 533755001,
+      "answer_id": 2,
+      "answer": "red",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of camera does the lens cap belong to?",
+      "question_id": 575486001,
+      "answer_id": 1,
+      "answer": "nikon",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the balloons in the corner filled with?",
+      "question_id": 4616002,
+      "answer_id": 1,
+      "answer": "helium",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this man like animals?",
+      "question_id": 2400000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do these ladies have on the same outfit?",
+      "question_id": 3293048,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this desert made by a culinary chef?",
+      "question_id": 3764001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these professional ball players?",
+      "question_id": 243509006,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the curtains open?",
+      "question_id": 384005,
+      "answer_id": 2,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the sky clear?",
+      "question_id": 4608001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you see a reflection?",
+      "question_id": 1810000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Will the bananas be dipped in toppings?",
+      "question_id": 511736002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the bedspread?",
+      "question_id": 1085003,
+      "answer_id": 1,
+      "answer": "gray",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a light source in the photo that is not turned on?",
+      "question_id": 2389002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is to the right of the keyboard?",
+      "question_id": 3219004,
+      "answer_id": 1,
+      "answer": "booklet",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the brand of drink?",
+      "question_id": 471824001,
+      "answer_id": 1,
+      "answer": "red bull",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the motorcycle's headlight switched on?",
+      "question_id": 656000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many siblings are in the picture?",
+      "question_id": 5508005,
+      "answer_id": 2,
+      "answer": "7",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the contents of this bottle?",
+      "question_id": 1455008,
+      "answer_id": 1,
+      "answer": "ketchup",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you think he'll miss the ball?",
+      "question_id": 134068003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time does the clock say?",
+      "question_id": 66319001,
+      "answer_id": 2,
+      "answer": "7:50",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are any of the surfaces reflective?",
+      "question_id": 2496004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the green sticker on the sign say?",
+      "question_id": 563711005,
+      "answer_id": 3,
+      "answer": "directions",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is it?",
+      "question_id": 219906001,
+      "answer_id": 1,
+      "answer": "4:30",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old is the child?",
+      "question_id": 364953000,
+      "answer_id": 1,
+      "answer": "10",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the bike designed for?",
+      "question_id": 529006,
+      "answer_id": 4,
+      "answer": "racing",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What do you think the relationship between the two women is?",
+      "question_id": 5021003,
+      "answer_id": 2,
+      "answer": "friends",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a healthy meal?",
+      "question_id": 190915017,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you see a lion lurking in the bushes?",
+      "question_id": 753000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country is this in?",
+      "question_id": 5505012,
+      "answer_id": 1,
+      "answer": "england",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the bird's beak?",
+      "question_id": 3389000,
+      "answer_id": 1,
+      "answer": "red",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is anything directly written or drawn on the walls?",
+      "question_id": 5115002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the purpose of the yellow lines that are shown on the concrete?",
+      "question_id": 93441002,
+      "answer_id": 2,
+      "answer": "parking",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand shoe is the person wearing?",
+      "question_id": 318678014,
+      "answer_id": 1,
+      "answer": "nike",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a beach in this scene?",
+      "question_id": 821002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the middle tool?",
+      "question_id": 1084021,
+      "answer_id": 1,
+      "answer": "pliers",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people are shown?",
+      "question_id": 4219001,
+      "answer_id": 1,
+      "answer": "3",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are there any vegetables on the plate?",
+      "question_id": 2886001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is name of the animal behind the zebras?",
+      "question_id": 225516005,
+      "answer_id": 1,
+      "answer": "boar",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many desserts are pictured?",
+      "question_id": 3579004,
+      "answer_id": 1,
+      "answer": "21",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country is the man's shirt from?",
+      "question_id": 514362002,
+      "answer_id": 3,
+      "answer": "america",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What airline is this?",
+      "question_id": 1611002,
+      "answer_id": 1,
+      "answer": "ukraine international",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are they happy?",
+      "question_id": 215357000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are cheetos healthy?",
+      "question_id": 445093002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the cat's tail?",
+      "question_id": 4963000,
+      "answer_id": 1,
+      "answer": "black",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the building made of?",
+      "question_id": 5046001,
+      "answer_id": 3,
+      "answer": "brick",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the person doing?",
+      "question_id": 3995008,
+      "answer_id": 1,
+      "answer": "frisbee",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the outer edge of the window?",
+      "question_id": 2296001,
+      "answer_id": 1,
+      "answer": "red",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where will the skier land?",
+      "question_id": 160159004,
+      "answer_id": 3,
+      "answer": "ground",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the zebra happy?",
+      "question_id": 564188001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the two big suitcases?",
+      "question_id": 3751001,
+      "answer_id": 1,
+      "answer": "black",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What would this business specialize in?",
+      "question_id": 330529001,
+      "answer_id": 1,
+      "answer": "pastries",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this cat like shoes?",
+      "question_id": 159118038,
+      "answer_id": 2,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the women in the front wearing cheerful outfits?",
+      "question_id": 722001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is it?",
+      "question_id": 344284001,
+      "answer_id": 2,
+      "answer": "4:23",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where is the outlet?",
+      "question_id": 1526002,
+      "answer_id": 3,
+      "answer": "wall",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Did the cat make the paw prints on the sign?",
+      "question_id": 2471002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of food is this?",
+      "question_id": 4385004,
+      "answer_id": 1,
+      "answer": "donut",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you find meat in the salad?",
+      "question_id": 52131002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this an event?",
+      "question_id": 722002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country does this aircraft represent?",
+      "question_id": 560786002,
+      "answer_id": 2,
+      "answer": "usa",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of tennis shoes is he wearing?",
+      "question_id": 398936005,
+      "answer_id": 2,
+      "answer": "nike",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color are the drapes?",
+      "question_id": 2283011,
+      "answer_id": 1,
+      "answer": "brown",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the big sign in the center say?",
+      "question_id": 143425009,
+      "answer_id": 2,
+      "answer": "parking",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the man wearing goggles?",
+      "question_id": 2402018,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many light post is there?",
+      "question_id": 109002,
+      "answer_id": 1,
+      "answer": "4",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the cat scared?",
+      "question_id": 3353002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the bus?",
+      "question_id": 4130002,
+      "answer_id": 1,
+      "answer": "blue",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these spring flowers?",
+      "question_id": 2106001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the boy holding in his hands?",
+      "question_id": 3375004,
+      "answer_id": 2,
+      "answer": "nothing",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a color photo?",
+      "question_id": 5324001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the zebra's tail up?",
+      "question_id": 154003,
+      "answer_id": 2,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the word in the center front of the table?",
+      "question_id": 265622116,
+      "answer_id": 3,
+      "answer": "none",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the round, black toppings?",
+      "question_id": 5472005,
+      "answer_id": 2,
+      "answer": "olives",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where is the 3M logo?",
+      "question_id": 1408002,
+      "answer_id": 1,
+      "answer": "nowhere",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What language is on the signs?",
+      "question_id": 901000,
+      "answer_id": 1,
+      "answer": "chinese",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this safe weather for aircraft?",
+      "question_id": 46251006,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the words on the plane?",
+      "question_id": 13000005,
+      "answer_id": 1,
+      "answer": "one world",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is she throwing?",
+      "question_id": 5471001,
+      "answer_id": 1,
+      "answer": "frisbee",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are both these skiers the same gender?",
+      "question_id": 1580001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How is the man dressed?",
+      "question_id": 2693008,
+      "answer_id": 3,
+      "answer": "casual",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of shoes are featured?",
+      "question_id": 382969002,
+      "answer_id": 1,
+      "answer": "converse",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What object is on the bottom left?",
+      "question_id": 908011,
+      "answer_id": 1,
+      "answer": "sign",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the water calm?",
+      "question_id": 109005,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How long until midnight?",
+      "question_id": 373480003,
+      "answer_id": 7,
+      "answer": "3 hours 20 minutes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the bus number?",
+      "question_id": 282789002,
+      "answer_id": 1,
+      "answer": "101",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is it?",
+      "question_id": 348480000,
+      "answer_id": 9,
+      "answer": "10:35",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is this cat sitting in?",
+      "question_id": 5142002,
+      "answer_id": 1,
+      "answer": "suitcase",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Who can belong to the club that is printed on the t-shirt?",
+      "question_id": 126437002,
+      "answer_id": 3,
+      "answer": "boys and girls",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Will the bird still be hungry?",
+      "question_id": 30457002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many white lines are there?",
+      "question_id": 3830001,
+      "answer_id": 1,
+      "answer": "8",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the cats breed?",
+      "question_id": 536067002,
+      "answer_id": 1,
+      "answer": "tabby",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the weather appear to be snowy?",
+      "question_id": 965001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country is shown?",
+      "question_id": 91867003,
+      "answer_id": 1,
+      "answer": "america",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is healthy on the plate?",
+      "question_id": 28750000,
+      "answer_id": 1,
+      "answer": "salad",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is this person sitting on?",
+      "question_id": 4442000,
+      "answer_id": 1,
+      "answer": "bed",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the train number?",
+      "question_id": 506699000,
+      "answer_id": 3,
+      "answer": "350 112",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand is the laptop?",
+      "question_id": 581657001,
+      "answer_id": 1,
+      "answer": "dell",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the girl look scared?",
+      "question_id": 71006003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What word is written on the plane?",
+      "question_id": 380163001,
+      "answer_id": 2,
+      "answer": "yorkshire",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this food healthy?",
+      "question_id": 5303000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the movie theater?",
+      "question_id": 89770000,
+      "answer_id": 1,
+      "answer": "strands",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the computer mouse?",
+      "question_id": 4761003,
+      "answer_id": 1,
+      "answer": "black",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What breed of dog is in the photo?",
+      "question_id": 191805002,
+      "answer_id": 3,
+      "answer": "rottweiler",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the chairs comfortable?",
+      "question_id": 259719010,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the dog laying on?",
+      "question_id": 3862000,
+      "answer_id": 1,
+      "answer": "grass",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the car have a sunroof?",
+      "question_id": 4282000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is her hair in a ponytail?",
+      "question_id": 1375001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What room is this?",
+      "question_id": 1355001,
+      "answer_id": 1,
+      "answer": "kitchen",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Could this be in Alaska?",
+      "question_id": 4762000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time does the clock say?",
+      "question_id": 21945003,
+      "answer_id": 1,
+      "answer": "3:55",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the genders of these people?",
+      "question_id": 4180003,
+      "answer_id": 1,
+      "answer": "male",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does this woman's t shirt say?",
+      "question_id": 162386012,
+      "answer_id": 1,
+      "answer": "angel",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the man wearing a belt?",
+      "question_id": 2774003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many candles are there?",
+      "question_id": 3999000,
+      "answer_id": 1,
+      "answer": "5",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the train say?",
+      "question_id": 233476001,
+      "answer_id": 1,
+      "answer": "special",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you think a child dropped this teddy bear by accident?",
+      "question_id": 338719000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What season is this taken in?",
+      "question_id": 384093001,
+      "answer_id": 1,
+      "answer": "winter",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How would you describe the basket lining?",
+      "question_id": 984001,
+      "answer_id": 1,
+      "answer": "plastic",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the man have a spoon?",
+      "question_id": 4428001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this the country?",
+      "question_id": 156768014,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the elephant old?",
+      "question_id": 208984000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What breed is the dog?",
+      "question_id": 308143004,
+      "answer_id": 2,
+      "answer": "golden retriever",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What down is this photo from?",
+      "question_id": 5505027,
+      "answer_id": 1,
+      "answer": "london",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a large tree near the bus?",
+      "question_id": 1762001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What material are the plates made of?",
+      "question_id": 3671001,
+      "answer_id": 2,
+      "answer": "ceramic",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign on the front of the train say?",
+      "question_id": 412661000,
+      "answer_id": 1,
+      "answer": "can't see",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this person paragliding?",
+      "question_id": 1639001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country is this?",
+      "question_id": 4920003,
+      "answer_id": 3,
+      "answer": "usa",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the man doing?",
+      "question_id": 531005,
+      "answer_id": 1,
+      "answer": "playing tennis",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What type of room is this?",
+      "question_id": 5005006,
+      "answer_id": 5,
+      "answer": "outside",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the vase?",
+      "question_id": 30004,
+      "answer_id": 1,
+      "answer": "white",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the man doing?",
+      "question_id": 4173008,
+      "answer_id": 1,
+      "answer": "surfing",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are they riding on?",
+      "question_id": 5085002,
+      "answer_id": 1,
+      "answer": "elephant",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are they holding?",
+      "question_id": 4377000,
+      "answer_id": 3,
+      "answer": "croquet mallets",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the two brightly colored kites shaped to represent?",
+      "question_id": 1785002,
+      "answer_id": 1,
+      "answer": "stingrays",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a library or professional office?",
+      "question_id": 292688011,
+      "answer_id": 1,
+      "answer": "office",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time does this clock have?",
+      "question_id": 532852002,
+      "answer_id": 3,
+      "answer": "4:20",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is she flying her kite in a city park?",
+      "question_id": 3276004,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the man look happy?",
+      "question_id": 393224003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the color of the closest car?",
+      "question_id": 2951006,
+      "answer_id": 1,
+      "answer": "red",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What event is this?",
+      "question_id": 4201001,
+      "answer_id": 1,
+      "answer": "baseball",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is one of the streets featured in a popular video game?",
+      "question_id": 1472001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does it say on the back of his shirt?",
+      "question_id": 99995000,
+      "answer_id": 1,
+      "answer": "palmer",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of laptop is in the photo?",
+      "question_id": 72466003,
+      "answer_id": 2,
+      "answer": "apple",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are any of these phones currently popular?",
+      "question_id": 336357000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this meal look healthy?",
+      "question_id": 4719005,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many surfboards are in the water?",
+      "question_id": 1308003,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a glass of milk in the picture?",
+      "question_id": 1558002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is eating grass?",
+      "question_id": 2232000,
+      "answer_id": 1,
+      "answer": "zebra",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the airline?",
+      "question_id": 430890007,
+      "answer_id": 1,
+      "answer": "delta",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How much wine is in the glass?",
+      "question_id": 326001,
+      "answer_id": 1,
+      "answer": "little",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is  the skater safe?",
+      "question_id": 371577000,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a professional baseball game?",
+      "question_id": 5260004,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign say?",
+      "question_id": 82756002,
+      "answer_id": 2,
+      "answer": "pitts st n main st",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the woman with racket, look sad?",
+      "question_id": 568357002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the metal item in the front-left of the picture?",
+      "question_id": 363523000,
+      "answer_id": 1,
+      "answer": "parking meter",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many clocks are there?",
+      "question_id": 2591001,
+      "answer_id": 1,
+      "answer": "6",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is on the ground next to the giraffe on the right?",
+      "question_id": 25010,
+      "answer_id": 1,
+      "answer": "log",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you think the grass in the scene needs to be mowed?",
+      "question_id": 21981000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is all the way on the left?",
+      "question_id": 5483002,
+      "answer_id": 2,
+      "answer": "table",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the fence expensive?",
+      "question_id": 447623012,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the street sign say?",
+      "question_id": 438620011,
+      "answer_id": 1,
+      "answer": "walk your bike",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is written on the horses?",
+      "question_id": 287903001,
+      "answer_id": 1,
+      "answer": "autism",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of light bulb would be necessary for the overhead light?",
+      "question_id": 908010,
+      "answer_id": 1,
+      "answer": "fluorescent",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What letters are written on the cupcakes?",
+      "question_id": 74201002,
+      "answer_id": 1,
+      "answer": "none",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign say?",
+      "question_id": 64866002,
+      "answer_id": 1,
+      "answer": "stop",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Was this picture taken in a workplace?",
+      "question_id": 4421000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the license plate number on this motorbike?",
+      "question_id": 237941005,
+      "answer_id": 1,
+      "answer": "ny2 193",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the person scared to fall into the water?",
+      "question_id": 3197001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many bikes are lined up against the wall?",
+      "question_id": 4489001,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the horse?",
+      "question_id": 2056002,
+      "answer_id": 1,
+      "answer": "brown",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is almost all of the buildings?",
+      "question_id": 4555002,
+      "answer_id": 1,
+      "answer": "white",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Which way would you go if you needed to go to the hospital?",
+      "question_id": 559995011,
+      "answer_id": 2,
+      "answer": "left",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country flag is hanging?",
+      "question_id": 347177007,
+      "answer_id": 7,
+      "answer": "united states",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the bus old?",
+      "question_id": 361071002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the Village?",
+      "question_id": 160701002,
+      "answer_id": 2,
+      "answer": "parkdale",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What letter is shown?",
+      "question_id": 142428005,
+      "answer_id": 1,
+      "answer": "m",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What words are displayed?",
+      "question_id": 375464000,
+      "answer_id": 1,
+      "answer": "holbeck essen",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many toothbrushes are in the glass?",
+      "question_id": 562004,
+      "answer_id": 1,
+      "answer": "3",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country's flags are in the photo?",
+      "question_id": 1168004,
+      "answer_id": 4,
+      "answer": "usa",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many single slices are there?",
+      "question_id": 5303001,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country is this in?",
+      "question_id": 399258002,
+      "answer_id": 1,
+      "answer": "usa",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What material are the scissors laying on?",
+      "question_id": 1084013,
+      "answer_id": 1,
+      "answer": "wood",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the dog like what he's eating?",
+      "question_id": 475967001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are they at a school?",
+      "question_id": 2184000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are there houses on the hill?",
+      "question_id": 508004,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a restaurant or a home?",
+      "question_id": 908014,
+      "answer_id": 1,
+      "answer": "home",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the writing say to the right of the foot of the ball boy?",
+      "question_id": 141382000,
+      "answer_id": 2,
+      "answer": "polo",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old is the lady?",
+      "question_id": 381244002,
+      "answer_id": 3,
+      "answer": "old",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Would this be a good place to go for a swim?",
+      "question_id": 4984029,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country does she play for?",
+      "question_id": 444692004,
+      "answer_id": 1,
+      "answer": "usa",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the train?",
+      "question_id": 167746002,
+      "answer_id": 1,
+      "answer": "aguarague",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand is the orange juice?",
+      "question_id": 435620000,
+      "answer_id": 1,
+      "answer": "tropicana",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the bus number?",
+      "question_id": 282343004,
+      "answer_id": 1,
+      "answer": "870",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this train work?",
+      "question_id": 71001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this look like a healthy meal?",
+      "question_id": 119187000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the child happy?",
+      "question_id": 5219004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the first two words, written in white, on the \"blue sky\"?",
+      "question_id": 435686003,
+      "answer_id": 1,
+      "answer": "no words",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How big plane is this?",
+      "question_id": 559857000,
+      "answer_id": 3,
+      "answer": "large",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "If the plane is flying east, will it see the sun rise?",
+      "question_id": 348550003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What word is at the top of the picture?",
+      "question_id": 153194003,
+      "answer_id": 1,
+      "answer": "power",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What do you put on your lips?",
+      "question_id": 481165002,
+      "answer_id": 1,
+      "answer": "lipstick",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "When people sit on the bench is there any shade to keep them cool?",
+      "question_id": 3860003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does he like playing frisbee?",
+      "question_id": 5355002,
+      "answer_id": 3,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of flag is on the shirt of the woman?",
+      "question_id": 477298003,
+      "answer_id": 1,
+      "answer": "american",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a flag in this picture?",
+      "question_id": 105374003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name on the cake?",
+      "question_id": 151016001,
+      "answer_id": 1,
+      "answer": "giggle bloom",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is covering the statue?",
+      "question_id": 4834004,
+      "answer_id": 1,
+      "answer": "no statue",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the water placid?",
+      "question_id": 4173006,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you think this is a Ford or Chevy?",
+      "question_id": 129490000,
+      "answer_id": 1,
+      "answer": "chevy",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the guy having fun?",
+      "question_id": 260354002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the sink turned on?",
+      "question_id": 5335002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many light poles are there?",
+      "question_id": 2687000,
+      "answer_id": 2,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign say?",
+      "question_id": 400309004,
+      "answer_id": 1,
+      "answer": "give way",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a mirror in this photo?",
+      "question_id": 2024006,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the tree real?",
+      "question_id": 2270002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are people allowed to touch the object on the platform?",
+      "question_id": 119755001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the text on the sign?",
+      "question_id": 112106001,
+      "answer_id": 2,
+      "answer": "stop",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the plate?",
+      "question_id": 194000,
+      "answer_id": 1,
+      "answer": "white",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a traditional pizza?",
+      "question_id": 4796003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is shown on the clock?",
+      "question_id": 580681001,
+      "answer_id": 2,
+      "answer": "10:34",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many kids are standing?",
+      "question_id": 2402017,
+      "answer_id": 1,
+      "answer": "7",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Who manufactured this plane?",
+      "question_id": 138547000,
+      "answer_id": 1,
+      "answer": "boeing",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Did the train just stop?",
+      "question_id": 1712004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the cat scared of the owl?",
+      "question_id": 124926002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What number is written on the sign in red?",
+      "question_id": 275037005,
+      "answer_id": 1,
+      "answer": "0",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the cat standing on something?",
+      "question_id": 2606004,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old is the lady?",
+      "question_id": 123851001,
+      "answer_id": 2,
+      "answer": "78",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this house look organized?",
+      "question_id": 3899011,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is it?",
+      "question_id": 15311003,
+      "answer_id": 1,
+      "answer": "5:43",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where is the dog?",
+      "question_id": 1622000,
+      "answer_id": 5,
+      "answer": "on toilet",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color are the stripes on the men's uniforms?",
+      "question_id": 4259006,
+      "answer_id": 1,
+      "answer": "yellow",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you require a strong breeze for this activity?",
+      "question_id": 372363001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time does the clock say?",
+      "question_id": 143736000,
+      "answer_id": 2,
+      "answer": "1:53",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Why is the woman walking in front of the vehicles?",
+      "question_id": 4331012,
+      "answer_id": 1,
+      "answer": "no woman",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the pic black and  white?",
+      "question_id": 3077001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is attached to this person's feet?",
+      "question_id": 4704001,
+      "answer_id": 1,
+      "answer": "snowboard",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this person old?",
+      "question_id": 417549004,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country's flag is represented on the umbrella's?",
+      "question_id": 261585004,
+      "answer_id": 1,
+      "answer": "us",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this an old car?",
+      "question_id": 224753001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What activity is the man enjoying?",
+      "question_id": 1108002,
+      "answer_id": 1,
+      "answer": "skateboarding",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people with blue shirts?",
+      "question_id": 5083005,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many flags do you see?",
+      "question_id": 3602004,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the climate like in this area?",
+      "question_id": 4546010,
+      "answer_id": 2,
+      "answer": "warm",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sticker say?",
+      "question_id": 132262002,
+      "answer_id": 1,
+      "answer": "c-524",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Has anyone taken a bite of this yet?",
+      "question_id": 3911014,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is  the person getting on the bus?",
+      "question_id": 4331007,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is on the clock?",
+      "question_id": 439057001,
+      "answer_id": 1,
+      "answer": "1:37",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a pizza oven?",
+      "question_id": 3293013,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where is a bowl containing treats?",
+      "question_id": 4714001,
+      "answer_id": 2,
+      "answer": "table",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people are standing on their surfboards?",
+      "question_id": 4984024,
+      "answer_id": 1,
+      "answer": "0",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a healthy meal?",
+      "question_id": 451107009,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this animal domesticated?",
+      "question_id": 825001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the pizza sauce organic?",
+      "question_id": 450004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Was this picture taken with a flash?",
+      "question_id": 4282001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the person look happy?",
+      "question_id": 110819004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the man happy?",
+      "question_id": 68290001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are there clouds in the sky?",
+      "question_id": 5237001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where is the lighthouse located?",
+      "question_id": 781004,
+      "answer_id": 1,
+      "answer": "in distance",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there text in the top right corner of this picture?",
+      "question_id": 2575002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a teapot on the stove in this photo?",
+      "question_id": 5028005,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the objects in the sky?",
+      "question_id": 4546000,
+      "answer_id": 1,
+      "answer": "planes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does it seem like it is hot outside?",
+      "question_id": 161328003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "DO dogs like birthday cake?",
+      "question_id": 478839003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Which of the boy's feet are in the air?",
+      "question_id": 368000,
+      "answer_id": 1,
+      "answer": "left",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are there houses in the background?",
+      "question_id": 531008,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the people happy or sad?",
+      "question_id": 512806004,
+      "answer_id": 1,
+      "answer": "happy",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the glass empty?",
+      "question_id": 3286000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this food healthy?",
+      "question_id": 438002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many varieties of vegetables are on top of the pizza?",
+      "question_id": 3911055,
+      "answer_id": 1,
+      "answer": "0",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the woman's hair?",
+      "question_id": 5377003,
+      "answer_id": 1,
+      "answer": "blonde",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are they all dressed in red?",
+      "question_id": 4172000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old is the person?",
+      "question_id": 384289004,
+      "answer_id": 2,
+      "answer": "30",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What letter is on this man's sweatshirt front?",
+      "question_id": 398568007,
+      "answer_id": 3,
+      "answer": "0",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country is this in?",
+      "question_id": 254357000,
+      "answer_id": 2,
+      "answer": "australia",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this animal look dangerous?",
+      "question_id": 311953004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What candy is on the desk?",
+      "question_id": 909003,
+      "answer_id": 1,
+      "answer": "starburst",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Which person is the tourist?",
+      "question_id": 204759000,
+      "answer_id": 2,
+      "answer": "left",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this dangerous?",
+      "question_id": 286569008,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a professional game?",
+      "question_id": 263406009,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time does the clock show?",
+      "question_id": 310047001,
+      "answer_id": 1,
+      "answer": "7:25",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the pattern on the pillows?",
+      "question_id": 4970000,
+      "answer_id": 2,
+      "answer": "plaid",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is written on the pieces of paper?",
+      "question_id": 134169001,
+      "answer_id": 3,
+      "answer": "words",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the yellow Jersey say?",
+      "question_id": 172176002,
+      "answer_id": 1,
+      "answer": "giants",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What holiday is the dog dressed for?",
+      "question_id": 3745003,
+      "answer_id": 1,
+      "answer": "christmas",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign say?",
+      "question_id": 499915000,
+      "answer_id": 1,
+      "answer": "takeover",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is written on the right?",
+      "question_id": 232762005,
+      "answer_id": 1,
+      "answer": "auto service",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the motorcycle?",
+      "question_id": 5256001,
+      "answer_id": 1,
+      "answer": "red",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What vegetables are on the sandwich?",
+      "question_id": 4931011,
+      "answer_id": 1,
+      "answer": "none",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do these animals have tails?",
+      "question_id": 4318001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What word is written from top to bottom on the right edge of the poster?",
+      "question_id": 204690002,
+      "answer_id": 3,
+      "answer": "trainspotting",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is. The animal?",
+      "question_id": 5005021,
+      "answer_id": 1,
+      "answer": "cow",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What intersection is this?",
+      "question_id": 5500000,
+      "answer_id": 6,
+      "answer": "vermont and 23rd st",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What famous photographer took this picture?",
+      "question_id": 242926001,
+      "answer_id": 2,
+      "answer": "unknown",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does it say on the tent?",
+      "question_id": 108826001,
+      "answer_id": 1,
+      "answer": "vineyard vines",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How long is the time limit?",
+      "question_id": 215600002,
+      "answer_id": 2,
+      "answer": "2 hours",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many lamps are there?",
+      "question_id": 1155000,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country are these uniformed men from?",
+      "question_id": 362432003,
+      "answer_id": 4,
+      "answer": "england",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of shoes are they wearing?",
+      "question_id": 1183006,
+      "answer_id": 1,
+      "answer": "sneakers",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a protective coating of plastic on the refrigerator?",
+      "question_id": 4978000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Will the white animal be eaten?",
+      "question_id": 457842000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this man need professional help?",
+      "question_id": 70629001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the bear laying on carpet?",
+      "question_id": 2770002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the sandwiches sliced in half?",
+      "question_id": 4931003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many planes?",
+      "question_id": 1408008,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is anyone in the picture wearing jeans?",
+      "question_id": 5086001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this room carpeted?",
+      "question_id": 2496001,
+      "answer_id": 2,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Will the man learn how to not wipe out?",
+      "question_id": 382058000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the flower fully grown?",
+      "question_id": 4132001,
+      "answer_id": 2,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign say?",
+      "question_id": 441909007,
+      "answer_id": 1,
+      "answer": "durham court",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the circular object?",
+      "question_id": 2931007,
+      "answer_id": 1,
+      "answer": "clock",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the purpose of the owls?",
+      "question_id": 497311002,
+      "answer_id": 3,
+      "answer": "salt and pepper shakers",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this indoors or outdoors?",
+      "question_id": 3579001,
+      "answer_id": 1,
+      "answer": "outdoors",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the furnace new or old?",
+      "question_id": 234022001,
+      "answer_id": 1,
+      "answer": "old",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Overcast or sunny?",
+      "question_id": 1497002,
+      "answer_id": 1,
+      "answer": "sunny",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the man a professional?",
+      "question_id": 236611010,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is it a humid climate here?",
+      "question_id": 135499012,
+      "answer_id": 3,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the animal happy?",
+      "question_id": 482789001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a black and white photo?",
+      "question_id": 1645001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How fast is the person moving?",
+      "question_id": 965002,
+      "answer_id": 1,
+      "answer": "not moving",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the suitcase made of?",
+      "question_id": 5142029,
+      "answer_id": 1,
+      "answer": "plastic",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the bike have a basket?",
+      "question_id": 3988003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a person?",
+      "question_id": 382002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people are watching?",
+      "question_id": 2560002,
+      "answer_id": 1,
+      "answer": "40",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do the zebras like each other?",
+      "question_id": 186255001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the man on the ground riding?",
+      "question_id": 1232000,
+      "answer_id": 1,
+      "answer": "motorcycle",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Would this food item be considered vegan?",
+      "question_id": 357700004,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the words on the screen?",
+      "question_id": 261931009,
+      "answer_id": 1,
+      "answer": "k roberts photography",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand is the helmet?",
+      "question_id": 477782005,
+      "answer_id": 1,
+      "answer": "can't see brand",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of car?",
+      "question_id": 329147000,
+      "answer_id": 1,
+      "answer": "bmw",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these downhill or cross country skiers?",
+      "question_id": 51720021,
+      "answer_id": 1,
+      "answer": "downhill",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of phone is this?",
+      "question_id": 103234001,
+      "answer_id": 1,
+      "answer": "iphone",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Isn't it to dark to play frisbee?",
+      "question_id": 322007,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the man wearing?",
+      "question_id": 2415005,
+      "answer_id": 4,
+      "answer": "clothes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this look like a healthy sandwich?",
+      "question_id": 401288005,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What would you use the roll for?",
+      "question_id": 139492003,
+      "answer_id": 2,
+      "answer": "wiping",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where is the word London printed?",
+      "question_id": 3314005,
+      "answer_id": 5,
+      "answer": "clock face",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the boy sitting on?",
+      "question_id": 3160006,
+      "answer_id": 1,
+      "answer": "horse",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the sign faded?",
+      "question_id": 4245002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many seats are there?",
+      "question_id": 2448000,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are there flowers in the vase?",
+      "question_id": 30000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the scissor handle?",
+      "question_id": 1084004,
+      "answer_id": 1,
+      "answer": "black",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this an old phone?",
+      "question_id": 3992006,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the arm wearing a wristband?",
+      "question_id": 1596003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Was this photo taken indoors?",
+      "question_id": 2606008,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What name is printed on the fence?",
+      "question_id": 359205001,
+      "answer_id": 1,
+      "answer": "wilson",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are there peppers on this pizza?",
+      "question_id": 3911025,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the person with the cat a man or woman?",
+      "question_id": 443001,
+      "answer_id": 1,
+      "answer": "man",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What famous artist's rendering is on the train?",
+      "question_id": 455182002,
+      "answer_id": 2,
+      "answer": "van gogh",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign in the background say?",
+      "question_id": 113845001,
+      "answer_id": 1,
+      "answer": "one way",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this an expensive bathroom?",
+      "question_id": 1213003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Can you see a photograph?",
+      "question_id": 1155001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What part of his body is hitting the ball?",
+      "question_id": 4702003,
+      "answer_id": 1,
+      "answer": "head",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How big is this bed?",
+      "question_id": 558878004,
+      "answer_id": 1,
+      "answer": "twin",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the letter near the door?",
+      "question_id": 371254006,
+      "answer_id": 5,
+      "answer": "i",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the landmark shown in this image internationally famous?",
+      "question_id": 1366000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of this favorite teen food?",
+      "question_id": 66088000,
+      "answer_id": 1,
+      "answer": "pizza",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time does the clock have?",
+      "question_id": 481521000,
+      "answer_id": 1,
+      "answer": "12:35",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name on the side of the food truck?",
+      "question_id": 518755002,
+      "answer_id": 1,
+      "answer": "dinges",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a dangerous stunt?",
+      "question_id": 439676001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Which animal is outside?",
+      "question_id": 1098004,
+      "answer_id": 1,
+      "answer": "cow",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Would this umbrella keep you dry?",
+      "question_id": 538993002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are there people in the bus?",
+      "question_id": 532001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the people doing?",
+      "question_id": 1053001,
+      "answer_id": 2,
+      "answer": "riding bikes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many toothbrushes are there?",
+      "question_id": 562002,
+      "answer_id": 1,
+      "answer": "3",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is written on the vehicle?",
+      "question_id": 500106000,
+      "answer_id": 5,
+      "answer": "words",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this Chinatown in San Francisco?",
+      "question_id": 901001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these people still in high school?",
+      "question_id": 1237001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many candles are on the cake?",
+      "question_id": 735001,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the man pointing at the camera?",
+      "question_id": 436010,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the weather like?",
+      "question_id": 4478005,
+      "answer_id": 3,
+      "answer": "foggy",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the bed made in this picture?",
+      "question_id": 4189002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What word is written on the RV?",
+      "question_id": 528198007,
+      "answer_id": 1,
+      "answer": "wilderness",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What would you call this facility?",
+      "question_id": 61231002,
+      "answer_id": 1,
+      "answer": "airport",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What was the purpose of this machine?",
+      "question_id": 533158020,
+      "answer_id": 1,
+      "answer": "transport",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this man going to skate up the wall?",
+      "question_id": 77000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you own the item featured in the sign?",
+      "question_id": 282552002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How tall are the ceiling in this room?",
+      "question_id": 557931001,
+      "answer_id": 5,
+      "answer": "10 feet",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the brand name on this dog's jacket?",
+      "question_id": 362175002,
+      "answer_id": 2,
+      "answer": "kaani",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What words are on the poster on the wall above the bed?",
+      "question_id": 466373003,
+      "answer_id": 1,
+      "answer": "world's greatest",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What letters do you see?",
+      "question_id": 154349001,
+      "answer_id": 2,
+      "answer": "next feet p",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this safe?",
+      "question_id": 344180002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the last number on the license plate?",
+      "question_id": 57284006,
+      "answer_id": 1,
+      "answer": "7",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Why is the hummingbird food dyed?",
+      "question_id": 3305004,
+      "answer_id": 1,
+      "answer": "brightness",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is written on the cake?",
+      "question_id": 434070002,
+      "answer_id": 1,
+      "answer": "happy birthday julia!",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are they skating?",
+      "question_id": 2658004,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the brand of mustard?",
+      "question_id": 303708002,
+      "answer_id": 2,
+      "answer": "french's",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is it?",
+      "question_id": 499460001,
+      "answer_id": 5,
+      "answer": "7:50",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What breed of cat is this?",
+      "question_id": 467762000,
+      "answer_id": 1,
+      "answer": "siamese",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does Timpson repair?",
+      "question_id": 5505001,
+      "answer_id": 1,
+      "answer": "watches",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the airline?",
+      "question_id": 5396000,
+      "answer_id": 1,
+      "answer": "germanwings",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What word is placed on the house in the middle?",
+      "question_id": 406142010,
+      "answer_id": 1,
+      "answer": "0",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people are in the above picture?",
+      "question_id": 2229001,
+      "answer_id": 3,
+      "answer": "12",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where is the brush?",
+      "question_id": 5288002,
+      "answer_id": 4,
+      "answer": "in dog's mouth",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time does the clock say?",
+      "question_id": 274254009,
+      "answer_id": 1,
+      "answer": "2:30",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the umbrella?",
+      "question_id": 4404001,
+      "answer_id": 2,
+      "answer": "rainbow",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is it nighttime?",
+      "question_id": 2083003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are there any clouds in the sky?",
+      "question_id": 4546009,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is written on the plane?",
+      "question_id": 283766001,
+      "answer_id": 1,
+      "answer": "delta",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the cat look happy?",
+      "question_id": 328069002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the man talking to someone?",
+      "question_id": 1006000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a crowd in the streets?",
+      "question_id": 1295000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the ground shades of brown/tan?",
+      "question_id": 312007,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What logo is on the white laptop?",
+      "question_id": 120246003,
+      "answer_id": 1,
+      "answer": "apple",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a healthy food?",
+      "question_id": 225100002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many lights are on?",
+      "question_id": 2545003,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the storage containers made of?",
+      "question_id": 2608000,
+      "answer_id": 3,
+      "answer": "wood",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the suitcase?",
+      "question_id": 572000,
+      "answer_id": 2,
+      "answer": "blue",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are they brothers?",
+      "question_id": 5021001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Which meat item is written on the Blackboard?",
+      "question_id": 434328000,
+      "answer_id": 1,
+      "answer": "chicken",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you think this is a location in Antarctica?",
+      "question_id": 597011,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the train say on the front?",
+      "question_id": 9178005,
+      "answer_id": 1,
+      "answer": "korail",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the Village?",
+      "question_id": 466992000,
+      "answer_id": 2,
+      "answer": "boston",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a government official's plane?",
+      "question_id": 247002,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is hanging on the wall?",
+      "question_id": 4578000,
+      "answer_id": 1,
+      "answer": "picture",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many hands do you see?",
+      "question_id": 3000007,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Will these wilt and die?",
+      "question_id": 1216005,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many cell phones are on the desk?",
+      "question_id": 3219007,
+      "answer_id": 1,
+      "answer": "3",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Would this meal be something you might eat outside on a picnic?",
+      "question_id": 343810001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the tail of the plane?",
+      "question_id": 540000,
+      "answer_id": 1,
+      "answer": "red",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is he holding?",
+      "question_id": 839002,
+      "answer_id": 1,
+      "answer": "frisbee",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you think these bananas are of the same variety?",
+      "question_id": 3518001,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people are not cold?",
+      "question_id": 2402004,
+      "answer_id": 1,
+      "answer": "0",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the food laying on?",
+      "question_id": 3911026,
+      "answer_id": 1,
+      "answer": "plate",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the wall made of?",
+      "question_id": 2066004,
+      "answer_id": 1,
+      "answer": "brick",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Was this picture taken in Italy?",
+      "question_id": 5483006,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people are airborne?",
+      "question_id": 2369001,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is he going to hit the ball?",
+      "question_id": 5139000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does her arm say?",
+      "question_id": 68237002,
+      "answer_id": 1,
+      "answer": "hero",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where do you think this scene took place?",
+      "question_id": 245676002,
+      "answer_id": 4,
+      "answer": "zoo",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the suitcase?",
+      "question_id": 3474000,
+      "answer_id": 1,
+      "answer": "black",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of soft drink is on the bottom of the picture?",
+      "question_id": 23025003,
+      "answer_id": 4,
+      "answer": "none",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the object the cat is laying on?",
+      "question_id": 3474001,
+      "answer_id": 5,
+      "answer": "black",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the cat like plants?",
+      "question_id": 161178002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of animals are in the picture?",
+      "question_id": 2400001,
+      "answer_id": 1,
+      "answer": "dogs",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "In which country is this photo likely taken?",
+      "question_id": 364228000,
+      "answer_id": 1,
+      "answer": "china",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Would you be prepared to cook a meal on this stove?",
+      "question_id": 239007042,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many pink flowers are in the vase?",
+      "question_id": 3613001,
+      "answer_id": 2,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these cows going to be eaten?",
+      "question_id": 492618005,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a tennis match in Brisbane?",
+      "question_id": 2575003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "In what nation was this image taken?",
+      "question_id": 522269002,
+      "answer_id": 1,
+      "answer": "italy",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the elephant?",
+      "question_id": 3457003,
+      "answer_id": 1,
+      "answer": "gray",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the small round green fruit next to the apple?",
+      "question_id": 395169000,
+      "answer_id": 4,
+      "answer": "grape",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many bikes are visible?",
+      "question_id": 2823001,
+      "answer_id": 1,
+      "answer": "3",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the  color of the plate?",
+      "question_id": 5383007,
+      "answer_id": 1,
+      "answer": "white",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Who made the cock?",
+      "question_id": 64000,
+      "answer_id": 1,
+      "answer": "rolex",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What gender is the person with the kite?",
+      "question_id": 4608002,
+      "answer_id": 2,
+      "answer": "female",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the restaurant?",
+      "question_id": 526874029,
+      "answer_id": 1,
+      "answer": "crafts",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are tractors allowed?",
+      "question_id": 124780001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What do you call this size of bed?",
+      "question_id": 10466002,
+      "answer_id": 4,
+      "answer": "queen",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of computer is this?",
+      "question_id": 5028003,
+      "answer_id": 5,
+      "answer": "apple",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where would this animal be from?",
+      "question_id": 289067003,
+      "answer_id": 1,
+      "answer": "africa",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the traffic light?",
+      "question_id": 4068000,
+      "answer_id": 1,
+      "answer": "green",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you see someone holding a camera?",
+      "question_id": 1994000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this vehicle look safe?",
+      "question_id": 510617002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What word is on the sign?",
+      "question_id": 399512001,
+      "answer_id": 1,
+      "answer": "stop",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is she having fun?",
+      "question_id": 292042010,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Which man is the least safe in the picture?",
+      "question_id": 4331006,
+      "answer_id": 5,
+      "answer": "in front of bus",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this fruit and vegetables?",
+      "question_id": 1510003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many elephants are walking down the street?",
+      "question_id": 4208010,
+      "answer_id": 1,
+      "answer": "3",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What letter can be read in the add?",
+      "question_id": 302116002,
+      "answer_id": 1,
+      "answer": "a",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What would you do if you wanted to go north instead?",
+      "question_id": 29287004,
+      "answer_id": 6,
+      "answer": "turn right",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people are working with the green flag?",
+      "question_id": 440182002,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the man doing?",
+      "question_id": 2402000,
+      "answer_id": 1,
+      "answer": "skiing",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many lights are lit on the train?",
+      "question_id": 795000,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand is his coat?",
+      "question_id": 41549002,
+      "answer_id": 1,
+      "answer": "winter",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these wild elephants?",
+      "question_id": 4208003,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the character on the soap pump?",
+      "question_id": 372862001,
+      "answer_id": 1,
+      "answer": "hello kitty",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "At the stoplight, can you take a left onto Crooks RD?",
+      "question_id": 242257000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a handrail?",
+      "question_id": 3812002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the woman doing to the calf?",
+      "question_id": 1098005,
+      "answer_id": 1,
+      "answer": "petting",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many phones are there?",
+      "question_id": 1507004,
+      "answer_id": 1,
+      "answer": "0",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What liquid is inside the clear glass?",
+      "question_id": 605002,
+      "answer_id": 2,
+      "answer": "water",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of animal is this?",
+      "question_id": 5005020,
+      "answer_id": 1,
+      "answer": "cow",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the favorite literary genre of the person who lives here?",
+      "question_id": 92691003,
+      "answer_id": 1,
+      "answer": "sci fi/fantasy",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the person going to do?",
+      "question_id": 1596001,
+      "answer_id": 2,
+      "answer": "hit ball",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of plane is it?",
+      "question_id": 542002,
+      "answer_id": 1,
+      "answer": "biplane",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these people happy?",
+      "question_id": 571906006,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a professional game?",
+      "question_id": 373813005,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these people drinking alcohol?",
+      "question_id": 3293032,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do the rooftops have points?",
+      "question_id": 4880001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does this train usually haul?",
+      "question_id": 5554004,
+      "answer_id": 1,
+      "answer": "freight",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people are present?",
+      "question_id": 4984017,
+      "answer_id": 1,
+      "answer": "2",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What letter on a sign has a line through it?",
+      "question_id": 108049004,
+      "answer_id": 1,
+      "answer": "e",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the people in the background doing?",
+      "question_id": 3236003,
+      "answer_id": 1,
+      "answer": "talking",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the purpose of the bell around his neck?",
+      "question_id": 126432020,
+      "answer_id": 1,
+      "answer": "to know where they are",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the person doing?",
+      "question_id": 1216009,
+      "answer_id": 1,
+      "answer": "walking",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time does the clock say?",
+      "question_id": 200489000,
+      "answer_id": 3,
+      "answer": "3:00",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the table made out of?",
+      "question_id": 3293015,
+      "answer_id": 1,
+      "answer": "wood",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the brand of the truck?",
+      "question_id": 522411003,
+      "answer_id": 1,
+      "answer": "scania",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this image out in the country?",
+      "question_id": 167819007,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Have you ever seen such a stop sign?",
+      "question_id": 134502000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a Wal-Mart within a mile of this place?",
+      "question_id": 4624002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand is on the face of the clock?",
+      "question_id": 517322009,
+      "answer_id": 1,
+      "answer": "rotary international",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of animal is present on the shoe?",
+      "question_id": 1942006,
+      "answer_id": 1,
+      "answer": "cat",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Can you park here?",
+      "question_id": 214450003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is in the picture?",
+      "question_id": 2278000,
+      "answer_id": 3,
+      "answer": "skateboarder",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the woman holding in her hands?",
+      "question_id": 4981000,
+      "answer_id": 1,
+      "answer": "umbrella",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the taxi made by a US automobile manufacturer?",
+      "question_id": 208189002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the guy look happy?",
+      "question_id": 127381001,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this girl dream of becoming a country western singer?",
+      "question_id": 281327000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you a charger in the picture?",
+      "question_id": 315994053,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this tennis player attempting a forehand or backhand shot?",
+      "question_id": 4139005,
+      "answer_id": 1,
+      "answer": "forehand",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this item valuable?",
+      "question_id": 3325002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the little boy holding?",
+      "question_id": 4131000,
+      "answer_id": 1,
+      "answer": "glove",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many entrances to the train are visible?",
+      "question_id": 1090002,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of fruits are here?",
+      "question_id": 2902002,
+      "answer_id": 1,
+      "answer": "banana, pear, orange, apple, avocado",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What did the cake have written on it?",
+      "question_id": 552004002,
+      "answer_id": 2,
+      "answer": "thank you coaches",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this food have filling?",
+      "question_id": 4385003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country was this photo taken in?",
+      "question_id": 481251000,
+      "answer_id": 2,
+      "answer": "england",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this cat look happy?",
+      "question_id": 280043002,
+      "answer_id": 4,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are you not supposed to feed?",
+      "question_id": 3915026,
+      "answer_id": 4,
+      "answer": "nothing",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What area is this bus for?",
+      "question_id": 2644001,
+      "answer_id": 1,
+      "answer": "london",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these people happy or sad?",
+      "question_id": 279175011,
+      "answer_id": 1,
+      "answer": "sad",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Was this picture taken at night?",
+      "question_id": 322000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is in between the bananas?",
+      "question_id": 3518000,
+      "answer_id": 1,
+      "answer": "heart",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Would this be a healthy meal?",
+      "question_id": 161760004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Which side of the toilet is the paper on?",
+      "question_id": 5277001,
+      "answer_id": 1,
+      "answer": "right",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the red object in the water?",
+      "question_id": 4984025,
+      "answer_id": 1,
+      "answer": "surfboard",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this cat in attack mode or is he just sunning himself?",
+      "question_id": 5435002,
+      "answer_id": 1,
+      "answer": "sunning",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the price tag say?",
+      "question_id": 478597004,
+      "answer_id": 1,
+      "answer": "3.20",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these food items fruits?",
+      "question_id": 1455003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Was this pic taken in the city?",
+      "question_id": 4130000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What breed of cows are these?",
+      "question_id": 377409004,
+      "answer_id": 3,
+      "answer": "angus",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this man happy?",
+      "question_id": 446269003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the dog looking at?",
+      "question_id": 1915004,
+      "answer_id": 5,
+      "answer": "driver",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a typical breakfast and lunch meal?",
+      "question_id": 1261008,
+      "answer_id": 2,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color are the man's fingernails?",
+      "question_id": 3920001,
+      "answer_id": 3,
+      "answer": "white",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old do you this guy is?",
+      "question_id": 2055001,
+      "answer_id": 8,
+      "answer": "70",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many layers are in this cake?",
+      "question_id": 92000,
+      "answer_id": 3,
+      "answer": "7",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the man eating?",
+      "question_id": 3827000,
+      "answer_id": 1,
+      "answer": "sandwich",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the signs say?",
+      "question_id": 531488004,
+      "answer_id": 2,
+      "answer": "chachos old orchard street",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What's he doing to the dog?",
+      "question_id": 882001,
+      "answer_id": 2,
+      "answer": "holding it",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is an aircraft visible?",
+      "question_id": 4608004,
+      "answer_id": 2,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the number under the windshield?",
+      "question_id": 1720005,
+      "answer_id": 2,
+      "answer": "450",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What would probably be a child's favorite part of this meal?",
+      "question_id": 310450003,
+      "answer_id": 1,
+      "answer": "candy",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of pants is the kid wearing?",
+      "question_id": 270224001,
+      "answer_id": 1,
+      "answer": "adidas",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the clock?",
+      "question_id": 2931008,
+      "answer_id": 1,
+      "answer": "red",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of flooring is this?",
+      "question_id": 1706002,
+      "answer_id": 1,
+      "answer": "carpet",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many zebras are there?",
+      "question_id": 1907000,
+      "answer_id": 2,
+      "answer": "4",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you think the photo is done in black and white or sepia coloration?",
+      "question_id": 280731008,
+      "answer_id": 2,
+      "answer": "black and white",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the tv on?",
+      "question_id": 3877006,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many spots are on the giraffe?",
+      "question_id": 2066000,
+      "answer_id": 2,
+      "answer": "many",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a popular food truck?",
+      "question_id": 539242003,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are the people doing on the empty field?",
+      "question_id": 2563002,
+      "answer_id": 1,
+      "answer": "flying kites",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a professional bike race?",
+      "question_id": 409451003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How tall is the giraffe?",
+      "question_id": 119529013,
+      "answer_id": 1,
+      "answer": "12 feet",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What type of screwdriver would you need to remove those screws?",
+      "question_id": 569529001,
+      "answer_id": 2,
+      "answer": "flathead",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How would you describe the weather?",
+      "question_id": 427910004,
+      "answer_id": 1,
+      "answer": "sunny",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of the airline?",
+      "question_id": 532333001,
+      "answer_id": 1,
+      "answer": "golden spike",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the climate here?",
+      "question_id": 343770002,
+      "answer_id": 1,
+      "answer": "cold",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a blanket in this picture?",
+      "question_id": 5115009,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is it?",
+      "question_id": 317792000,
+      "answer_id": 3,
+      "answer": "10:30",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Would this be considered a balanced meal?",
+      "question_id": 3917000,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people are in the room?",
+      "question_id": 2752002,
+      "answer_id": 1,
+      "answer": "4",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of stuffed animal is on top of the monitor?",
+      "question_id": 643002,
+      "answer_id": 1,
+      "answer": "turtle",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many cats are there?",
+      "question_id": 3249007,
+      "answer_id": 1,
+      "answer": "0",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are there more people on grass or in the water?",
+      "question_id": 2498003,
+      "answer_id": 1,
+      "answer": "water",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the name of this boat?",
+      "question_id": 235177008,
+      "answer_id": 1,
+      "answer": "escapades",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How old is the bear?",
+      "question_id": 5785006,
+      "answer_id": 1,
+      "answer": "baby",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where are the flowers?",
+      "question_id": 3915019,
+      "answer_id": 2,
+      "answer": "on counter",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the blackberries going to be used as a garnish on the piece of cake?",
+      "question_id": 163594001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does it feel like a hazy shade of winter?",
+      "question_id": 49551022,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is in the background of the photo?",
+      "question_id": 1562002,
+      "answer_id": 1,
+      "answer": "building",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the banner say?",
+      "question_id": 449103001,
+      "answer_id": 1,
+      "answer": "casino",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What breed of cat is this?",
+      "question_id": 447985003,
+      "answer_id": 1,
+      "answer": "tabby",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How long has this snow been here?",
+      "question_id": 195394005,
+      "answer_id": 1,
+      "answer": "months",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is in the photo?",
+      "question_id": 1523001,
+      "answer_id": 1,
+      "answer": "truck",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a blue trash can?",
+      "question_id": 4360003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a business office?",
+      "question_id": 4761004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many feet is within the no parking zone?",
+      "question_id": 2951008,
+      "answer_id": 1,
+      "answer": "30",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these men professional ball players?",
+      "question_id": 528870003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the disk?",
+      "question_id": 307000,
+      "answer_id": 1,
+      "answer": "yellow and blue",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a professional game?",
+      "question_id": 524063003,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is there a mirror on the door?",
+      "question_id": 3640005,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the flag?",
+      "question_id": 1390000,
+      "answer_id": 2,
+      "answer": "red",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country is this plane from?",
+      "question_id": 277790001,
+      "answer_id": 1,
+      "answer": "canada",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign in the background say?",
+      "question_id": 118783021,
+      "answer_id": 3,
+      "answer": "fr duke tomatoe benefit joey d williams",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the cat asleep?",
+      "question_id": 1085001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is in the frame?",
+      "question_id": 908008,
+      "answer_id": 3,
+      "answer": "poster",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the contents of this desk expensive?",
+      "question_id": 128222003,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the boy riding?",
+      "question_id": 4876001,
+      "answer_id": 1,
+      "answer": "skateboard",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this breakfast food?",
+      "question_id": 2374006,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand of toothpaste is this?",
+      "question_id": 468538006,
+      "answer_id": 1,
+      "answer": "colgate",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the person on the elephant in the back wearing?",
+      "question_id": 61003,
+      "answer_id": 1,
+      "answer": "red",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the old man wearing glasses?",
+      "question_id": 251897000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Can you make this?",
+      "question_id": 239022002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the sign say?",
+      "question_id": 62541003,
+      "answer_id": 1,
+      "answer": "monkeydrive textildruck",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What brand is the stove?",
+      "question_id": 151722001,
+      "answer_id": 1,
+      "answer": "southern belle",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the snow?",
+      "question_id": 1645002,
+      "answer_id": 1,
+      "answer": "white",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Where do you park your car?",
+      "question_id": 147505006,
+      "answer_id": 2,
+      "answer": "street",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the number of the train?",
+      "question_id": 44523002,
+      "answer_id": 3,
+      "answer": "m525",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the boy's shirt say?",
+      "question_id": 247718005,
+      "answer_id": 1,
+      "answer": "house of blues",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these donuts real?",
+      "question_id": 3270000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a professional tennis match?",
+      "question_id": 460491001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of pan is on the stove?",
+      "question_id": 4159004,
+      "answer_id": 4,
+      "answer": "stock pot",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time of the day is it?",
+      "question_id": 157603007,
+      "answer_id": 1,
+      "answer": "dusk",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What has happened to the top of the bun?",
+      "question_id": 4719004,
+      "answer_id": 1,
+      "answer": "nothing",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the animals fighting?",
+      "question_id": 797002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What sport are they playing?",
+      "question_id": 5260001,
+      "answer_id": 1,
+      "answer": "baseball",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you see a reflection?",
+      "question_id": 1589000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the person in yellow a professional skier?",
+      "question_id": 435342000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do you have to train for this sport?",
+      "question_id": 153475005,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are these pastries popular based on the amount shown?",
+      "question_id": 103455002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a fire truck?",
+      "question_id": 532000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What are those men riding?",
+      "question_id": 2377001,
+      "answer_id": 1,
+      "answer": "motorcycles",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this dish healthy?",
+      "question_id": 2068000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What country issued these license plates?",
+      "question_id": 223836002,
+      "answer_id": 3,
+      "answer": "england",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many cats are there?",
+      "question_id": 5142024,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the cow young?",
+      "question_id": 1098001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Which toilet would you prefer to use?",
+      "question_id": 714000,
+      "answer_id": 4,
+      "answer": "right",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many props?",
+      "question_id": 1350002,
+      "answer_id": 1,
+      "answer": "1",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are there vegetables?",
+      "question_id": 3911037,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What animals are these?",
+      "question_id": 4208007,
+      "answer_id": 1,
+      "answer": "elephants",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are there trees here?",
+      "question_id": 4579004,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What food isn't in a bowl?",
+      "question_id": 1261002,
+      "answer_id": 1,
+      "answer": "bread",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "The plane's stand resembles what letter?",
+      "question_id": 509406001,
+      "answer_id": 1,
+      "answer": "c",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is that snow or sand on the ground?",
+      "question_id": 4546011,
+      "answer_id": 1,
+      "answer": "sand",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this man wearing a hat?",
+      "question_id": 2055000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this look tasty?",
+      "question_id": 407369005,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does the passenger have a shirt on?",
+      "question_id": 5198001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What kind of sauce is over the quiche?",
+      "question_id": 5472000,
+      "answer_id": 2,
+      "answer": "cheese",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What activity is the person partaking in?",
+      "question_id": 4490003,
+      "answer_id": 1,
+      "answer": "skiing",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Are the words shown written in English?",
+      "question_id": 562675002,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this baby happy?",
+      "question_id": 2992001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the wine glass?",
+      "question_id": 2106003,
+      "answer_id": 1,
+      "answer": "green",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the silver thing on the ceiling?",
+      "question_id": 384004,
+      "answer_id": 1,
+      "answer": "chandelier",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the sign written in English?",
+      "question_id": 445491002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Does this meal look delicious?",
+      "question_id": 253863004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this a healthy lunch?",
+      "question_id": 3911030,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the boy's shirt?",
+      "question_id": 4138000,
+      "answer_id": 1,
+      "answer": "brown",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this animal wild or domesticated?",
+      "question_id": 2178001,
+      "answer_id": 1,
+      "answer": "domesticated",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the child happy about eating?",
+      "question_id": 395271000,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is the person in the blue shirt doing?",
+      "question_id": 2896006,
+      "answer_id": 1,
+      "answer": "taking picture",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this water a river?",
+      "question_id": 5210004,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What sport are these people watching?",
+      "question_id": 3220000,
+      "answer_id": 2,
+      "answer": "baseball",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time does the clock on the tower read?",
+      "question_id": 64626031,
+      "answer_id": 3,
+      "answer": "1:05",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Will this man get sunburned?",
+      "question_id": 72156016,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this food likely only for one person?",
+      "question_id": 853004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this man at home?",
+      "question_id": 4578004,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the cup say?",
+      "question_id": 473491002,
+      "answer_id": 1,
+      "answer": "hot",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the plate?",
+      "question_id": 1455010,
+      "answer_id": 1,
+      "answer": "white",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is the American flag in the photo?",
+      "question_id": 388149000,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the first sign say?",
+      "question_id": 38747000,
+      "answer_id": 2,
+      "answer": "please make sure that bag you claim is yours as many bags look alike",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is it dangerous what the guy is doing?",
+      "question_id": 318598022,
+      "answer_id": 1,
+      "answer": "no",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many boats are in the photo?",
+      "question_id": 4546016,
+      "answer_id": 1,
+      "answer": "0",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is it on the clock?",
+      "question_id": 57965009,
+      "answer_id": 6,
+      "answer": "7:27",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color is the cat?",
+      "question_id": 3935001,
+      "answer_id": 2,
+      "answer": "orange and white",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this taken at high elevation?",
+      "question_id": 4624004,
+      "answer_id": 2,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Do these people know each other?",
+      "question_id": 247106002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What tool is being used?",
+      "question_id": 3911053,
+      "answer_id": 1,
+      "answer": "fork",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What does the pizza sign say?",
+      "question_id": 187934003,
+      "answer_id": 1,
+      "answer": "special jumbo pizza",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is it sunny?",
+      "question_id": 1580005,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What type of dog is in the photo?",
+      "question_id": 5434002,
+      "answer_id": 4,
+      "answer": "schnauzer",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How long is the man's hair?",
+      "question_id": 508780002,
+      "answer_id": 1,
+      "answer": "shoulder length",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "If a person was hiding in the shower, would the photographer be able to see him?",
+      "question_id": 2197002,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "Is this terminal safe at night?",
+      "question_id": 260001,
+      "answer_id": 1,
+      "answer": "yes",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What breed is the dog?",
+      "question_id": 580919003,
+      "answer_id": 3,
+      "answer": "spaniel",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What time is it?",
+      "question_id": 244795008,
+      "answer_id": 1,
+      "answer": "5:36",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many animals can be seen?",
+      "question_id": 3178001,
+      "answer_id": 1,
+      "answer": "3",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What color are the taps?",
+      "question_id": 4830000,
+      "answer_id": 2,
+      "answer": "silver",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "How many people are wearing blue tops?",
+      "question_id": 3008006,
+      "answer_id": 1,
+      "answer": "0",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What is written on the stop sign?",
+      "question_id": 160331002,
+      "answer_id": 2,
+      "answer": "stop driving",
+      "manual_label": "NOT_DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What food is shown?",
+      "question_id": 1455005,
+      "answer_id": 2,
+      "answer": "donut",
+      "manual_label": "DIRECTLY_VISUAL"
+    }
+  ]
+}
