@@ -1,8 +1,7 @@
 {
   "info": {
-    "description": "GoldAuditor classifier set balanced 500/500 (DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL).",
+    "description": "GoldAuditor classifier set balanced 480/520 (DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL).",
     "seed": 42,
-    "per_class": 500,
     "sample_size": 1000,
     "num_records": 1000,
     "manual_label_values": [
@@ -20,8 +19,8 @@
       "questions": "E:\\Master files\\Master Thesis\\Implementations\\1-1 Image captioning improved visual question answering\\src\\dataset\\v2_OpenEnded_mscoco_train2014_questions.json"
     },
     "manual_label_counts": {
-      "DIRECTLY_VISUAL": 500,
-      "NOT_DIRECTLY_VISUAL": 500
+      "DIRECTLY_VISUAL": 480,
+      "NOT_DIRECTLY_VISUAL": 520
     }
   },
   "records": [
