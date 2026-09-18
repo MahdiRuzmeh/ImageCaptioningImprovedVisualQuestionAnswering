@@ -90,9 +90,17 @@ def unsupported_facts_detail(question: str, answer: str, caption: str) -> str:
 
 
 def semantic_fail_detail(question: str, answer: str, caption: str) -> str:
-    """Human-readable why the LLM semantic judge returned FAIL."""
+    """Human-readable why the LLM semantic judge returned SUSPICIOUS."""
     return (
-        f"semantic judge FAIL for Q={question!r} A={answer!r} "
+        f"semantic judge SUSPICIOUS for Q={question!r} A={answer!r} "
+        f"caption={caption!r}"
+    )
+
+
+def quantifier_mismatch_detail(question: str, answer: str, caption: str) -> str:
+    """Human-readable why a quantifier Q+A contradicted the caption."""
+    return (
+        f"quantifier mismatch for Q={question!r} A={answer!r} "
         f"caption={caption!r}"
     )
 
@@ -104,7 +112,13 @@ def format_invalid_detail(reason: str, caption: str) -> str:
 
 def flag_detail(flag: str, question: str, answer: str, caption: str) -> str:
     """Human-readable description of a soft validation flag."""
-    from validation.checks import FLAG_ANSWER_PARTIAL, FLAG_RELATION_LOW, FLAG_UNSUPPORTED_FACTS
+    from validation.checks import (
+        FLAG_ANSWER_PARTIAL,
+        FLAG_QUANTIFIER_INCOMPLETE,
+        FLAG_RELATION_LOW,
+        FLAG_SUSPICIOUS,
+        FLAG_UNSUPPORTED_FACTS,
+    )
 
     if flag == FLAG_RELATION_LOW:
         return relation_mismatch_detail(question, caption)
@@ -122,6 +136,13 @@ def flag_detail(flag: str, question: str, answer: str, caption: str) -> str:
             f"overlap ratio between fail and pass thresholds for "
             f"caption={caption!r} (Q={question!r})"
         )
+    if flag == FLAG_QUANTIFIER_INCOMPLETE:
+        return (
+            f"question uses a quantifier phrase but caption={caption!r} "
+            f"has no quantity cue (Q={question!r})"
+        )
+    if flag == FLAG_SUSPICIOUS:
+        return semantic_fail_detail(question, answer, caption)
     return f"{flag}: caption={caption!r}"
 
 
@@ -142,8 +163,10 @@ def rejection_detail(
         return echoes_question_detail(question, caption)
     if reason == "batch_contamination":
         return batch_contamination_detail(caption)
-    if reason == "semantic_fail":
+    if reason in {"semantic_fail", "suspicious"}:
         return semantic_fail_detail(question, answer, caption)
+    if reason == "quantifier_mismatch":
+        return quantifier_mismatch_detail(question, answer, caption)
     if reason == "overlap_too_low":
         return (
             f"overlap ratio below fail threshold for caption={caption!r} "

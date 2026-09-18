@@ -23,7 +23,7 @@ Pipeline:
 | `generate.py` | CLI: rules + always-on classifier + optional LLM fallback |
 | `llm_prompts.py` | Packed prompt (chand Q+A toye yek request) |
 | `llm_client.py` | Ollama HTTP client + concurrent workers |
-| `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v5_judge_rules_few_shot`) |
+| `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v6_suspicious_quantifiers_aligned`) |
 | `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (blacklist gate + LLM confirm; Fast Path exemption) |
 | `audit/audit_captions.py` | LLM sample auditor — random k captions, batched PASS/FAIL ([audit/README.md](audit/README.md)) |
 
@@ -290,7 +290,7 @@ Typical reasons:
 | `too_short` / `empty_caption` | Caption has fewer than 2 words, or is empty |
 | `echoes_question` | Caption just repeats the question |
 | `polarity_mismatch` | `yes` answer with a negated caption, or `no` answer that explicitly says "Yes" |
-| `semantic_fail` | Tier-2 Qwen judge returned FAIL |
+| `semantic_fail` / `suspicious` | Tier-2 Qwen judge returned SUSPICIOUS (caption kept + logged) |
 | `empty_response` / `timeout` | Model returned nothing / timed out |
 
 `relation_mismatch` and `unsupported_facts` are **no longer reject reasons** — they became the `relation_low` / `unsupported_facts_suspect` flags.
@@ -355,7 +355,7 @@ Identity: `input ≈ ocr + low_consensus + duplicate + not_directly_visual + num
 
 ## QC validators (LLM)
 
-Beyond format checks, accepted LLM captions must pass Tier-1 relation / verbatim / unsupported-facts checks and, when suspicious, Tier-2 PASS/FAIL. Prefer `--batch-size` ≤ 10.
+Beyond format checks, accepted LLM captions must pass Tier-1 relation / verbatim / unsupported-facts checks and, when suspicious, Tier-2 PASS/SUSPICIOUS. Prefer `--batch-size` ≤ 10.
 
 ## DIRECTLY_VISUAL filter
 

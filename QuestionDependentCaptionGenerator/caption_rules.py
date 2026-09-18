@@ -154,10 +154,18 @@ _OCR_QUESTION_RE = re.compile(
     \bwhat\s+brand\b | \bwhat\s+is\s+the\s+brand\b |
     \bwhat\s+logo\b | \bwhat\s+team'?s?\s+logo\b |
     \bwhat\s+(is\s+the\s+)?name\s+on\b |          # name on cake/jersey
+    \bwhat\s+name\s+is\s+on\b |                   # "What name is on the cake?"
+    \bname\s+is\s+on\s+(?:the|this|that)\b |
     \bwhich\s+company\s+is\s+on\b |               # company on plane
     \bwhat\s+hundred\s+block\b |                  # street number text
     \bwhat\s+number\s+is\s+(on|the|this|that)\b | # jersey / bus / plate number
     \bwhat\s+is\s+the\s+number\s+on\b |           # "what is the number on..."
+    \bwhat\s+is\s+the\s+number\s+of\s+(?:the\s+)?
+        (?:bus|train|plane|flight|truck|taxi|jersey|shirt|uniform)\b |
+    \bwhat\s+number\s+(?:bus|train|plane|flight|truck|taxi|jersey|shirt|
+        uniform|player)\b |                       # "What number bus is this?"
+    \bwhich\s+number\s+(?:bus|train|plane|jersey|shirt)?\b |
+    \bwhat\s+numbers?\s+(?:can\s+be\s+seen|are\s+(?:on|visible|shown))\b |
     \bnumbers?\s+on\s+(?:the|this|that|his|her|their|a|an)\b |
     \bwhat\s+(?:is\s+)?(?:the\s+)?
         (?:shirt|jersey|uniform|player|bus|train|plane|flight|truck|taxi|
@@ -166,7 +174,8 @@ _OCR_QUESTION_RE = re.compile(
     \b(?:shirt|jersey|uniform|player|bus|train|plane|flight|truck|taxi|
         room|gate|platform|track|route|channel|phone|model|
         serial|apartment|house)\s+number\b |
-    \bwhat\s+time\s+(is\s+it|does)\b              # clock / watch reading
+    \bwhat\s+time\s+(is\s+it|does)\b |            # clock / watch reading
+    \bwhat\s+time\s+(?:is\s+)?(?:on|shown|displayed)\b
     """,
     re.I | re.X,
 )

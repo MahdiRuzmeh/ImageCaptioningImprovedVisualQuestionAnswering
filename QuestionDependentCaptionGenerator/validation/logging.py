@@ -63,6 +63,7 @@ class ValidationLogWriter:
         self._fh = self.path.open("w", encoding="utf-8")
         self.count = 0
         self.failed: List[Dict[str, Any]] = []
+        self.suspicious: List[Dict[str, Any]] = []
 
     def write(self, trace: ValidationTrace) -> None:
         """Append one validation record."""
@@ -72,9 +73,11 @@ class ValidationLogWriter:
         self.count += 1
         if trace.final_verdict == "FAIL":
             self.failed.append(record)
+        elif trace.final_verdict == "SUSPICIOUS":
+            self.suspicious.append(record)
 
     def close(self) -> None:
-        """Close the log file and write the failed sidecar if any failures."""
+        """Close the log file."""
         try:
             self._fh.close()
         except Exception:
@@ -86,9 +89,33 @@ class ValidationLogWriter:
             return None
         sidecar = output_path.with_name(output_path.stem + "_validation_failed.json")
         payload = {
-            "description": "Captions that failed validation (fast or LLM judge)",
+            "description": (
+                "Captions that failed fast validation (hard reject). "
+                "LLM judge issues are logged as SUSPICIOUS, not here."
+            ),
             "count": len(self.failed),
             "records": self.failed,
+        }
+        sidecar.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return sidecar
+
+    def write_suspicious_sidecar(self, output_path: Path) -> Optional[Path]:
+        """Write ``*_validation_suspicious.json`` for LLM-judge SUSPICIOUS rows."""
+        if not self.suspicious:
+            return None
+        sidecar = output_path.with_name(
+            output_path.stem + "_validation_suspicious.json"
+        )
+        payload = {
+            "description": (
+                "Captions labeled SUSPICIOUS by the LLM judge "
+                "(kept in the dataset for review)."
+            ),
+            "count": len(self.suspicious),
+            "records": self.suspicious,
         }
         sidecar.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),

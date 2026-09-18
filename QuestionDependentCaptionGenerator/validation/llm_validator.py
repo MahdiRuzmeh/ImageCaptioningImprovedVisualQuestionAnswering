@@ -1,4 +1,4 @@
-"""Batched LLM PASS/FAIL judge for captions the fast validator marked UNKNOWN."""
+"""Batched LLM PASS/SUSPICIOUS judge for captions the fast validator marked UNKNOWN."""
 
 from __future__ import annotations
 
@@ -14,10 +14,10 @@ from validation.config import ValidationConfig
 
 
 class LlmVerdict(str, Enum):
-    """Binary outcome from the LLM judge."""
+    """Outcome from the LLM judge (never hard-drops a caption)."""
 
     PASS = "PASS"
-    FAIL = "FAIL"
+    SUSPICIOUS = "SUSPICIOUS"
 
 
 @dataclass
@@ -40,10 +40,10 @@ class JudgeResult:
 
 
 def _preview(text: str, limit: int = 400) -> str:
-  flat = " ".join(text.split())
-  if len(flat) <= limit:
-    return flat
-  return flat[: limit - 3] + "..."
+    flat = " ".join(text.split())
+    if len(flat) <= limit:
+        return flat
+    return flat[: limit - 3] + "..."
 
 
 def _strip_fences(text: str) -> str:
@@ -59,7 +59,7 @@ _JUDGE_SYSTEM_PROMPT = (
     "(VQA) dataset.\n"
     "\n"
     "Reply with ONLY a JSON array. "
-    'Each element must be {"id": <number>, "verdict": "PASS" or "FAIL"}.'
+    'Each element must be {"id": <number>, "verdict": "PASS" or "SUSPICIOUS"}.'
 )
 
 _JUDGE_RULES_AND_FEW_SHOTS = (
@@ -68,16 +68,28 @@ _JUDGE_RULES_AND_FEW_SHOTS = (
     "- Answer\n"
     "- Caption\n"
     "\n"
-    "Label each item PASS or FAIL.\n"
+    "Label each item PASS or SUSPICIOUS.\n"
+    "\n"
+    "These captions were produced by a caption-generation model. Judge them "
+    "with the SAME standards used for generation:\n"
+    "- One short natural declarative sentence.\n"
+    "- Express exactly the fact in the question and answer.\n"
+    "- No invented objects, attributes, numbers, colors, or locations.\n"
+    "- Natural paraphrases are allowed.\n"
+    "- Numbers may appear as digits or words (2 / Two).\n"
+    "- Answer 1 may appear as \"one\", \"a\", or \"an\".\n"
+    "- Yes/no quantifiers: \"Are all …? / no\" → \"Not all …\"; "
+    "\"Are both …? / no\" → \"Not both …\" (or \"One of … is not …\").\n"
+    "- Kind/type questions become natural noun phrases "
+    "(\"What kind of X? / Y\" → \"This is a Y X.\").\n"
     "\n"
     "PASS if ALL of the following are true:\n"
     "1. The caption is grammatically correct and natural.\n"
     "2. The caption clearly expresses the answer.\n"
     "3. Every piece of information in the caption can be inferred ONLY from "
     "the question and answer.\n"
-    "4. The caption does not add extra facts, attributes, objects, actions, "
-    "colors, locations, numbers, or relationships that are not present in "
-    "the question and answer.\n"
+    "4. The caption does not add extra facts not present in the question "
+    "and answer.\n"
     "\n"
     "Natural paraphrases are PASS when they express the answer and add no "
     "extra facts (for example: omitting a location phrase already in the "
@@ -85,14 +97,16 @@ _JUDGE_RULES_AND_FEW_SHOTS = (
     "\"not open\", or rewriting \"What is X doing? / eating\" as "
     "\"X is eating.\").\n"
     "\n"
-    "FAIL if ANY of the following occur:\n"
-    "- Grammar errors.\n"
-    "- Awkward or unnatural wording.\n"
+    "SUSPICIOUS if ANY of the following occur:\n"
+    "- Grammar errors or awkward wording.\n"
     "- Missing or incorrect answer.\n"
     "- Hallucinated information not supported by the question and answer.\n"
-    "- Changed meaning.\n"
-    "- Contradiction with the answer.\n"
+    "- Changed meaning or contradiction with the answer.\n"
     "- Unnecessary extra details.\n"
+    "\n"
+    "Do NOT mark a caption SUSPICIOUS only because it uses natural articles, "
+    "digit/word number forms, or generation-style quantifier phrasing "
+    "(\"Not both …\", \"Not all …\").\n"
     "\n"
     "Examples:\n"
     "\n"
@@ -109,52 +123,52 @@ _JUDGE_RULES_AND_FEW_SHOTS = (
     "Label: PASS\n"
     "\n"
     "Example 3\n"
-    "Question: What game is being played?\n"
-    "Answer: soccer\n"
-    "Caption: Soccer is being played.\n"
+    "Question: How many flags do you see?\n"
+    "Answer: 1\n"
+    "Caption: There is a flag.\n"
     "Label: PASS\n"
     "\n"
     "Example 4\n"
-    "Question: What are the animals doing?\n"
-    "Answer: eating\n"
-    "Caption: The animals are eating.\n"
+    "Question: Are both giraffes standing?\n"
+    "Answer: no\n"
+    "Caption: Not both giraffes are standing.\n"
     "Label: PASS\n"
     "\n"
     "Example 5\n"
-    "Question: What color is the bus?\n"
-    "Answer: yellow\n"
-    "Caption: The bus is yellow.\n"
+    "Question: Are all the flowers white?\n"
+    "Answer: no\n"
+    "Caption: Not all the flowers are white.\n"
     "Label: PASS\n"
     "\n"
     "Example 6\n"
     "Question: What game is being played?\n"
     "Answer: soccer\n"
     "Caption: Two children are playing soccer.\n"
-    "Label: FAIL\n"
+    "Label: SUSPICIOUS\n"
     "\n"
     "Example 7\n"
     "Question: Is the dog sleeping?\n"
     "Answer: yes\n"
     "Caption: The brown dog is sleeping on the couch.\n"
-    "Label: FAIL\n"
+    "Label: SUSPICIOUS\n"
     "\n"
     "Example 8\n"
     "Question: How many people are there?\n"
     "Answer: 2\n"
     "Caption: Two people are smiling.\n"
-    "Label: FAIL\n"
+    "Label: SUSPICIOUS\n"
     "\n"
     "Example 9\n"
     "Question: What kind of weather it is?\n"
     "Answer: sunny\n"
     "Caption: The weather it is is a sunny weather it.\n"
-    "Label: FAIL\n"
+    "Label: SUSPICIOUS\n"
     "\n"
     "Example 10\n"
     "Question: Is there grass?\n"
     "Answer: yes\n"
     "Caption: The there is grass.\n"
-    "Label: FAIL"
+    "Label: SUSPICIOUS"
 )
 
 
@@ -176,7 +190,8 @@ def build_judge_prompt(items: Sequence[JudgeItem]) -> Tuple[str, str]:
         lines.append(f"CAPTION: {item.caption}")
         lines.append("")
     lines.append(
-        f'Return a JSON array of exactly {len(items)} objects with keys "id" and "verdict".'
+        f'Return a JSON array of exactly {len(items)} objects with keys '
+        f'"id" and "verdict" (PASS or SUSPICIOUS).'
     )
     return _JUDGE_SYSTEM_PROMPT, "\n".join(lines)
 
@@ -187,7 +202,8 @@ def parse_judge_response(
 ) -> List[JudgeResult]:
     """Parse model JSON array into per-item :class:`JudgeResult`.
 
-    Fail-closed: parse errors or missing ids → FAIL for affected items.
+    Fail-closed toward SUSPICIOUS: parse errors or missing ids → SUSPICIOUS
+    (caption is kept and logged, never hard-dropped by the judge).
     """
     text = _strip_fences(raw)
     start = text.find("[")
@@ -197,7 +213,11 @@ def parse_judge_response(
 
     if start < 0 or end <= start:
         return [
-            JudgeResult(index=i, verdict=LlmVerdict.FAIL, detail="parse_no_json_array")
+            JudgeResult(
+                index=i,
+                verdict=LlmVerdict.SUSPICIOUS,
+                detail="parse_no_json_array",
+            )
             for i in sorted(expected_ids)
         ]
 
@@ -207,7 +227,7 @@ def parse_judge_response(
         return [
             JudgeResult(
                 index=i,
-                verdict=LlmVerdict.FAIL,
+                verdict=LlmVerdict.SUSPICIOUS,
                 detail=f"parse_json_error:{exc}",
             )
             for i in sorted(expected_ids)
@@ -215,7 +235,11 @@ def parse_judge_response(
 
     if not isinstance(data, list):
         return [
-            JudgeResult(index=i, verdict=LlmVerdict.FAIL, detail="parse_not_a_list")
+            JudgeResult(
+                index=i,
+                verdict=LlmVerdict.SUSPICIOUS,
+                detail="parse_not_a_list",
+            )
             for i in sorted(expected_ids)
         ]
 
@@ -235,10 +259,11 @@ def parse_judge_response(
         if verdict_raw == "PASS":
             results[idx_int] = JudgeResult(index=idx_int, verdict=LlmVerdict.PASS)
         else:
+            # Treat legacy FAIL and any other token as SUSPICIOUS.
             results[idx_int] = JudgeResult(
                 index=idx_int,
-                verdict=LlmVerdict.FAIL,
-                detail=f"llm_verdict:{verdict_raw or 'FAIL'}",
+                verdict=LlmVerdict.SUSPICIOUS,
+                detail=f"llm_verdict:{verdict_raw or 'SUSPICIOUS'}",
             )
 
     out: List[JudgeResult] = []
@@ -249,7 +274,7 @@ def parse_judge_response(
             out.append(
                 JudgeResult(
                     index=i,
-                    verdict=LlmVerdict.FAIL,
+                    verdict=LlmVerdict.SUSPICIOUS,
                     detail="missing_id_in_response",
                 )
             )
@@ -307,7 +332,7 @@ def llm_validate_batch(
         return [
             JudgeResult(
                 index=item.index,
-                verdict=LlmVerdict.FAIL,
+                verdict=LlmVerdict.SUSPICIOUS,
                 detail=f"llm_judge_error:{exc}",
             )
             for item in items
@@ -321,7 +346,7 @@ def llm_validate_batch(
         return [
             JudgeResult(
                 index=item.index,
-                verdict=LlmVerdict.FAIL,
+                verdict=LlmVerdict.SUSPICIOUS,
                 detail="empty_judge_response",
             )
             for item in items

@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from caption_rules import is_ocr_question
 from validation import (
     ValidationConfig,
     ValidationLogWriter,
@@ -15,8 +16,11 @@ from validation import (
     compute_overlap_ratio,
 )
 from validation.fast_validator import FastVerdict
+from validation.llm_validator import JudgeItem, LlmVerdict, parse_judge_response
 from validation.logging import CaptionTraceEntry
 from validation.overlap import overlap_verdict
+from validation.pipeline import validate_rows
+from validation.tokens import numeric_equivalents
 
 
 class TestFastValidator(unittest.TestCase):
@@ -70,6 +74,44 @@ class TestFastValidator(unittest.TestCase):
         )
         self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
 
+    def test_answer_one_accepts_a(self) -> None:
+        r = fast_validate(
+            "How many dogs are there?",
+            "1",
+            "There is a dog.",
+        )
+        self.assertNotEqual(r.verdict, FastVerdict.FAIL)
+        self.assertNotIn("answer_mismatch", r.reasons)
+
+    def test_answer_one_accepts_one(self) -> None:
+        r = fast_validate(
+            "How many dogs are there?",
+            "1",
+            "There is one dog.",
+        )
+        self.assertNotEqual(r.verdict, FastVerdict.FAIL)
+        self.assertNotIn("answer_mismatch", r.reasons)
+
+    def test_quantifier_hard_mismatch_fail(self) -> None:
+        r = fast_validate(
+            "Are both giraffes standing?",
+            "no",
+            "Both giraffes are standing.",
+        )
+        self.assertEqual(r.verdict, FastVerdict.FAIL)
+        self.assertTrue(
+            "quantifier_mismatch" in r.reasons or "polarity_mismatch" in r.reasons
+        )
+
+    def test_quantifier_incomplete_unknown(self) -> None:
+        r = fast_validate(
+            "Are both giraffes standing?",
+            "yes",
+            "The giraffes are standing.",
+        )
+        self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
+        self.assertIn("quantifier_incomplete", r.flags)
+
 
 class TestOverlap(unittest.TestCase):
     """Overlap ratio and digit/word equivalence."""
@@ -81,6 +123,12 @@ class TestOverlap(unittest.TestCase):
             "Two cookies can be seen.",
         )
         self.assertEqual(r.verdict, FastVerdict.PASS)
+
+    def test_numeric_equivalents_include_articles_for_one(self) -> None:
+        eqs = numeric_equivalents("1")
+        self.assertIn("one", eqs)
+        self.assertIn("a", eqs)
+        self.assertIn("an", eqs)
 
     def test_overlap_ratio_bounded(self) -> None:
         ratio = compute_overlap_ratio(
@@ -98,6 +146,49 @@ class TestOverlap(unittest.TestCase):
             cfg,
         )
         self.assertIn(band, ("fail", "pass", "borderline"))
+
+
+class TestOcrFilter(unittest.TestCase):
+    """Expanded first-level OCR detector."""
+
+    def test_what_number_bus(self) -> None:
+        self.assertTrue(is_ocr_question("What number bus is this?"))
+
+    def test_what_name_is_on(self) -> None:
+        self.assertTrue(is_ocr_question("What name is on the cake?"))
+
+
+class TestLlmJudgeParse(unittest.TestCase):
+    """LLM judge PASS / SUSPICIOUS parsing."""
+
+    def test_parse_suspicious(self) -> None:
+        items = [JudgeItem(index=0, question="Q", answer="a", caption="C")]
+        raw = '[{"id": 0, "verdict": "SUSPICIOUS"}]'
+        results = parse_judge_response(raw, items)
+        self.assertEqual(results[0].verdict, LlmVerdict.SUSPICIOUS)
+
+    def test_legacy_fail_maps_to_suspicious(self) -> None:
+        items = [JudgeItem(index=0, question="Q", answer="a", caption="C")]
+        raw = '[{"id": 0, "verdict": "FAIL"}]'
+        results = parse_judge_response(raw, items)
+        self.assertEqual(results[0].verdict, LlmVerdict.SUSPICIOUS)
+
+    def test_validate_rows_keeps_suspicious_without_llm(self) -> None:
+        rows = [
+            {
+                "question_id": 1,
+                "image_id": 1,
+                "question": "Are both giraffes standing?",
+                "answer": "yes",
+                "caption": "The giraffes are standing.",
+                "rule": "llm_fallback",
+            }
+        ]
+        kept, failed, stats = validate_rows(rows, use_llm=False, client=None)
+        self.assertEqual(len(failed), 0)
+        self.assertEqual(len(kept), 1)
+        self.assertIn("suspicious", kept[0]["validation_flags"])
+        self.assertEqual(stats.llm_suspicious_count, 1)
 
 
 class TestValidationLog(unittest.TestCase):
@@ -149,6 +240,30 @@ class TestValidationLog(unittest.TestCase):
             )
             writer.close()
             sidecar = writer.write_failed_sidecar(out)
+            self.assertIsNotNone(sidecar)
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+            self.assertEqual(payload["count"], 1)
+
+    def test_log_writer_suspicious_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "captions_train2014.json"
+            log_path = Path(tmp) / "captions_train2014_validation_log.jsonl"
+            writer = ValidationLogWriter(log_path)
+            writer.write(
+                ValidationTrace(
+                    question_id=9,
+                    image_id=1,
+                    question="Q",
+                    answer="no",
+                    rule="llm_fallback",
+                    fast_verdict="UNKNOWN",
+                    llm_verdict="SUSPICIOUS",
+                    final_verdict="SUSPICIOUS",
+                    validation_flags=["suspicious"],
+                )
+            )
+            writer.close()
+            sidecar = writer.write_suspicious_sidecar(out)
             self.assertIsNotNone(sidecar)
             payload = json.loads(sidecar.read_text(encoding="utf-8"))
             self.assertEqual(payload["count"], 1)

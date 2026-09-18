@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import List, Sequence, Tuple
 
 # Version string baraye metadata toye output JSON
-PROMPT_VERSION = "v8_kind_type_and_is_are_llm"
+PROMPT_VERSION = "v9_both_neither_quantifiers"
 
 SYSTEM_PROMPT = """\
 You generate image captions from visual question-answer pairs.
@@ -161,11 +161,35 @@ Good:
 "Not all the flowers are white."
 
 Example:
+Q: Are both giraffes standing?
+A: yes
+
+Good:
+"Both giraffes are standing."
+
+Example:
+Q: Are both giraffes standing?
+A: no
+
+Good:
+"Not both giraffes are standing."
+
+Example:
+Q: Is either person wearing a hat?
+A: no
+
+Good:
+"Neither person is wearing a hat."
+
+Example:
 Q: Is the baby with his daddy?
 A: yes
 
 Good:
 "The baby is with his daddy."
+
+Do not write meta captions such as "No, that is not the case." or
+"Yes, that is correct." Do not wrap captions in brackets.
 
 Complex questions:
 For questions containing:
@@ -261,6 +285,21 @@ _FEW_SHOT: List[Tuple[str, str, str]] = [
         "How many cookies can be seen?",
         "2",
         "Two cookies can be seen.",
+    ),
+    (
+        "Are both giraffes standing?",
+        "yes",
+        "Both giraffes are standing.",
+    ),
+    (
+        "Are both giraffes standing?",
+        "no",
+        "Not both giraffes are standing.",
+    ),
+    (
+        "Are all the flowers white?",
+        "no",
+        "Not all the flowers are white.",
     ),
 ]
 

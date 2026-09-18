@@ -3,7 +3,7 @@
 Two-layer validator for question-dependent captions produced by
 [`generate.py`](../generate.py). The **fast layer** assigns each caption
 `PASS`, `FAIL`, or `UNKNOWN` without calling an LLM. The **LLM layer** judges
-only `UNKNOWN` items in batches (`PASS` / `FAIL`).
+only `UNKNOWN` items in batches (`PASS` / `SUSPICIOUS`).
 
 The fast validator does **not** decide semantic correctness — only whether we
 have enough confidence to accept or reject without an LLM.
@@ -17,7 +17,7 @@ flowchart TD
   Fast -->|FAIL| Sidecar[validation_failed.json]
   Fast -->|UNKNOWN| LLM[Batched LLM judge]
   LLM -->|PASS| Keep
-  LLM -->|FAIL| Sidecar
+  LLM -->|SUSPICIOUS| KeepSus[Kept plus validation_suspicious.json]
   Fast --> Log[validation_log.jsonl]
   LLM --> Log
 ```
@@ -55,7 +55,13 @@ Uses light stemming and wh-category exclusion (see `overlap.py`).
 grounding checks pass + no soft flags.
 
 Hard rejects also include: `echoes_question`, `polarity_mismatch`,
-`spurious_negation`, `answer_mismatch`, `batch_contamination`.
+`spurious_negation`, `answer_mismatch`, `quantifier_mismatch`,
+`batch_contamination`.
+
+Number grounding: answer `1` matches caption `one` / `a` / `an`.
+Quantifier cues (`all`, `both`, `any`, `none`, `neither`, `at least`,
+`at most`, `less than`, `more than`): clear contradiction → **FAIL**;
+missing quantity expression → soft flag + **UNKNOWN**.
 
 ### Verdict semantics
 
@@ -68,14 +74,15 @@ Hard rejects also include: `echoes_question`, `polarity_mismatch`,
 ## LLM judge
 
 - Input: items with `fast_verdict == UNKNOWN`
-- Prompt: VQA caption PASS/FAIL rules + 10 few-shot examples (5 PASS, 5 FAIL)
-  in `llm_validator.py` (`_JUDGE_RULES_AND_FEW_SHOTS`)
+- Prompt: aligned with caption-generation rules + few-shots in
+  `llm_validator.py` (`_JUDGE_RULES_AND_FEW_SHOTS`)
 - PASS when the caption is grammatical, expresses the answer, and adds no
-  facts beyond Q+A (natural paraphrases / antonyms for no-answers are PASS)
-- FAIL on grammar errors, missing/wrong answer, hallucinations, meaning
-  change, or unnecessary extra details
-- Output: JSON array `[{"id": 0, "verdict": "PASS"|"FAIL"}, ...]`
-- Fail-closed on parse errors
+  facts beyond Q+A (natural paraphrases / articles / digit↔word / quantifier
+  phrasing such as \"Not both …\" are PASS)
+- SUSPICIOUS on grammar errors, missing/wrong answer, hallucinations, meaning
+  change, or unnecessary extra details — **caption is kept** and logged
+- Output: JSON array `[{"id": 0, "verdict": "PASS"|"SUSPICIOUS"}, ...]`
+- Fail-closed toward SUSPICIOUS on parse errors (still kept)
 - Default batch size: 10 (`ValidationConfig.llm_batch_size`)
 
 ## Configuration (`ValidationConfig`)
@@ -88,17 +95,18 @@ Hard rejects also include: `echoes_question`, `polarity_mismatch`,
 | `overlap_pass_threshold` | 0.50 | More fast PASS vs more LLM calls |
 | `llm_batch_size` | 10 | Ollama throughput |
 
-`validator_version`: `v5_judge_rules_few_shot`
+`validator_version`: `v6_suspicious_quantifiers_aligned`
 
 ## Output files
 
 | File | Description |
 |------|-------------|
 | `{stem}_validation_log.jsonl` | One JSON record per row (all verdicts) |
-| `{stem}_validation_failed.json` | Rows with `final_verdict == FAIL` |
+| `{stem}_validation_failed.json` | Rows with `final_verdict == FAIL` (fast hard reject) |
+| `{stem}_validation_suspicious.json` | Rows with `final_verdict == SUSPICIOUS` (kept) |
 
 Log record fields: `question_id`, `captions_trace[]`, `fast_verdict`,
-`fast_reasons`, `llm_verdict`, `final_verdict`.
+`fast_reasons`, `llm_verdict`, `final_verdict`, `validation_flags`.
 
 ## CLI (standalone re-validation)
 
@@ -147,7 +155,7 @@ Borderline overlap or soft flags (e.g. `relation_low`) → batched LLM judge.
 | `checks.py` | Format, hard rejects, soft flags |
 | `overlap.py` | Overlap ratio and bands |
 | `fast_validator.py` | `fast_validate()` → PASS/FAIL/UNKNOWN |
-| `llm_validator.py` | Batched LLM PASS/FAIL judge |
+| `llm_validator.py` | Batched LLM PASS/SUSPICIOUS judge |
 | `logging.py` | `ValidationTrace`, JSONL writer |
 | `pipeline.py` | `validate_rows()` orchestration |
 | `batch_integration.py` | Hook for `llm_client.captions_with_retry` |

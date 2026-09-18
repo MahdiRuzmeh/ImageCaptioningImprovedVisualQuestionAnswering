@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Sequence, Tuple
 
+from validation.checks import FLAG_SUSPICIOUS
 from validation.config import ValidationConfig
-from validation.details import rejection_detail
 from validation.fast_validator import FastResult, FastVerdict, fast_validate
 from validation.llm_validator import JudgeItem, LlmVerdict, llm_validate_batch
 
@@ -21,7 +21,10 @@ class CaptionValidation:
 
     @property
     def needs_semantic_review(self) -> bool:
-        return self.ok and self.reason == "needs_semantic_review"
+        return self.ok and self.reason in {
+            "needs_semantic_review",
+            "suspicious",
+        }
 
 
 def validate_generated_batch(
@@ -41,13 +44,17 @@ def validate_generated_batch(
         config: Validation thresholds.
         batch_pairs: Full batch Q+A for contamination checks.
         batch_captions: Parallel captions for contamination checks.
-        use_llm: When False, UNKNOWN → not ok with reason ``needs_llm``.
+        use_llm: When False, UNKNOWN → ok with reason ``needs_semantic_review``.
 
     Returns:
         One :class:`CaptionValidation` per input item.
+
+        Fast FAIL → ``ok=False`` (hard reject). LLM non-PASS → ``ok=True``
+        with reason ``suspicious`` (kept, not dropped).
     """
     cfg = config or ValidationConfig()
     n = len(items)
+    del n
     fast_results: List[FastResult] = []
     unknown_positions: List[int] = []
 
@@ -95,11 +102,14 @@ def validate_generated_batch(
                         CaptionValidation(ok=True, reason="ok", flags=fast.flags)
                     )
                 else:
+                    flags = list(fast.flags)
+                    if FLAG_SUSPICIOUS not in flags:
+                        flags.append(FLAG_SUSPICIOUS)
                     outcomes.append(
                         CaptionValidation(
-                            ok=False,
-                            reason="semantic_fail",
-                            flags=fast.flags,
+                            ok=True,
+                            reason="suspicious",
+                            flags=sorted(set(flags)),
                         )
                     )
             else:

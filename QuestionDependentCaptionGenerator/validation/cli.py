@@ -124,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     log_writer.close()
     sidecar = log_writer.write_failed_sidecar(out_path)
+    suspicious = log_writer.write_suspicious_sidecar(out_path)
 
     info["num_samples"] = len(kept)
     info["validation"] = {
@@ -134,6 +135,8 @@ def main(argv: list[str] | None = None) -> int:
     }
     if sidecar:
         info["validation"]["validation_failed_sidecar"] = str(sidecar)
+    if suspicious:
+        info["validation"]["validation_suspicious_sidecar"] = str(suspicious)
 
     out_payload = {"info": info, "annotations": kept}
     out_path.write_text(
@@ -145,11 +148,14 @@ def main(argv: list[str] | None = None) -> int:
         f"Validated {len(rows)} rows: kept {len(kept)}, failed {len(failed)} "
         f"(fast pass={stats.fast_pass_count}, fail={stats.fast_fail_count}, "
         f"unknown={stats.fast_unknown_count}; "
-        f"llm pass={stats.llm_pass_count}, fail={stats.llm_fail_count})"
+        f"llm pass={stats.llm_pass_count}, "
+        f"suspicious={stats.llm_suspicious_count})"
     )
     print(f"Log -> {log_path}")
     if sidecar:
         print(f"Failed sidecar -> {sidecar}")
+    if suspicious:
+        print(f"Suspicious sidecar -> {suspicious}")
     print(f"Output -> {out_path}")
     return 0
 

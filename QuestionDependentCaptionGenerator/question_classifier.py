@@ -36,7 +36,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-CLASSIFIER_PROMPT_VERSION = "v12_expanded_blacklist_2"
+CLASSIFIER_PROMPT_VERSION = "v13_lighting_ocr_no_unsure_bias"
 
 QUESTION_LABELS = (
     "DIRECTLY_VISUAL",
@@ -85,24 +85,24 @@ _SYSTEM_PROMPT = (
     "\n"
     "VISUAL — default. A human can reasonably answer from the image alone "
     "(object recognition, actions, attributes, scene type, comparisons, "
-    "\"could this be…\").\n"
+    "lighting / day-vs-night / nighttime, \"could this be…\").\n"
     "\n"
     "NEEDS_OCR — answering requires reading rendered text, digits, logos, "
-    "brand names, signs, train/bus numbers, or license plates.\n"
+    "brand names, signs, train/bus numbers, license plates, or a clock face "
+    "(exact time shown).\n"
     "\n"
     "NEEDS_KNOWLEDGE — answering requires external facts unavailable from "
     "appearance (breed, manufacturer, country of a flag, animal sounds, "
     "price, designed-for purpose, digital/official status, free-range, "
     "tourist identity, whether a machine works, organic claims, named "
-    "place identity).\n"
+    "place identity). Lighting or whether a photo was taken at night is "
+    "NOT knowledge — that is VISUAL.\n"
     "\n"
     "NEEDS_OPINION — answering requires personal preference, subjective "
     "judgment, guessed age/size, emotion reading that is not clear from "
     "the image, social relationships, condition judgments, or nutrition "
     "claims (would you, beautiful, how old, how big, scared, know each "
     "other, like, good shape, low-protein).\n"
-    "\n"
-    "When unsure, choose VISUAL."
 )
 
 _FEW_SHOT_BLOCK = (
@@ -188,6 +188,12 @@ _FEW_SHOT_BLOCK = (
     "Q: What is purple?\n"
     "VISUAL\n"
     "Q: What do these giraffes have in common?\n"
+    "VISUAL\n"
+    "Q: Was this picture taken at night?\n"
+    "VISUAL\n"
+    "Q: Is it nighttime?\n"
+    "VISUAL\n"
+    "Q: Is it daytime?\n"
     "VISUAL"
 )
 
@@ -264,11 +270,18 @@ _NON_VISUAL_CANDIDATE_RE = re.compile(
     # --- OCR / reading rendered text or digits ---
     \bsays?\b | \bsaying\b | \bwritten\b | \bprinted\b | \bspelled\b |
     \b(?:word|words|letter|letters|initials|caption|slogan|text)\b |
-    \bname\s+(?:of|on)\b | \bnamed\b | \bbrand\b | \blogo\b |
+    \bname\s+(?:of|on)\b | \bwhat\s+name\s+is\s+on\b | \bname\s+is\s+on\b |
+    \bnamed\b | \bbrand\b | \blogo\b |
     \bcompany\b | \badvertis\w*\b | \bmentioned\b | \blanguage\b |
     \bwhat\s+time\b | \b(?:month|year|date)\b | \blicense\b |
     \bphone\s+number\b | \bwebsite\b | \bscore\b |
     \bwhat\s+(?:is|are)\s+the\s+numbers?\b |
+    \bwhat\s+number\s+(?:bus|train|plane|flight|truck|taxi|jersey|shirt|
+        uniform|player)\b |
+    \bwhich\s+number\b |
+    \bwhat\s+numbers?\s+(?:can\s+be\s+seen|are\s+(?:on|visible|shown))\b |
+    \bwhat\s+is\s+the\s+number\s+of\s+(?:the\s+)?
+        (?:bus|train|plane|flight|truck|taxi|jersey|shirt|uniform)\b |
     \bnumbers?\s+of\s+the\s+(?:train|bus|plane|truck|car|jersey|shirt)\b |
     \b(?:train|bus|jersey|shirt|gate|room)\s+numbers?\b |
 
@@ -315,6 +328,13 @@ _SUSPECT_EXEMPT_RE = re.compile(
     \b(?:can|could|do|did|would)\s+you\s+see\b |
     \b(?:can|could)\s+be\s+seen\b |
     \bwhat\s+time\s+of\s+(?:day|year)\b |
+    \btaken\s+at\s+night\b |
+    \btaken\s+during\s+the\s+day\b |
+    \bcaptured\s+at\s+night\b |
+    \bat\s+night\b |
+    \bnighttime\b |
+    \bdaytime\b |
+    \bday\s+or\s+night\b |
     \bnext\s+to\b |
     \b(?:to|on)\s+the\s+right\b |
     \bright\s+side\b |

@@ -1,4 +1,4 @@
-"""Two-layer caption validator: fast PASS/FAIL/UNKNOWN + batched LLM judge.
+"""Two-layer caption validator: fast PASS/FAIL/UNKNOWN + batched LLM PASS/SUSPICIOUS judge.
 
 Public API for :mod:`generate` and the standalone CLI.
 """
@@ -8,7 +8,9 @@ from validation.checks import (
     FLAG_ANSWER_PARTIAL,
     FLAG_NO_ANSWER_WITHOUT_NEGATION,
     FLAG_OVERLAP_BORDERLINE,
+    FLAG_QUANTIFIER_INCOMPLETE,
     FLAG_RELATION_LOW,
+    FLAG_SUSPICIOUS,
     FLAG_UNSUPPORTED_FACTS,
     _VALIDATION_FAIL_REASONS,
     caption_hard_reject_reason,
@@ -59,4 +61,6 @@ __all__ = [
     "FLAG_NO_ANSWER_WITHOUT_NEGATION",
     "FLAG_ANSWER_PARTIAL",
     "FLAG_OVERLAP_BORDERLINE",
+    "FLAG_QUANTIFIER_INCOMPLETE",
+    "FLAG_SUSPICIOUS",
 ]

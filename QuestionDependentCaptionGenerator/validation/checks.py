@@ -52,6 +52,19 @@ _NON_SENTENTIAL_NO_RE = re.compile(
     re.I | re.X,
 )
 
+# Quantifier / quantity phrases the fast validator should ground.
+_QUANTIFIER_IN_QUESTION_RE = re.compile(
+    r"\b(?:all|both|any|none|neither|at\s+least|at\s+most|less\s+than|"
+    r"more\s+than)\b",
+    re.I,
+)
+
+_QUANTIFIER_IN_CAPTION_RE = re.compile(
+    r"\b(?:all|both|any|none|neither|at\s+least|at\s+most|less\s+than|"
+    r"more\s+than|not\s+all|not\s+both|one\s+of)\b",
+    re.I,
+)
+
 # ---------------------------------------------------------------------------
 # 1.1–1.2 Format checks (empty, brackets, quotes, question mark)
 # ---------------------------------------------------------------------------
@@ -273,7 +286,7 @@ def is_semantically_suspicious(
     *,
     relation_ratio: float,
 ) -> bool:
-    """Borderline cases that should be escalated to the LLM PASS/FAIL judge."""
+    """Borderline cases that should be escalated to the LLM judge."""
     a = answer.strip().lower()
     if a in _YES or a in _NO:
         if relation_ratio < 0.75:
@@ -286,6 +299,76 @@ def is_semantically_suspicious(
     if len(extra) >= 2:
         return True
     return False
+
+
+def question_has_quantifier(question: str) -> bool:
+    """True when the question uses a quantity/quantifier phrase."""
+    return bool(_QUANTIFIER_IN_QUESTION_RE.search(question or ""))
+
+
+def caption_expresses_quantifier(caption: str) -> bool:
+    """True when the caption contains a quantity/quantifier cue."""
+    return bool(_QUANTIFIER_IN_CAPTION_RE.search(caption or ""))
+
+
+def quantifier_hard_mismatch(
+    question: str,
+    answer: str,
+    caption: str,
+) -> bool:
+    """True when caption polarity clearly contradicts a quantifier Q+A.
+
+    High-precision only: affirmative answer with neither/not-both/not-all, or
+    negative answer that affirms both/all without negation.
+    """
+    q = (question or "").lower()
+    a = (answer or "").strip().lower()
+    c = (caption or "").lower()
+    if not q or not c:
+        return False
+
+    has_both = bool(re.search(r"\bboth\b", q))
+    has_all = bool(re.search(r"\ball\b", q))
+    has_any = bool(re.search(r"\bany\b", q))
+    if not (has_both or has_all or has_any):
+        return False
+
+    if a in _YES:
+        if has_both and (
+            re.search(r"\bneither\b", c) or re.search(r"\bnot\s+both\b", c)
+        ):
+            return True
+        if has_all and (
+            re.search(r"\bnone\b", c) or re.search(r"\bnot\s+all\b", c)
+        ):
+            return True
+        if has_any and re.search(r"\b(?:none|neither)\b", c):
+            return True
+        return False
+
+    if a in _NO:
+        if has_both and re.search(r"\bboth\b", c):
+            if re.search(r"\bnot\s+both\b", c) or re.search(r"\bneither\b", c):
+                return False
+            if has_sentential_negation(caption):
+                return False
+            return True
+        if has_all and re.search(r"\ball\b", c):
+            if re.search(r"\bnot\s+all\b", c) or re.search(r"\bnone\b", c):
+                return False
+            if has_sentential_negation(caption):
+                return False
+            return True
+        return False
+
+    return False
+
+
+def quantifier_incomplete(question: str, caption: str) -> bool:
+    """Question has a quantifier but the caption lacks any quantity cue."""
+    if not question_has_quantifier(question):
+        return False
+    return not caption_expresses_quantifier(caption)
 
 
 # ---------------------------------------------------------------------------
@@ -344,6 +427,8 @@ FLAG_UNSUPPORTED_FACTS = "unsupported_facts_suspect"
 FLAG_NO_ANSWER_WITHOUT_NEGATION = "no_answer_without_negation"
 FLAG_ANSWER_PARTIAL = "answer_partial_match"
 FLAG_OVERLAP_BORDERLINE = "overlap_borderline"
+FLAG_QUANTIFIER_INCOMPLETE = "quantifier_incomplete"
+FLAG_SUSPICIOUS = "suspicious"
 
 VALIDATION_FLAGS = (
     FLAG_RELATION_LOW,
@@ -351,6 +436,8 @@ VALIDATION_FLAGS = (
     FLAG_NO_ANSWER_WITHOUT_NEGATION,
     FLAG_ANSWER_PARTIAL,
     FLAG_OVERLAP_BORDERLINE,
+    FLAG_QUANTIFIER_INCOMPLETE,
+    FLAG_SUSPICIOUS,
 )
 
 _FORMAT_REASONS = {
@@ -372,6 +459,7 @@ _VALIDATION_FAIL_REASONS = {
     "spurious_negation",
     "batch_contamination",
     "semantic_fail",
+    "quantifier_mismatch",
     "overlap_too_low",
 } | _FORMAT_REASONS
 
@@ -399,6 +487,8 @@ def caption_soft_flags(
         answer, caption, question, relation_min_ratio=relation_min_ratio
     ):
         flags.append(FLAG_ANSWER_PARTIAL)
+    if quantifier_incomplete(question, caption):
+        flags.append(FLAG_QUANTIFIER_INCOMPLETE)
     return flags
 
 
@@ -427,6 +517,8 @@ def caption_hard_reject_reason(
         return "polarity_mismatch"
     if has_spurious_negation(answer, caption):
         return "spurious_negation"
+    if quantifier_hard_mismatch(question, answer, caption):
+        return "quantifier_mismatch"
     if answer_requires_verbatim(answer) and not answer_verbatim_in_caption(
         answer, caption
     ):

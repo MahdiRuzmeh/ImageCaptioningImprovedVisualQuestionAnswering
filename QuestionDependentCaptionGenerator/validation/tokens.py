@@ -68,12 +68,18 @@ _NO = {"no", "none", "0", "zero", "n/a", "not", "nothing"}
 
 
 def numeric_equivalents(token: str) -> Set[str]:
-    """A token plus its digit<->word number form (e.g. '2' <-> 'two')."""
+    """A token plus its digit<->word number form (e.g. '2' <-> 'two').
+
+    For ``1`` / ``one``, also accept indefinite articles ``a`` / ``an``.
+    """
     equivalents = {token}
     if token in DIGIT_TO_WORD:
         equivalents.add(DIGIT_TO_WORD[token])
     if token in _WORD_TO_DIGIT:
         equivalents.add(_WORD_TO_DIGIT[token])
+    # Answer "1" may appear as "one", "a", or "an" in a natural caption.
+    if token in {"1", "one"} or "1" in equivalents or "one" in equivalents:
+        equivalents.update({"1", "one", "a", "an"})
     return equivalents
 
 

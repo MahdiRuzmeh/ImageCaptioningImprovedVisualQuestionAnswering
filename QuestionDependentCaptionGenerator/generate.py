@@ -1625,6 +1625,9 @@ def main() -> None:
     failed_sidecar = val_log.write_failed_sidecar(output_path)
     if failed_sidecar:
         print(f"Validation failed sidecar -> {failed_sidecar}")
+    suspicious_sidecar = val_log.write_suspicious_sidecar(output_path)
+    if suspicious_sidecar:
+        print(f"Validation suspicious sidecar -> {suspicious_sidecar}")
 
     validation_meta = {
         "validator_version": VALIDATOR_VERSION,
@@ -1634,12 +1637,21 @@ def main() -> None:
     }
     if failed_sidecar:
         validation_meta["validation_failed_sidecar"] = str(failed_sidecar.resolve())
+    if suspicious_sidecar:
+        validation_meta["validation_suspicious_sidecar"] = str(
+            suspicious_sidecar.resolve()
+        )
 
     if n_final_rejects:
         validation_failure_count += n_final_rejects
         print(
             f"Final validation: dropped {n_final_rejects} captions that failed "
             "a hard check."
+        )
+    if val_stats.llm_suspicious_count:
+        print(
+            f"Final validation: {val_stats.llm_suspicious_count} captions labeled "
+            "SUSPICIOUS by the LLM judge (kept + logged)."
         )
     if validation_flagged_count:
         print(
