@@ -1,10 +1,9 @@
 {
   "info": {
-    "description": "GoldAuditor caption set balanced 500/500 (PASS / FAILED).",
+    "description": "GoldAuditor caption set after cleanup (deduped; OCR/personal/knowledge questions removed).",
     "seed": 43,
-    "per_class": 500,
-    "sample_size": 1000,
-    "num_records": 1000,
+    "sample_size": 717,
+    "num_records": 717,
     "manual_label_values": [
       "PASS",
       "FAILED"
@@ -23,26 +22,18 @@
       "hard_negatives": "synthesized polarity/echo/contradiction fills"
     },
     "manual_label_counts": {
-      "FAILED": 500,
-      "PASS": 500
+      "PASS": 505,
+      "FAILED": 212
     }
   },
   "records": [
-    {
-      "question": "Why is there a cup beside the bike?",
-      "question_id": 3682008,
-      "answer_id": 4,
-      "answer": "no cup",
-      "caption": "No cup.",
-      "manual_label": "FAILED"
-    },
     {
       "question": "What sport is being played?",
       "question_id": 5559001,
       "answer_id": 1,
       "answer": "snowboarding",
       "caption": "Snowboarders are playing.",
-      "manual_label": "FAILED"
+      "manual_label": "PASS"
     },
     {
       "question": "What is the most colorful object in the picture?",
@@ -58,14 +49,6 @@
       "answer_id": 1,
       "answer": "yellow",
       "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Is this a photo of an American city?",
-      "question_id": 3804003,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "Yes, that is correct.",
       "manual_label": "FAILED"
     },
     {
@@ -97,16 +80,16 @@
       "question_id": 1911000,
       "answer_id": 2,
       "answer": "dog sledding",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "This is dog sledding.",
+      "manual_label": "PASS"
     },
     {
       "question": "Is the tv on?",
       "question_id": 5115011,
       "answer_id": 1,
       "answer": "no",
-      "caption": "Yes, that is correct.",
-      "manual_label": "FAILED"
+      "caption": "The tv is not on.",
+      "manual_label": "PASS"
     },
     {
       "question": "Is there a lump on the nightstand next to the bed?",
@@ -129,8 +112,8 @@
       "question_id": 3866001,
       "answer_id": 2,
       "answer": "yes",
-      "caption": "The dog's dress jacket is red.",
-      "manual_label": "FAILED"
+      "caption": "This is a wildflower.",
+      "manual_label": "PASS"
     },
     {
       "question": "Where is the toilet paper mounted in the bathroom?",
@@ -233,16 +216,16 @@
       "question_id": 5005020,
       "answer_id": 1,
       "answer": "cow",
-      "caption": "[Cow is the animal in the photo.].",
-      "manual_label": "FAILED"
+      "caption": "This is a cow.",
+      "manual_label": "PASS"
     },
     {
       "question": "What color are the headlights?",
       "question_id": 4068002,
       "answer_id": 1,
       "answer": "yellow",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "The headlights are yellow.",
+      "manual_label": "PASS"
     },
     {
       "question": "How many people are in this photo?",
@@ -285,14 +268,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is the man in green doing?",
-      "question_id": 4172002,
-      "answer_id": 1,
-      "answer": "jumping",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is grass growing in the tracks?",
       "question_id": 2545000,
       "answer_id": 1,
@@ -301,35 +276,11 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What color is the cat?",
-      "question_id": 3935001,
-      "answer_id": 2,
-      "answer": "orange and white",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is there a poster on top of the desk?",
       "question_id": 4970005,
       "answer_id": 1,
       "answer": "yes",
       "caption": "There is a poster on top of the desk.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "What color are the lights?",
-      "question_id": 4068013,
-      "answer_id": 1,
-      "answer": "yellow",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Is this boat old?",
-      "question_id": 1166006,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "The boat appears to be old.",
       "manual_label": "PASS"
     },
     {
@@ -357,20 +308,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What type of flooring?",
-      "question_id": 5115001,
-      "answer_id": 2,
-      "answer": "carpet",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What is the color scheme of the photo?",
       "question_id": 671001,
       "answer_id": 1,
       "answer": "black and white",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "The color scheme of the photo is black and white only.",
+      "manual_label": "PASS"
     },
     {
       "question": "What color are the bears?",
@@ -378,14 +321,6 @@
       "answer_id": 1,
       "answer": "white",
       "caption": "The bears are white.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "What is the color scheme of the photo?",
-      "question_id": 671001,
-      "answer_id": 1,
-      "answer": "black and white",
-      "caption": "The color scheme of the photo is black and white only.",
       "manual_label": "PASS"
     },
     {
@@ -403,30 +338,6 @@
       "answer": "no",
       "caption": "There is no evidence of a busy road.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What sport are they playing?",
-      "question_id": 531011,
-      "answer_id": 1,
-      "answer": "tennis",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Why are they on display?",
-      "question_id": 955000,
-      "answer_id": 1,
-      "answer": "famous person's",
-      "caption": "They are on display because they are famous people's.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "It's said that this type of weather is good for what sort of animal?",
-      "question_id": 3602007,
-      "answer_id": 1,
-      "answer": "dogs",
-      "caption": "[Dogs are the type of animal this type of weather is good for.].",
-      "manual_label": "FAILED"
     },
     {
       "question": "Is the bed made in this picture?",
@@ -509,14 +420,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Where is the man?",
-      "question_id": 5073003,
-      "answer_id": 1,
-      "answer": "in air",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Do you see a boat?",
       "question_id": 4984000,
       "answer_id": 1,
@@ -589,14 +492,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Why are the people on the elephants?",
-      "question_id": 61001,
-      "answer_id": 1,
-      "answer": "riding",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is it raining?",
       "question_id": 5312003,
       "answer_id": 1,
@@ -611,14 +506,6 @@
       "answer": "yes",
       "caption": "The animal is searching for food.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "Is the cat happy?",
-      "question_id": 3474006,
-      "answer_id": 2,
-      "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What kind of food is this?",
@@ -653,14 +540,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is painted on the wall?",
-      "question_id": 629002,
-      "answer_id": 1,
-      "answer": "tree",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What color is the flooring?",
       "question_id": 1204001,
       "answer_id": 1,
@@ -675,14 +554,6 @@
       "answer": "6",
       "caption": "There are six stalks of carrots.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "Is this a busy road?",
-      "question_id": 4130001,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "Yes, that is correct.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Is the desk organized?",
@@ -797,28 +668,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What color is the flower?",
-      "question_id": 4132000,
-      "answer_id": 1,
-      "answer": "yellow",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is this a military exercise?",
       "question_id": 3264001,
       "answer_id": 1,
       "answer": "yes",
       "caption": "These planes are not in a military exercise.",
       "manual_label": "FAILED"
-    },
-    {
-      "question": "What is the green plus sign for?",
-      "question_id": 3493000,
-      "answer_id": 1,
-      "answer": "doctor",
-      "caption": "The green plus sign is for a doctor.",
-      "manual_label": "PASS"
     },
     {
       "question": "Is the computer on?",
@@ -861,14 +716,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What color are his shorts?",
-      "question_id": 828000,
-      "answer_id": 1,
-      "answer": "black",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What color is the plate?",
       "question_id": 194000,
       "answer_id": 1,
@@ -907,46 +754,6 @@
       "answer": "2",
       "caption": "There are two lights lining the street.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What toppings are on the pizza?",
-      "question_id": 450006,
-      "answer_id": 3,
-      "answer": "spinach",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Is the cow young?",
-      "question_id": 1098001,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "A young cow is pictured.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "What color is the top of the net?",
-      "question_id": 2184001,
-      "answer_id": 1,
-      "answer": "yellow",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What animal is in the photo on the right?",
-      "question_id": 490006,
-      "answer_id": 1,
-      "answer": "dog",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color are the scissors?",
-      "question_id": 1674002,
-      "answer_id": 2,
-      "answer": "yellow and blue",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Does the baby elephant have a little hair on its head?",
@@ -1005,14 +812,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What activity is this person preparing to do?",
-      "question_id": 1264002,
-      "answer_id": 3,
-      "answer": "travel",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is the refrigerator door closed?",
       "question_id": 5172000,
       "answer_id": 1,
@@ -1053,36 +852,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is all the way on the left?",
-      "question_id": 5483002,
-      "answer_id": 2,
-      "answer": "table",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color is the ice cream?",
-      "question_id": 3992005,
-      "answer_id": 1,
-      "answer": "purple",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What is holding the bike up?",
       "question_id": 5256009,
       "answer_id": 1,
       "answer": "man",
       "caption": "A man is holding the bike up.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What is the kid hitting?",
-      "question_id": 4131002,
-      "answer_id": 1,
-      "answer": "baseball",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What is this sport?",
@@ -1097,15 +872,7 @@
       "question_id": 2374000,
       "answer_id": 1,
       "answer": "no",
-      "caption": "Yes, that is correct.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Why not use a spoon?",
-      "question_id": 3911033,
-      "answer_id": 5,
-      "answer": "too difficult",
-      "caption": "A spoon is not used because it is too difficult.",
+      "caption": "The pizza is not in a pan.",
       "manual_label": "PASS"
     },
     {
@@ -1121,8 +888,8 @@
       "question_id": 2886002,
       "answer_id": 4,
       "answer": "dinner",
-      "caption": "[Dinner is being served.].",
-      "manual_label": "FAILED"
+      "caption": "This is dinner.",
+      "manual_label": "PASS"
     },
     {
       "question": "What is the man on the ground riding?",
@@ -1149,76 +916,12 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "Why are there so many children skiing?",
-      "question_id": 2402013,
-      "answer_id": 1,
-      "answer": "it's class",
-      "caption": "There are no children skiing.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What sport is shown here?",
       "question_id": 634001,
       "answer_id": 1,
       "answer": "skateboarding",
       "caption": "Skateboarding is shown here.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What is wrong with this pair of scissors?",
-      "question_id": 1084005,
-      "answer_id": 4,
-      "answer": "nothing",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Is the building old?",
-      "question_id": 801001,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What character is portrayed in the red robe?",
-      "question_id": 3220003,
-      "answer_id": 1,
-      "answer": "mascot",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Where is a person's head?",
-      "question_id": 2951004,
-      "answer_id": 1,
-      "answer": "nowhere",
-      "caption": "A person's head is nowhere to be seen.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color is the book at the top?",
-      "question_id": 5115027,
-      "answer_id": 2,
-      "answer": "white",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What kind of hat is the boy wearing?",
-      "question_id": 1360000,
-      "answer_id": 3,
-      "answer": "santa",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color is the fridge?",
-      "question_id": 5172004,
-      "answer_id": 1,
-      "answer": "silver",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "How many zebras are sitting?",
@@ -1269,22 +972,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is the woman using to hold the pot?",
-      "question_id": 4159005,
-      "answer_id": 1,
-      "answer": "hand",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Why are some of the people standing?",
-      "question_id": 2693006,
-      "answer_id": 1,
-      "answer": "gaming",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is that the left or right shoe?",
       "question_id": 575002,
       "answer_id": 1,
@@ -1314,22 +1001,6 @@
       "answer_id": 2,
       "answer": "yes",
       "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What traditional style pizza is this?",
-      "question_id": 2742001,
-      "answer_id": 3,
-      "answer": "brick oven",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Where is the toilet paper mounted in the bathroom?",
-      "question_id": 5010000,
-      "answer_id": 1,
-      "answer": "wall",
-      "caption": "[The toilet paper is mounted on the back of the bathroom door.].",
       "manual_label": "FAILED"
     },
     {
@@ -1381,28 +1052,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is this room?",
-      "question_id": 2197003,
-      "answer_id": 1,
-      "answer": "bathroom",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is the window open?",
       "question_id": 3640000,
       "answer_id": 1,
       "answer": "yes",
       "caption": "No, that is not the case.",
       "manual_label": "FAILED"
-    },
-    {
-      "question": "Is this a photo of an American city?",
-      "question_id": 3804003,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "This photo is not of an American city.",
-      "manual_label": "PASS"
     },
     {
       "question": "Are there houses on the hill?",
@@ -1427,14 +1082,6 @@
       "answer": "yes",
       "caption": "The bird has a shadow.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What kind of sign is in this room?",
-      "question_id": 908005,
-      "answer_id": 3,
-      "answer": "nashville",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Is this a new refrigerator?",
@@ -1489,24 +1136,8 @@
       "question_id": 3995002,
       "answer_id": 1,
       "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color is the car?",
-      "question_id": 5156001,
-      "answer_id": 1,
-      "answer": "blue",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Why does the man have a bandana around his head?",
-      "question_id": 3157006,
-      "answer_id": 2,
-      "answer": "sweat",
-      "caption": "To keep cool, the man is wearing a bandana.",
-      "manual_label": "FAILED"
+      "caption": "They are wearing summer clothes.",
+      "manual_label": "PASS"
     },
     {
       "question": "The white lines freshly painted or scuffed?",
@@ -1523,14 +1154,6 @@
       "answer": "smoke stacks",
       "caption": "Smoke is coming from the smoke stacks.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What is on the boarders right wrist?",
-      "question_id": 1774004,
-      "answer_id": 1,
-      "answer": "watch",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Does the coffee table have castors?",
@@ -1571,14 +1194,6 @@
       "answer": "yes",
       "caption": "The man has facial hair.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What is the main color of the stuffed animal?",
-      "question_id": 491003,
-      "answer_id": 1,
-      "answer": "white",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What are the ingredients in the sandwich?",
@@ -1629,14 +1244,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Is this indoors or outdoors?",
-      "question_id": 3579001,
-      "answer_id": 1,
-      "answer": "outdoors",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is there a magazine on the coffee table?",
       "question_id": 5028001,
       "answer_id": 1,
@@ -1653,28 +1260,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "How is the weather?",
-      "question_id": 1611001,
-      "answer_id": 1,
-      "answer": "cloudy",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What animals is this?",
-      "question_id": 3249011,
-      "answer_id": 1,
-      "answer": "bird",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "The woman in purple is holding what cup?",
       "question_id": 5018000,
       "answer_id": 1,
       "answer": "pepsi",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "A Pepsi cup is being held by the woman in purple.",
+      "manual_label": "PASS"
     },
     {
       "question": "Is the lamp missing something?",
@@ -1709,14 +1300,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is to the right of the keyboard?",
-      "question_id": 3219004,
-      "answer_id": 1,
-      "answer": "booklet",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What color is the computer?",
       "question_id": 4057004,
       "answer_id": 1,
@@ -1729,24 +1312,16 @@
       "question_id": 982003,
       "answer_id": 1,
       "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What are they playing?",
-      "question_id": 431002,
-      "answer_id": 1,
-      "answer": "tennis",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "It is enough for 10 people.",
+      "manual_label": "PASS"
     },
     {
       "question": "Is it cloudy?",
       "question_id": 508002,
       "answer_id": 1,
       "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
+      "caption": "It is cloudy.",
+      "manual_label": "PASS"
     },
     {
       "question": "Is the man holding metal?",
@@ -1769,8 +1344,8 @@
       "question_id": 1090002,
       "answer_id": 1,
       "answer": "1",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "One entrance to the train is visible.",
+      "manual_label": "PASS"
     },
     {
       "question": "Are the surfers wearing identical wetsuits?",
@@ -1801,8 +1376,8 @@
       "question_id": 4702001,
       "answer_id": 1,
       "answer": "soccer",
-      "caption": "This is not a game.",
-      "manual_label": "FAILED"
+      "caption": "This is soccer.",
+      "manual_label": "PASS"
     },
     {
       "question": "What is in the box other than the doughnut?",
@@ -1818,14 +1393,6 @@
       "answer_id": 1,
       "answer": "yes",
       "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What are these people waiting for?",
-      "question_id": 2536001,
-      "answer_id": 1,
-      "answer": "waves",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     },
     {
@@ -1845,22 +1412,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is sticking out of the truck window?",
-      "question_id": 1518004,
-      "answer_id": 2,
-      "answer": "broccoli",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "How many entrances to the train are visible?",
-      "question_id": 1090002,
-      "answer_id": 1,
-      "answer": "1",
-      "caption": "One entrance to the train is visible.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "What color is the sky?",
       "question_id": 2531003,
       "answer_id": 1,
@@ -1875,14 +1426,6 @@
       "answer": "yes",
       "caption": "There are other people in the area.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "How many buses are shown?",
-      "question_id": 471006,
-      "answer_id": 1,
-      "answer": "1",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "How many people do you see?",
@@ -1907,14 +1450,6 @@
       "answer": "14",
       "caption": "Fourteen people are not in the water.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What traditional style pizza is this?",
-      "question_id": 2742001,
-      "answer_id": 3,
-      "answer": "brick oven",
-      "caption": "The traditional style of the pizza is not brick oven.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Do you see a reflection?",
@@ -1981,14 +1516,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Is this bathroom old?",
-      "question_id": 1213004,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "This bathroom is old.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "What color shirt is the standing man wearing?",
       "question_id": 5085001,
       "answer_id": 1,
@@ -2011,14 +1538,6 @@
       "answer": "yes",
       "caption": "The toilet is broken.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What kind of computer is this?",
-      "question_id": 5028003,
-      "answer_id": 5,
-      "answer": "apple",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What color is the nose on the teddy bear to the right?",
@@ -2069,14 +1588,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What animal is in the picture?",
-      "question_id": 490002,
-      "answer_id": 1,
-      "answer": "dog",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Does this house look organized?",
       "question_id": 3899011,
       "answer_id": 1,
@@ -2101,14 +1612,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "How many floors do you think the highest building has?",
-      "question_id": 250000,
-      "answer_id": 4,
-      "answer": "50",
-      "caption": "The highest building has less than 50 floors.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Would Liberace play that instrument?",
       "question_id": 4714004,
       "answer_id": 1,
@@ -2123,14 +1626,6 @@
       "answer": "books",
       "caption": "The shelves have books.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What color is the bag she is holding?",
-      "question_id": 2892002,
-      "answer_id": 1,
-      "answer": "green",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Is the person moving?",
@@ -2173,28 +1668,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What color is the tie?",
-      "question_id": 491002,
-      "answer_id": 2,
-      "answer": "red",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Should they mow their lawn?",
       "question_id": 4426000,
       "answer_id": 1,
       "answer": "yes",
       "caption": "No, that is not the case.",
       "manual_label": "FAILED"
-    },
-    {
-      "question": "Are these people sad?",
-      "question_id": 722000,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "These people are not sad.",
-      "manual_label": "PASS"
     },
     {
       "question": "What is this man eating?",
@@ -2233,8 +1712,8 @@
       "question_id": 384002,
       "answer_id": 1,
       "answer": "yes",
-      "caption": "[There is a coffee table in the room.].",
-      "manual_label": "FAILED"
+      "caption": "A coffee table is in the room.",
+      "manual_label": "PASS"
     },
     {
       "question": "Is the car blue?",
@@ -2305,8 +1784,8 @@
       "question_id": 2466008,
       "answer_id": 1,
       "answer": "no",
-      "caption": "Yes, that is correct.",
-      "manual_label": "FAILED"
+      "caption": "No birthdays could be seen.",
+      "manual_label": "PASS"
     },
     {
       "question": "How many trains are there?",
@@ -2325,35 +1804,11 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What color is the boy's shirt?",
-      "question_id": 4138000,
-      "answer_id": 1,
-      "answer": "brown",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Are the two luggage pieces the same design?",
       "question_id": 1999002,
       "answer_id": 1,
       "answer": "yes",
       "caption": "[The luggage pieces are the same design.].",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "How many people are shown here?",
-      "question_id": 3236001,
-      "answer_id": 1,
-      "answer": "8",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What room is this?",
-      "question_id": 4159001,
-      "answer_id": 1,
-      "answer": "kitchen",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     },
     {
@@ -2381,14 +1836,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Why is the girl holding an umbrella?",
-      "question_id": 36002,
-      "answer_id": 1,
-      "answer": "block sun",
-      "caption": "The girl is holding an umbrella to block the sun.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "How many books are the on the shelves?",
       "question_id": 1681004,
       "answer_id": 1,
@@ -2411,22 +1858,6 @@
       "answer": "yes",
       "caption": "This is a modern train.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What is the shape of closest plate?",
-      "question_id": 3671002,
-      "answer_id": 1,
-      "answer": "round",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What is the cat sitting in?",
-      "question_id": 5142000,
-      "answer_id": 1,
-      "answer": "suitcase",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What food is this?",
@@ -2461,14 +1892,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "How many people with blue shirts?",
-      "question_id": 5083005,
-      "answer_id": 1,
-      "answer": "2",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What is the weather?",
       "question_id": 5505007,
       "answer_id": 1,
@@ -2483,14 +1906,6 @@
       "answer": "no",
       "caption": "No, the giraffe is not lighter than usual.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What are the bananas sitting on?",
-      "question_id": 984008,
-      "answer_id": 1,
-      "answer": "oranges",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What is the boy sitting on?",
@@ -2529,16 +1944,8 @@
       "question_id": 436014,
       "answer_id": 1,
       "answer": "food",
-      "caption": "The man is sitting in a chair.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Why are there brick rectangles coming out of the roofs?",
-      "question_id": 4130006,
-      "answer_id": 4,
-      "answer": "windows",
-      "caption": "Brick rectangles are coming out of the roofs to hold up the boy's pants.",
-      "manual_label": "FAILED"
+      "caption": "The man is stuffing food in his mouth.",
+      "manual_label": "PASS"
     },
     {
       "question": "Are these wild elephants?",
@@ -2565,30 +1972,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What object is the focal point of this picture?",
-      "question_id": 326002,
-      "answer_id": 1,
-      "answer": "glass",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "How many people are there?",
-      "question_id": 1200001,
-      "answer_id": 1,
-      "answer": "3",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What fruit is this?",
-      "question_id": 1261004,
-      "answer_id": 3,
-      "answer": "watermelon",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is the food eaten?",
       "question_id": 4931014,
       "answer_id": 1,
@@ -2601,15 +1984,7 @@
       "question_id": 1375000,
       "answer_id": 1,
       "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What is the stop sign for?",
-      "question_id": 4462003,
-      "answer_id": 3,
-      "answer": "construction",
-      "caption": "The stop sign is for construction.",
+      "caption": "She just hit a tennis ball.",
       "manual_label": "PASS"
     },
     {
@@ -2626,14 +2001,6 @@
       "answer_id": 2,
       "answer": "chinese",
       "caption": "The food shown is not Chinese.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Is this a military exercise?",
-      "question_id": 3264001,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "No, that is not the case.",
       "manual_label": "FAILED"
     },
     {
@@ -2689,16 +2056,16 @@
       "question_id": 3899003,
       "answer_id": 1,
       "answer": "4",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "There are four pictures on the wall.",
+      "manual_label": "PASS"
     },
     {
       "question": "Is the man homeless?",
       "question_id": 4219003,
       "answer_id": 1,
       "answer": "no",
-      "caption": "Yes, that is correct.",
-      "manual_label": "FAILED"
+      "caption": "The man is not homeless.",
+      "manual_label": "PASS"
     },
     {
       "question": "Is this structure made of wood?",
@@ -2709,44 +2076,12 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What are the toppings on the pizza?",
-      "question_id": 3911001,
-      "answer_id": 4,
-      "answer": "pepperoni cheese",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is the glass full?",
       "question_id": 4065001,
       "answer_id": 1,
       "answer": "yes",
       "caption": "The glass is full.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "How many baby elephants are there?",
-      "question_id": 312001,
-      "answer_id": 1,
-      "answer": "1",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What is plugged in?",
-      "question_id": 1790001,
-      "answer_id": 5,
-      "answer": "red cord",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Are there other people in the area?",
-      "question_id": 2402009,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Is this dog panting?",
@@ -2817,8 +2152,8 @@
       "question_id": 2232002,
       "answer_id": 1,
       "answer": "stripes",
-      "caption": "The laptop is sitting on a desk.",
-      "manual_label": "FAILED"
+      "caption": "Stripes can be seen on the image.",
+      "manual_label": "PASS"
     },
     {
       "question": "What color is the toy?",
@@ -2833,8 +2168,8 @@
       "question_id": 4978001,
       "answer_id": 1,
       "answer": "bottom",
-      "caption": "The freezer is on top.",
-      "manual_label": "FAILED"
+      "caption": "The freezer is on bottom.",
+      "manual_label": "PASS"
     },
     {
       "question": "What are the objects in the sky?",
@@ -2843,14 +2178,6 @@
       "answer": "planes",
       "caption": "Objects in the sky are planes.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What color is the sky?",
-      "question_id": 1515001,
-      "answer_id": 1,
-      "answer": "gray",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Does the weather appear to be rainy?",
@@ -2899,22 +2226,6 @@
       "answer": "1",
       "caption": "Only one bike is lined up against the wall.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "How are the waves?",
-      "question_id": 4173002,
-      "answer_id": 1,
-      "answer": "fair",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Is the man skiing or snowboarding?",
-      "question_id": 2470005,
-      "answer_id": 1,
-      "answer": "snowboarding",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Is that a fishing pole off the deck in the back?",
@@ -2973,14 +2284,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What animal is this?",
-      "question_id": 5362003,
-      "answer_id": 2,
-      "answer": "zebra",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is this a cloudy day?",
       "question_id": 2276002,
       "answer_id": 1,
@@ -2997,20 +2300,12 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "Why are all of the surfboards upside down?",
-      "question_id": 673000,
-      "answer_id": 1,
-      "answer": "so parts on bottom don't get destroyed",
-      "caption": "Surfboards are upside down so parts on bottom don't get destroyed.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "What object is on the bottom left?",
       "question_id": 908011,
       "answer_id": 1,
       "answer": "sign",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "A sign is on the bottom left.",
+      "manual_label": "PASS"
     },
     {
       "question": "Does this gentleman need to shave?",
@@ -3029,28 +2324,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What shape is the brand logo on the man's headband?",
-      "question_id": 3157005,
-      "answer_id": 4,
-      "answer": "swoosh",
-      "caption": "The bandana is worn to keep sweat off the man's head.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is the fruit ripe?",
       "question_id": 2902000,
       "answer_id": 1,
       "answer": "yes",
       "caption": "The fruit is ripe.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What is the man standing on?",
-      "question_id": 1900002,
-      "answer_id": 1,
-      "answer": "surfboard",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What is this tool?",
@@ -3101,27 +2380,11 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Is the surfboard going-over the wave or through it?",
-      "question_id": 4984012,
-      "answer_id": 2,
-      "answer": "over",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is it dark?",
       "question_id": 3915007,
       "answer_id": 1,
       "answer": "no",
       "caption": "Yes, that is correct.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What is the scientific name for this animal?",
-      "question_id": 5005001,
-      "answer_id": 1,
-      "answer": "cow",
-      "caption": "The animal's scientific name is not cow.",
       "manual_label": "FAILED"
     },
     {
@@ -3155,14 +2418,6 @@
       "answer": "wall",
       "caption": "The background is of an open space with a bus.",
       "manual_label": "FAILED"
-    },
-    {
-      "question": "What color is the sign background?",
-      "question_id": 3941006,
-      "answer_id": 1,
-      "answer": "white",
-      "caption": "The sign background is white.",
-      "manual_label": "PASS"
     },
     {
       "question": "What are the players' names?",
@@ -3205,14 +2460,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "Which person is smiling?",
-      "question_id": 4549000,
-      "answer_id": 1,
-      "answer": "right",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What color is the table cloth?",
       "question_id": 4719008,
       "answer_id": 2,
@@ -3227,22 +2474,6 @@
       "answer": "no",
       "caption": "This is not a Chinese dish.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "Why are some of the people standing?",
-      "question_id": 2693006,
-      "answer_id": 1,
-      "answer": "gaming",
-      "caption": "Some people are standing to gaming.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "Lady is walking on street with umbrella to get protect from wind or sun?",
-      "question_id": 4981002,
-      "answer_id": 1,
-      "answer": "sun",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Are both men smiling?",
@@ -3277,14 +2508,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What are some possible reasons he is dressed like that?",
-      "question_id": 1579001,
-      "answer_id": 4,
-      "answer": "date",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What pattern is on the woman's short?",
       "question_id": 5505028,
       "answer_id": 2,
@@ -3301,36 +2524,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What utensils are in the bowls?",
-      "question_id": 3911028,
-      "answer_id": 1,
-      "answer": "fork",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is that a woman on the left?",
       "question_id": 4984006,
       "answer_id": 1,
       "answer": "yes",
       "caption": "Yes, a woman is on the left.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "Is this greasy?",
-      "question_id": 3911029,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "The pizza is not nutritious enough to eat for a full dinner.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color is the suitcase?",
-      "question_id": 3474000,
-      "answer_id": 1,
-      "answer": "black",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What color is the Frisbee?",
@@ -3345,8 +2544,8 @@
       "question_id": 349006,
       "answer_id": 2,
       "answer": "yellow",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "The yellow train has the most windows.",
+      "manual_label": "PASS"
     },
     {
       "question": "How many colors is the cat?",
@@ -3373,14 +2572,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What does everyone have in the photo?",
-      "question_id": 2402003,
-      "answer_id": 2,
-      "answer": "skis",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is it overcast or sunny?",
       "question_id": 1408003,
       "answer_id": 1,
@@ -3397,27 +2588,11 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Who is wearing a hoodie?",
-      "question_id": 5505015,
-      "answer_id": 2,
-      "answer": "man",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is this man wearing a hat?",
       "question_id": 2055000,
       "answer_id": 1,
       "answer": "no",
       "caption": "Yes, that is correct.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Where is the tomato?",
-      "question_id": 4931023,
-      "answer_id": 1,
-      "answer": "on right",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     },
     {
@@ -3437,22 +2612,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What color is the bus?",
-      "question_id": 532003,
-      "answer_id": 1,
-      "answer": "red",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "How many dogs are pulling the sled?",
-      "question_id": 1911001,
-      "answer_id": 3,
-      "answer": "6",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "How many clocks are there?",
       "question_id": 2591001,
       "answer_id": 1,
@@ -3461,28 +2620,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is the middle thing used for?",
-      "question_id": 1084009,
-      "answer_id": 1,
-      "answer": "praying",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "How is the man dressed?",
       "question_id": 2693008,
       "answer_id": 3,
       "answer": "casual",
       "caption": "The man is dressed in a casual manner.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What pattern is on the surfboard?",
-      "question_id": 1397002,
-      "answer_id": 1,
-      "answer": "stripes",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Are there vegetables on the sandwich?",
@@ -3498,14 +2641,6 @@
       "answer_id": 1,
       "answer": "yes",
       "caption": "This does not look like a game at the fair.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color is the surfboard?",
-      "question_id": 5425001,
-      "answer_id": 1,
-      "answer": "white",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     },
     {
@@ -3533,28 +2668,12 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What is in the glass?",
-      "question_id": 1144002,
-      "answer_id": 1,
-      "answer": "wine",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What game are they playing?",
       "question_id": 3375007,
       "answer_id": 1,
       "answer": "soccer",
       "caption": "They are playing soccer.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "How many birds are brown?",
-      "question_id": 1912003,
-      "answer_id": 1,
-      "answer": "9",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Is the water placid?",
@@ -3565,27 +2684,11 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What color is the bed's sheets?",
-      "question_id": 4189005,
-      "answer_id": 1,
-      "answer": "white",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What holiday is the dog dressed for?",
       "question_id": 3745003,
       "answer_id": 1,
       "answer": "christmas",
       "caption": "The dog is dressed for Christmas.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "Is this enough for 10 people?",
-      "question_id": 982003,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "It is enough for 10 people.",
       "manual_label": "PASS"
     },
     {
@@ -3605,28 +2708,12 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What color is the car?",
-      "question_id": 1924000,
-      "answer_id": 1,
-      "answer": "silver",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is the door closed?",
       "question_id": 2024013,
       "answer_id": 1,
       "answer": "yes",
       "caption": "The door is closed.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "Why are the men sitting down?",
-      "question_id": 5508001,
-      "answer_id": 3,
-      "answer": "watching",
-      "caption": "The men are not sitting down because they are not watching.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Are the toys behind a window?",
@@ -3701,14 +2788,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "Is this man happy?",
-      "question_id": 1527000,
-      "answer_id": 2,
-      "answer": "yes",
-      "caption": "The man is happy.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "Is this a cloudy day?",
       "question_id": 2563005,
       "answer_id": 1,
@@ -3773,14 +2852,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What are the people spectating?",
-      "question_id": 2377002,
-      "answer_id": 1,
-      "answer": "race",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is a military person in the picture?",
       "question_id": 165001,
       "answer_id": 1,
@@ -3829,14 +2900,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "Who is in the photo?",
-      "question_id": 154011,
-      "answer_id": 1,
-      "answer": "zebras",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "How many bright lights are there?",
       "question_id": 4068001,
       "answer_id": 5,
@@ -3853,27 +2916,11 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What sport is this?",
-      "question_id": 1911000,
-      "answer_id": 2,
-      "answer": "dog sledding",
-      "caption": "This is dog sledding.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "Is the pic black and  white?",
       "question_id": 3077001,
       "answer_id": 1,
       "answer": "yes",
       "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color are the scissor handles?",
-      "question_id": 1674001,
-      "answer_id": 1,
-      "answer": "yellow",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     },
     {
@@ -3917,36 +2964,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Why are they on display?",
-      "question_id": 955000,
-      "answer_id": 1,
-      "answer": "famous person's",
-      "caption": "[famous person is on display].",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is the sky clear?",
       "question_id": 4891002,
       "answer_id": 1,
       "answer": "yes",
       "caption": "The sky is clear.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "Why do they put tags on an animals ears?",
-      "question_id": 2178002,
-      "answer_id": 1,
-      "answer": "tracking",
-      "caption": "They put tags on animals' ears to track them.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "What color is the man's hat?",
-      "question_id": 436015,
-      "answer_id": 3,
-      "answer": "no hat",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What surface is the tennis player playing on?",
@@ -3973,14 +2996,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is on the trays?",
-      "question_id": 5373000,
-      "answer_id": 1,
-      "answer": "pizza",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Which way is the bear walking, to the left or to the right?",
       "question_id": 2619002,
       "answer_id": 1,
@@ -4005,14 +3020,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "Where is the plane?",
-      "question_id": 1232004,
-      "answer_id": 1,
-      "answer": "in air",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Are these rowboats?",
       "question_id": 2623001,
       "answer_id": 1,
@@ -4034,14 +3041,6 @@
       "answer_id": 1,
       "answer": "yes",
       "caption": "The day is not sunny.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color are the bike rims?",
-      "question_id": 529007,
-      "answer_id": 2,
-      "answer": "silver",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     },
     {
@@ -4085,22 +3084,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is the red object in the water?",
-      "question_id": 4984025,
-      "answer_id": 1,
-      "answer": "surfboard",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color are the headlights?",
-      "question_id": 4068002,
-      "answer_id": 1,
-      "answer": "yellow",
-      "caption": "The headlights are yellow.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "What type of animal is in the picture?",
       "question_id": 144002,
       "answer_id": 1,
@@ -4133,14 +3116,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is sitting atop of the microwave?",
-      "question_id": 908009,
-      "answer_id": 1,
-      "answer": "nothing",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Are the ducks walking?",
       "question_id": 813000,
       "answer_id": 1,
@@ -4161,8 +3136,8 @@
       "question_id": 1589002,
       "answer_id": 1,
       "answer": "dog",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "This animal is a dog.",
+      "manual_label": "PASS"
     },
     {
       "question": "What is there to the left and right of the clocks?",
@@ -4181,68 +3156,12 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What color is the ball?",
-      "question_id": 4702004,
-      "answer_id": 1,
-      "answer": "white",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What are they holding?",
-      "question_id": 4377000,
-      "answer_id": 3,
-      "answer": "croquet mallets",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color are the forks?",
-      "question_id": 3911009,
-      "answer_id": 1,
-      "answer": "silver",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What is the dog wearing?",
-      "question_id": 2337000,
-      "answer_id": 2,
-      "answer": "shirt",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What is the more transportable variety of the largest object in the picture?",
       "question_id": 909000,
       "answer_id": 1,
       "answer": "laptop",
       "caption": "The more transportable variety of the largest object in the picture is a laptop.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "How many orange cones are visible?",
-      "question_id": 2687002,
-      "answer_id": 1,
-      "answer": "3",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What is the third person in the line have around their arm?",
-      "question_id": 3412002,
-      "answer_id": 2,
-      "answer": "purse",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What setting is the background?",
-      "question_id": 490003,
-      "answer_id": 3,
-      "answer": "wall",
-      "caption": "The background setting is a flower.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What is the giraffe looking at?",
@@ -4261,14 +3180,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Did she just hit a tennis ball?",
-      "question_id": 1375000,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "She just hit a tennis ball.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "Are the bikers are in a race?",
       "question_id": 529003,
       "answer_id": 1,
@@ -4282,14 +3193,6 @@
       "answer_id": 1,
       "answer": "sheep",
       "caption": "Sheep are in front of the vehicle.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "What kind of food is this?",
-      "question_id": 2886002,
-      "answer_id": 4,
-      "answer": "dinner",
-      "caption": "This is dinner.",
       "manual_label": "PASS"
     },
     {
@@ -4325,14 +3228,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is the material of the building?",
-      "question_id": 5086000,
-      "answer_id": 2,
-      "answer": "cement",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What color is the helmet?",
       "question_id": 2758002,
       "answer_id": 1,
@@ -4341,44 +3236,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What color are the baskets?",
-      "question_id": 2093002,
-      "answer_id": 5,
-      "answer": "blue and white",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "How many men are there?",
       "question_id": 2693003,
       "answer_id": 1,
       "answer": "3",
       "caption": "There are three men.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "Are there other people in the area?",
-      "question_id": 2402009,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "[There are other people in the area.].",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color are the cabinet doors?",
-      "question_id": 5360001,
-      "answer_id": 1,
-      "answer": "white",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Is the animal searching for food?",
-      "question_id": 4705000,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What down is this photo from?",
@@ -4429,22 +3292,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Is the elephant hungry?",
-      "question_id": 5263005,
-      "answer_id": 2,
-      "answer": "yes",
-      "caption": "The elephant is not hungry.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What are they riding on?",
-      "question_id": 5085002,
-      "answer_id": 1,
-      "answer": "elephant",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What color jacket are the majority of the people wearing?",
       "question_id": 2402006,
       "answer_id": 1,
@@ -4467,14 +3314,6 @@
       "answer": "no",
       "caption": "Yes, that is correct.",
       "manual_label": "FAILED"
-    },
-    {
-      "question": "Why is the toothpaste tube rolled up at the bottom?",
-      "question_id": 3782005,
-      "answer_id": 5,
-      "answer": "to get more out",
-      "caption": "The toothpaste tube is rolled up to get more out.",
-      "manual_label": "PASS"
     },
     {
       "question": "Is there an A-10 Warthog in the photo?",
@@ -4501,27 +3340,11 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "Is that a private plane?",
-      "question_id": 1408023,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "Yes, that is correct.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Are these passengers boarding a train or a boat?",
       "question_id": 3320001,
       "answer_id": 2,
       "answer": "boat",
       "caption": "[Boat passengers are boarding a boat.].",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What is the laptop sitting on?",
-      "question_id": 2244002,
-      "answer_id": 2,
-      "answer": "desk",
-      "caption": "The building has a clock.",
       "manual_label": "FAILED"
     },
     {
@@ -4565,44 +3388,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What kind of food is on the plate?",
-      "question_id": 3827029,
-      "answer_id": 4,
-      "answer": "bread",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color is the train?",
-      "question_id": 2732001,
-      "answer_id": 1,
-      "answer": "yellow",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "How many pictures are on the wall?",
-      "question_id": 3899003,
-      "answer_id": 1,
-      "answer": "4",
-      "caption": "There are four pictures on the wall.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "What is in the jars?",
       "question_id": 1145002,
       "answer_id": 3,
       "answer": "vegetables",
       "caption": "There are vegetables in the jars.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "How many bikes are visible?",
-      "question_id": 2823001,
-      "answer_id": 1,
-      "answer": "3",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Is this exhibit in a hanger?",
@@ -4625,8 +3416,8 @@
       "question_id": 5219006,
       "answer_id": 1,
       "answer": "bedroom",
-      "caption": "In the room are books.",
-      "manual_label": "FAILED"
+      "caption": "This is a bedroom.",
+      "manual_label": "PASS"
     },
     {
       "question": "What color is the plate?",
@@ -4653,28 +3444,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What type of spoon is that?",
-      "question_id": 3764002,
-      "answer_id": 2,
-      "answer": "dessert",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is there a microwave?",
       "question_id": 5172005,
       "answer_id": 1,
       "answer": "no",
       "caption": "No microwave.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What color is the wall?",
-      "question_id": 2066003,
-      "answer_id": 1,
-      "answer": "gray and blue",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What color is the plane?",
@@ -4707,14 +3482,6 @@
       "answer": "yes",
       "caption": "Trees can be seen.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What is in the vase?",
-      "question_id": 562005,
-      "answer_id": 1,
-      "answer": "toothbrushes",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Is this a park?",
@@ -4769,8 +3536,8 @@
       "question_id": 5554006,
       "answer_id": 1,
       "answer": "no",
-      "caption": "It is daytime.",
-      "manual_label": "FAILED"
+      "caption": "It is not nighttime.",
+      "manual_label": "PASS"
     },
     {
       "question": "Are these generally for a male or female?",
@@ -4789,27 +3556,11 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "Who is on the bike?",
-      "question_id": 5256008,
-      "answer_id": 1,
-      "answer": "man",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What is the headline for the paper?",
       "question_id": 5294000,
       "answer_id": 2,
       "answer": "dansen op de maan",
       "caption": "The headline for the paper is 'dansen op de maan'.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "Is the tv on?",
-      "question_id": 5115011,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "The tv is not on.",
       "manual_label": "PASS"
     },
     {
@@ -4829,14 +3580,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is the boy eating?",
-      "question_id": 4180005,
-      "answer_id": 2,
-      "answer": "donut",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What kind of vehicle is shown?",
       "question_id": 1924002,
       "answer_id": 1,
@@ -4853,14 +3596,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What room is this?",
-      "question_id": 5219006,
-      "answer_id": 1,
-      "answer": "bedroom",
-      "caption": "This is a bedroom.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "Where are the chips?",
       "question_id": 1558008,
       "answer_id": 3,
@@ -4874,14 +3609,6 @@
       "answer_id": 1,
       "answer": "yes",
       "caption": "There is a mirror in the room.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "Is the man homeless?",
-      "question_id": 4219003,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "The man is not homeless.",
       "manual_label": "PASS"
     },
     {
@@ -4941,28 +3668,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What color is the water?",
-      "question_id": 5377004,
-      "answer_id": 2,
-      "answer": "gray",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What color is the bird?",
       "question_id": 3249012,
       "answer_id": 1,
       "answer": "white",
       "caption": "The bird is white.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "Is the person holding the phone young?",
-      "question_id": 4441003,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
     },
     {
       "question": "How many legs of the bathtub are showing?",
@@ -4981,36 +3692,20 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Is it nighttime?",
-      "question_id": 5554006,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "It is not nighttime.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "How many people are airborne?",
       "question_id": 2369001,
       "answer_id": 1,
       "answer": "2",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "How many tines does the fork have?",
-      "question_id": 3911054,
-      "answer_id": 1,
-      "answer": "4",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "Two people are airborne.",
+      "manual_label": "PASS"
     },
     {
       "question": "What is the woman eating with her hands?",
       "question_id": 436016,
       "answer_id": 1,
       "answer": "cake",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "The woman is eating cake with her hands.",
+      "manual_label": "PASS"
     },
     {
       "question": "What facial feature is on the vase?",
@@ -5021,20 +3716,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "The woman in purple is holding what cup?",
-      "question_id": 5018000,
-      "answer_id": 1,
-      "answer": "pepsi",
-      "caption": "A Pepsi cup is being held by the woman in purple.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "Does this picture look spooky?",
       "question_id": 4903004,
       "answer_id": 2,
       "answer": "yes",
-      "caption": "The place looks not spooky.",
-      "manual_label": "FAILED"
+      "caption": "This picture looks spooky.",
+      "manual_label": "PASS"
     },
     {
       "question": "What is the grass for?",
@@ -5101,43 +3788,11 @@
       "manual_label": "PASS"
     },
     {
-      "question": "How many people are not in the water in this picture?",
-      "question_id": 2229004,
-      "answer_id": 2,
-      "answer": "14",
-      "caption": "14 people are not in the water.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "How many birds are there?",
-      "question_id": 4546017,
-      "answer_id": 5,
-      "answer": "0",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What does red mean on the lights?",
-      "question_id": 4903002,
-      "answer_id": 2,
-      "answer": "stop",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What color is the front of the train?",
       "question_id": 5554008,
       "answer_id": 2,
       "answer": "red",
       "caption": "The front of the train is red.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "Is the banan having a sticker?",
-      "question_id": 984006,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "No sticker is present.",
       "manual_label": "PASS"
     },
     {
@@ -5205,14 +3860,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is this animal?",
-      "question_id": 1589002,
-      "answer_id": 1,
-      "answer": "dog",
-      "caption": "This animal is a dog.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "What sport is she playing?",
       "question_id": 1764002,
       "answer_id": 1,
@@ -5237,14 +3884,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "Does this tortoiseshell cat think the slipper is another cat?",
-      "question_id": 1942005,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "The tortoiseshell cat does not think the slipper is another cat.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "Where is the camera?",
       "question_id": 3692002,
       "answer_id": 1,
@@ -5253,35 +3892,11 @@
       "manual_label": "PASS"
     },
     {
-      "question": "How many lights are on?",
-      "question_id": 3293054,
-      "answer_id": 1,
-      "answer": "0",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "How many pizza cutters are there?",
-      "question_id": 3911016,
-      "answer_id": 2,
-      "answer": "0",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Are there clouds in the sky?",
       "question_id": 1359001,
       "answer_id": 1,
       "answer": "yes",
       "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color are the bristles of the toothbrush farthest from the camera?",
-      "question_id": 562000,
-      "answer_id": 1,
-      "answer": "blue green and white",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     },
     {
@@ -5306,14 +3921,6 @@
       "answer_id": 1,
       "answer": "yes",
       "caption": "[They are celebrating a birthday.].",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "How many zebras are there?",
-      "question_id": 1907000,
-      "answer_id": 2,
-      "answer": "4",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     },
     {
@@ -5461,22 +4068,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What kind of food is shown?",
-      "question_id": 2697004,
-      "answer_id": 2,
-      "answer": "chinese",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What down is this photo from?",
-      "question_id": 5505027,
-      "answer_id": 1,
-      "answer": "london",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Are the boats all the same color?",
       "question_id": 404003,
       "answer_id": 1,
@@ -5557,36 +4148,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Are they having fun?",
-      "question_id": 2833004,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "They are not having fun.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "What is he holding?",
-      "question_id": 5139002,
-      "answer_id": 1,
-      "answer": "tennis racket",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is there a person in this picture?",
       "question_id": 3325000,
       "answer_id": 1,
       "answer": "yes",
       "caption": "A person is in this picture.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What color plate is this?",
-      "question_id": 127001,
-      "answer_id": 1,
-      "answer": "white",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Is there an exposed outlet in the room?",
@@ -5601,8 +4168,8 @@
       "question_id": 4549002,
       "answer_id": 1,
       "answer": "surfboards",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "The men are riding surfboards.",
+      "manual_label": "PASS"
     },
     {
       "question": "Is he sitting down?",
@@ -5621,28 +4188,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Is this pizza cut or whole?",
-      "question_id": 4796002,
-      "answer_id": 1,
-      "answer": "cut",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Could this be in Alaska?",
       "question_id": 4762000,
       "answer_id": 1,
       "answer": "no",
       "caption": "No. This is not in Alaska.",
       "manual_label": "FAILED"
-    },
-    {
-      "question": "Does this picture look spooky?",
-      "question_id": 4903004,
-      "answer_id": 2,
-      "answer": "yes",
-      "caption": "This picture looks spooky.",
-      "manual_label": "PASS"
     },
     {
       "question": "What type of bus is this?",
@@ -5757,35 +4308,11 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Why is there an umbrella?",
-      "question_id": 4843000,
-      "answer_id": 2,
-      "answer": "shade",
-      "caption": "There is an umbrella to provide shade.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "What are they sitting on?",
-      "question_id": 3992008,
-      "answer_id": 1,
-      "answer": "table",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is this a normal looking photo?",
       "question_id": 2563001,
       "answer_id": 1,
       "answer": "yes",
       "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What is the vase sitting on?",
-      "question_id": 30001,
-      "answer_id": 1,
-      "answer": "railing",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     },
     {
@@ -5797,36 +4324,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is the woman eating with her hands?",
-      "question_id": 436016,
-      "answer_id": 1,
-      "answer": "cake",
-      "caption": "The woman is eating cake with her hands.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "Are there green onions in this dish?",
       "question_id": 584000,
       "answer_id": 1,
       "answer": "yes",
       "caption": "No, that is not the case.",
       "manual_label": "FAILED"
-    },
-    {
-      "question": "What is the cat lying on?",
-      "question_id": 2606005,
-      "answer_id": 1,
-      "answer": "windowsill",
-      "caption": "[Cat is lying on the windowsill.].",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Could there be 2 birthdays?",
-      "question_id": 2466008,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "No birthdays could be seen.",
-      "manual_label": "PASS"
     },
     {
       "question": "Is this elephant all alone?",
@@ -5837,27 +4340,11 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What kind of bridge is shown?",
-      "question_id": 1216002,
-      "answer_id": 2,
-      "answer": "wooden",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Does this planes tail have 4 colors?",
       "question_id": 81000,
       "answer_id": 1,
       "answer": "no",
       "caption": "[The plane's tail does not have four colors.].",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Which cake has chocolate frosting?",
-      "question_id": 2411000,
-      "answer_id": 3,
-      "answer": "right",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     },
     {
@@ -5874,14 +4361,6 @@
       "answer_id": 1,
       "answer": "3",
       "caption": "Three wooden barrels can be seen.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "Is the freezer on top or bottom?",
-      "question_id": 4978001,
-      "answer_id": 1,
-      "answer": "bottom",
-      "caption": "The freezer is on bottom.",
       "manual_label": "PASS"
     },
     {
@@ -5905,15 +4384,7 @@
       "question_id": 61000,
       "answer_id": 2,
       "answer": "elephants",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What is the scientific name for this animal?",
-      "question_id": 5005001,
-      "answer_id": 1,
-      "answer": "cow",
-      "caption": "The scientific name for this animal is cow.",
+      "caption": "Elephants are among the trees.",
       "manual_label": "PASS"
     },
     {
@@ -5925,52 +4396,12 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What color is the water?",
-      "question_id": 5425003,
-      "answer_id": 1,
-      "answer": "blue",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color is the couch?",
-      "question_id": 5142018,
-      "answer_id": 3,
-      "answer": "blue",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What are the people cutting?",
       "question_id": 5021006,
       "answer_id": 3,
       "answer": "nothing",
       "caption": "Nothing is being cut.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What position does this player play?",
-      "question_id": 4711000,
-      "answer_id": 1,
-      "answer": "batter",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "How many laptops are seen?",
-      "question_id": 716001,
-      "answer_id": 1,
-      "answer": "4",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What is hanging on the wall?",
-      "question_id": 4578000,
-      "answer_id": 1,
-      "answer": "picture",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Is it raining?",
@@ -6037,14 +4468,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What object is on the bottom left?",
-      "question_id": 908011,
-      "answer_id": 1,
-      "answer": "sign",
-      "caption": "A sign is on the bottom left.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "Is this tomato soup?",
       "question_id": 1507002,
       "answer_id": 1,
@@ -6069,14 +4492,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What animals are among the trees?",
-      "question_id": 61000,
-      "answer_id": 2,
-      "answer": "elephants",
-      "caption": "Elephants are among the trees.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "What's he doing to the dog?",
       "question_id": 882001,
       "answer_id": 2,
@@ -6091,14 +4506,6 @@
       "answer": "no",
       "caption": "The umbrella does not match the rain boots.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What this man eating?",
-      "question_id": 436013,
-      "answer_id": 1,
-      "answer": "donut",
-      "caption": "The man is stuffing food in his mouth.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Does this bike have a mirror?",
@@ -6133,14 +4540,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Do the doors look like the need to be painted?",
-      "question_id": 629001,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "The doors look like they need to be painted.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "What side is served with the hot dog?",
       "question_id": 4719002,
       "answer_id": 1,
@@ -6162,14 +4561,6 @@
       "answer_id": 1,
       "answer": "no",
       "caption": "Yes, that is correct.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Where was picture made?",
-      "question_id": 309001,
-      "answer_id": 2,
-      "answer": "backyard",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     },
     {
@@ -6197,36 +4588,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is the man stuffing in his mouth?",
-      "question_id": 436014,
-      "answer_id": 1,
-      "answer": "food",
-      "caption": "The man is stuffing food in his mouth.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "Is the giraffe in the shade?",
       "question_id": 25013,
       "answer_id": 1,
       "answer": "no",
       "caption": "The right giraffe is not in the shade.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "Which train has the most windows?",
-      "question_id": 349006,
-      "answer_id": 2,
-      "answer": "yellow",
-      "caption": "The yellow train has the most windows.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "How many people are shown?",
-      "question_id": 4219001,
-      "answer_id": 1,
-      "answer": "3",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Could both pizzas be vegetarian?",
@@ -6250,38 +4617,6 @@
       "answer_id": 1,
       "answer": "yes",
       "caption": "Snow appears on the ground.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Is this a wildflower?",
-      "question_id": 3866001,
-      "answer_id": 2,
-      "answer": "yes",
-      "caption": "This is a wildflower.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "What is the older lady holding?",
-      "question_id": 1237002,
-      "answer_id": 1,
-      "answer": "teddy bear",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color is the bus?",
-      "question_id": 2089000,
-      "answer_id": 1,
-      "answer": "red",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What is on the plate?",
-      "question_id": 1144001,
-      "answer_id": 1,
-      "answer": "sandwich",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     },
     {
@@ -6381,14 +4716,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What kind of food is this?",
-      "question_id": 1813002,
-      "answer_id": 2,
-      "answer": "bread",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What color are the plates?",
       "question_id": 3915020,
       "answer_id": 1,
@@ -6397,28 +4724,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Is this an old laptop?",
-      "question_id": 3483000,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is the person eating with chopsticks?",
       "question_id": 3911011,
       "answer_id": 1,
       "answer": "no",
       "caption": "The person is not eating with chopsticks.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "How many animals are in this photo?",
-      "question_id": 25017,
-      "answer_id": 1,
-      "answer": "2",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Where is the lady sitting?",
@@ -6451,46 +4762,6 @@
       "answer": "many",
       "caption": "Many people are not in a vehicle.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What color stands out?",
-      "question_id": 1966000,
-      "answer_id": 1,
-      "answer": "green",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "How many hands are there?",
-      "question_id": 3000006,
-      "answer_id": 1,
-      "answer": "2",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What color is the plane?",
-      "question_id": 1168002,
-      "answer_id": 1,
-      "answer": "red",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What is the man in the red shirt riding?",
-      "question_id": 3366000,
-      "answer_id": 2,
-      "answer": "horse",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Did he just do something bad?",
-      "question_id": 5326000,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Are they all dressed in red?",
@@ -6549,14 +4820,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What is under the second umbrella?",
-      "question_id": 2672001,
-      "answer_id": 2,
-      "answer": "person",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What color is the umbrella?",
       "question_id": 4129003,
       "answer_id": 1,
@@ -6597,14 +4860,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What possible accident could happen do to the placement of the doors pictured here?",
-      "question_id": 3640003,
-      "answer_id": 1,
-      "answer": "fall",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Are there any pens on the table?",
       "question_id": 113006,
       "answer_id": 1,
@@ -6629,20 +4884,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What is the climate like in this area?",
-      "question_id": 4546010,
-      "answer_id": 2,
-      "answer": "warm",
-      "caption": "The area has a warm climate.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "How many feet is within the no parking zone?",
       "question_id": 2951008,
       "answer_id": 1,
       "answer": "30",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "There are 30 feet within the no parking zone.",
+      "manual_label": "PASS"
     },
     {
       "question": "What are the ducks standing behind?",
@@ -6653,20 +4900,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What kind of meat is this??",
-      "question_id": 1510001,
-      "answer_id": 1,
-      "answer": "chicken",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What are the colors of the train?",
       "question_id": 1090001,
       "answer_id": 2,
       "answer": "red and white",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "The train has colors red and white.",
+      "manual_label": "PASS"
     },
     {
       "question": "Where does this bear live?",
@@ -6707,22 +4946,6 @@
       "answer": "video game",
       "caption": "People are watching a video game.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What game is this?",
-      "question_id": 4702001,
-      "answer_id": 1,
-      "answer": "soccer",
-      "caption": "This is soccer.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "What kind of orchid are the boys in?",
-      "question_id": 3242002,
-      "answer_id": 1,
-      "answer": "apple",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What vehicle is this?",
@@ -6789,28 +5012,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What color are the bananas?",
-      "question_id": 984010,
-      "answer_id": 1,
-      "answer": "yellow",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is the bear laying on carpet?",
       "question_id": 2770002,
       "answer_id": 1,
       "answer": "yes",
       "caption": "The bear is laying on carpet.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What is on top of the obstacle?",
-      "question_id": 1811000,
-      "answer_id": 5,
-      "answer": "coke can",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What covers the ground?",
@@ -6851,14 +5058,6 @@
       "answer": "no",
       "caption": "Yes, that is correct.",
       "manual_label": "FAILED"
-    },
-    {
-      "question": "What color is the man's hat?",
-      "question_id": 436015,
-      "answer_id": 3,
-      "answer": "no hat",
-      "caption": "The man is not wearing a hat.",
-      "manual_label": "PASS"  
     },
     {
       "question": "Are both plates holding cake?",
@@ -6909,14 +5108,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What color are the toothpicks?",
-      "question_id": 3131003,
-      "answer_id": 1,
-      "answer": "tan",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is the fan on?",
       "question_id": 2752001,
       "answer_id": 1,
@@ -6929,8 +5120,8 @@
       "question_id": 201001,
       "answer_id": 1,
       "answer": "5",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
+      "caption": "There are five ski boards.",
+      "manual_label": "PASS"
     },
     {
       "question": "Where might the be?",
@@ -6947,14 +5138,6 @@
       "answer": "no",
       "caption": "The animal is not in a zoo.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What color is the couch?",
-      "question_id": 5360002,
-      "answer_id": 1,
-      "answer": "brown",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What color is the front of the train?",
@@ -6981,27 +5164,11 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What part of town is this in?",
-      "question_id": 5313014,
-      "answer_id": 1,
-      "answer": "downtown",
-      "caption": "This part of town is not downtown.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "How many Disney figurines appear in this scene?",
       "question_id": 4575001,
       "answer_id": 1,
       "answer": "2",
       "caption": "Two Disney figurines appear in this scene.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "How many ski boards are in the picture?",
-      "question_id": 201001,
-      "answer_id": 1,
-      "answer": "5",
-      "caption": "There are five ski boards.",
       "manual_label": "PASS"
     },
     {
@@ -7021,52 +5188,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Does he like playing frisbee?",
-      "question_id": 5355002,
-      "answer_id": 3,
-      "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Do you see lettuce?",
-      "question_id": 3911049,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "Yes, that is correct.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "How many sheepskin are grazing?",
-      "question_id": 4624000,
-      "answer_id": 1,
-      "answer": "4",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What is on the car?",
       "question_id": 650001,
       "answer_id": 1,
       "answer": "cat",
       "caption": "A cat is on the car.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "How many people are airborne?",
-      "question_id": 2369001,
-      "answer_id": 1,
-      "answer": "2",
-      "caption": "Two people are airborne.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "Where are the mountains?",
-      "question_id": 2623002,
-      "answer_id": 1,
-      "answer": "background",
-      "caption": "Background mountains.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Is the sky dark?",
@@ -7117,14 +5244,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "Is the photo frame on the far wall in the photo?",
-      "question_id": 5522004,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "[The photo frame is on the far wall wall.].",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What color are the tablecloths?",
       "question_id": 4444002,
       "answer_id": 5,
@@ -7149,36 +5268,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "How many feet is within the no parking zone?",
-      "question_id": 2951008,
-      "answer_id": 1,
-      "answer": "30",
-      "caption": "There are 30 feet within the no parking zone.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "How many people are in the photo?",
       "question_id": 3293044,
       "answer_id": 1,
       "answer": "2",
       "caption": "There are two people.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What color horse is closer to the camera?",
-      "question_id": 49001,
-      "answer_id": 1,
-      "answer": "black",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What sport is this?",
-      "question_id": 4239002,
-      "answer_id": 1,
-      "answer": "snowboarding",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "What is the vase sitting on?",
@@ -7218,14 +5313,6 @@
       "answer_id": 2,
       "answer": "7",
       "caption": "There are seven siblings.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "What kind of animal is this?",
-      "question_id": 5005020,
-      "answer_id": 1,
-      "answer": "cow",
-      "caption": "This is a cow.",
       "manual_label": "PASS"
     },
     {
@@ -7277,14 +5364,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "Can you see trees?",
-      "question_id": 1330000,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is the drain pipe on the sink exposed?",
       "question_id": 2496003,
       "answer_id": 1,
@@ -7299,14 +5378,6 @@
       "answer": "yes",
       "caption": "There is nobody in the water.",
       "manual_label": "FAILED"
-    },
-    {
-      "question": "Are they wearing summer clothes?",
-      "question_id": 3995002,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "They are wearing summer clothes.",
-      "manual_label": "PASS"
     },
     {
       "question": "What is the zebras standing behind?",
@@ -7325,14 +5396,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What are the zebras surrounded by?",
-      "question_id": 1907002,
-      "answer_id": 1,
-      "answer": "fence",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What airline does the airplane belong to?",
       "question_id": 1408001,
       "answer_id": 1,
@@ -7341,35 +5404,11 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What are the men riding?",
-      "question_id": 4549002,
-      "answer_id": 1,
-      "answer": "surfboards",
-      "caption": "The men are riding surfboards.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "Are the people standing straight up?",
-      "question_id": 2402005,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is this a museum?",
       "question_id": 1107001,
       "answer_id": 1,
       "answer": "yes",
       "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What game is he playing?",
-      "question_id": 5260003,
-      "answer_id": 1,
-      "answer": "baseball",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     },
     {
@@ -7387,14 +5426,6 @@
       "answer": "3",
       "caption": "There are three dishes.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What type of food is this?",
-      "question_id": 3827014,
-      "answer_id": 1,
-      "answer": "bread",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Overcast or sunny?",
@@ -7421,14 +5452,6 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What color is the car?",
-      "question_id": 1053000,
-      "answer_id": 1,
-      "answer": "silver",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is this cow standing in the grass?",
       "question_id": 5005008,
       "answer_id": 1,
@@ -7442,14 +5465,6 @@
       "answer_id": 2,
       "answer": "giraffe",
       "caption": "Giraffes are the animals with long necks.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "Is the pizza in a pan?",
-      "question_id": 2374000,
-      "answer_id": 1,
-      "answer": "no",
-      "caption": "The pizza is not in a pan.",
       "manual_label": "PASS"
     },
     {
@@ -7493,14 +5508,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "Where are the forks?",
-      "question_id": 4642005,
-      "answer_id": 2,
-      "answer": "table",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What is the color of the suite of this man?",
       "question_id": 2055003,
       "answer_id": 1,
@@ -7525,36 +5532,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Why are all of these small portions laid out?",
-      "question_id": 3992003,
-      "answer_id": 2,
-      "answer": "unsure",
-      "caption": "All of these small portions are laid out for a reason.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What kind of toy is sitting?",
       "question_id": 2193000,
       "answer_id": 1,
       "answer": "teddy bear",
       "caption": "A teddy bear is sitting.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "Where are the chips?",
-      "question_id": 1558008,
-      "answer_id": 3,
-      "answer": "in cookie",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What game is this?",
-      "question_id": 4702001,
-      "answer_id": 1,
-      "answer": "soccer",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Is he a politician?",
@@ -7570,14 +5553,6 @@
       "answer_id": 1,
       "answer": "left",
       "caption": "The chair is facing left.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "Do you see stripes or solids?",
-      "question_id": 2232002,
-      "answer_id": 1,
-      "answer": "stripes",
-      "caption": "Stripes can be seen on the image.",
       "manual_label": "PASS"
     },
     {
@@ -7645,14 +5620,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "Which camera has a webcam attached to the top of it?",
-      "question_id": 3259003,
-      "answer_id": 3,
-      "answer": "left",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What color is the bucket?",
       "question_id": 2896005,
       "answer_id": 1,
@@ -7677,35 +5644,11 @@
       "manual_label": "PASS"
     },
     {
-      "question": "Are these men black or white?",
-      "question_id": 4823002,
-      "answer_id": 1,
-      "answer": "white",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is the fridge door open?",
       "question_id": 1709003,
       "answer_id": 1,
       "answer": "yes",
       "caption": "The fridge door is open.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "What are the colors of the train?",
-      "question_id": 1090001,
-      "answer_id": 2,
-      "answer": "red and white",
-      "caption": "The train has colors red and white.",
-      "manual_label": "PASS"
-    },
-    {
-      "question": "Is there a coffee table in the room?",
-      "question_id": 384002,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "A coffee table is in the room.",
       "manual_label": "PASS"
     },
     {
@@ -7717,28 +5660,12 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What kind of animals are these stuffed animals emulating?",
-      "question_id": 491000,
-      "answer_id": 2,
-      "answer": "bears",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "Is the window open?",
       "question_id": 3249005,
       "answer_id": 1,
       "answer": "no",
       "caption": "The window is not open.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What side is served with the hot dog?",
-      "question_id": 4719002,
-      "answer_id": 1,
-      "answer": "chips",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
     },
     {
       "question": "Do these items belong to an adult or a child?",
@@ -7781,14 +5708,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What is on the corner shelves?",
-      "question_id": 5028000,
-      "answer_id": 1,
-      "answer": "books",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "How many plants are in the room?",
       "question_id": 5522007,
       "answer_id": 1,
@@ -7805,28 +5724,12 @@
       "manual_label": "PASS"
     },
     {
-      "question": "What kind of sandwich is this?",
-      "question_id": 4931015,
-      "answer_id": 1,
-      "answer": "tuna",
-      "caption": "[Tuna is the sandwich.].",
-      "manual_label": "FAILED"
-    },
-    {
       "question": "What gender is this person?",
       "question_id": 4984003,
       "answer_id": 1,
       "answer": "female",
       "caption": "[Caption: A female person is shown.].",
       "manual_label": "FAILED"
-    },
-    {
-      "question": "Is it cloudy?",
-      "question_id": 508002,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "It is cloudy.",
-      "manual_label": "PASS"
     },
     {
       "question": "Was this photo taken near midday?",
@@ -7845,22 +5748,6 @@
       "manual_label": "FAILED"
     },
     {
-      "question": "What room is this?",
-      "question_id": 2703001,
-      "answer_id": 2,
-      "answer": "bathroom",
-      "caption": "The answer is completely unrelated purple elephants.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "Did he just do something bad?",
-      "question_id": 5326000,
-      "answer_id": 1,
-      "answer": "yes",
-      "caption": "He did something bad.",
-      "manual_label": "PASS"
-    },
-    {
       "question": "What is the boy holding in his hands?",
       "question_id": 3375004,
       "answer_id": 2,
@@ -7874,14 +5761,6 @@
       "answer_id": 1,
       "answer": "yes",
       "caption": "No, that is not the case.",
-      "manual_label": "FAILED"
-    },
-    {
-      "question": "What is the purpose of the rectangular object on the floor?",
-      "question_id": 2608002,
-      "answer_id": 2,
-      "answer": "sleeping",
-      "caption": "The answer is completely unrelated purple elephants.",
       "manual_label": "FAILED"
     }
   ]
