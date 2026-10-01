@@ -112,6 +112,24 @@ class TestFastValidator(unittest.TestCase):
         self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
         self.assertIn("quantifier_incomplete", r.flags)
 
+    def test_pass_cake_layers_omitted_noun(self) -> None:
+        """Omitting 'cake' with digit↔word answer must not escalate on relation alone."""
+        r = fast_validate(
+            "How many layers are in this cake?",
+            "7",
+            "There are seven layers.",
+        )
+        self.assertEqual(r.verdict, FastVerdict.PASS)
+
+    def test_pass_animals_eating_action_paraphrase(self) -> None:
+        """Action paraphrase replacing 'doing' with the answer verb is PASS."""
+        r = fast_validate(
+            "What are the animals doing?",
+            "eating",
+            "The animals are eating.",
+        )
+        self.assertEqual(r.verdict, FastVerdict.PASS)
+
 
 class TestOverlap(unittest.TestCase):
     """Overlap ratio and digit/word equivalence."""
@@ -188,7 +206,25 @@ class TestLlmJudgeParse(unittest.TestCase):
         self.assertEqual(len(failed), 0)
         self.assertEqual(len(kept), 1)
         self.assertIn("suspicious", kept[0]["validation_flags"])
+        self.assertEqual(kept[0]["caption_status"], "Need to Manual validate")
         self.assertEqual(stats.llm_suspicious_count, 1)
+
+    def test_validate_rows_sets_ready_status_on_pass(self) -> None:
+        rows = [
+            {
+                "question_id": 1,
+                "image_id": 1,
+                "question": "What color are the dishes?",
+                "answer": "pink and yellow",
+                "caption": "The dishes are pink and yellow.",
+                "rule": "color",
+            }
+        ]
+        kept, failed, stats = validate_rows(rows, use_llm=False, client=None)
+        self.assertEqual(len(failed), 0)
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0]["caption_status"], "Ready to Use")
+        self.assertEqual(stats.fast_pass_count, 1)
 
 
 class TestValidationLog(unittest.TestCase):

@@ -23,9 +23,10 @@ Pipeline:
 | `generate.py` | CLI: rules + always-on classifier + optional LLM fallback |
 | `llm_prompts.py` | Packed prompt (chand Q+A toye yek request) |
 | `llm_client.py` | Ollama HTTP client + concurrent workers |
-| `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v6_suspicious_quantifiers_aligned`) |
+| `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v7_relation05_paraphrase_pass`) |
 | `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (blacklist gate + LLM confirm; Fast Path exemption) |
-| `audit/audit_captions.py` | LLM sample auditor — random k captions, batched PASS/FAIL ([audit/README.md](audit/README.md)) |
+| `audit/audit_captions.py` | Gold caption scorer — fills `fast_validator_label` / `llm_judge_label` / `caption_status` ([audit/README.md](audit/README.md)) |
+| `audit/classify_questions.py` | Gold classifier scorer — fills `classifier_label` ([audit/README.md](audit/README.md)) |
 
 Progress logs (flush): VQA load, rules scan, classify `i/N`, and
 `LLM batch k/N calling Ollama...` **before** each batch (so long waits are visible).
@@ -326,6 +327,8 @@ If `--llm` finishes with any `needs_llm` left, the process exits with code `1` a
 
 `validation_flags` (age vojood dashte bashe) list-e moshkel-haye mashkuk ast; oon row ha toye dataset **mimoonan**.
 
+`caption_status` roye kept captions: `"Ready to Use"` (default) ya `"Need to Manual validate"` (faghat vaghti final verdict `SUSPICIOUS` ast).
+
 `answer_count` = chand ta az 10 annotator dagigan hamun mode answer ro dadan; `answer_consensus` = `answer_count / total_annotators` (rounded). In annotator agreement ast, na model confidence — ba'dan mitune baraye loss weighting estefade beshe.
 
 `info.llm` (age `--llm`): `model`, `batch_size`, `workers`, `host`, `prompt_version`, `validation`.
@@ -402,17 +405,19 @@ Counts: `info.directly_visual_count`, `info.not_directly_visual_count`, `info.qu
 
 Note: `prompt_version` (`v12_expanded_blacklist_2`) avaz shode va checkpoint ba `fast_path_enabled` key mikhore, pas checkpoint-e ghadimi roye resume invalid hast — pak-esh kon ya `--no-resume` bede.
 
-## Tests + audit
+## Tests + gold audit
 
-`audit/audit_captions.py` ye LLM sample auditor hast (Ollama lazem ast). Details: [audit/README.md](audit/README.md).
+Gold scorers tune validator / classifier on `audit/GoldAuditor/*` without
+re-running the full corpus. Details: [audit/README.md](audit/README.md).
 
 ```bash
 cd QuestionDependentCaptionGenerator
-python audit/audit_captions.py outputs/vqa_v2_question_dependent_captions_train2014.json 50
-python audit/audit_captions.py outputs/vqa_v2_question_dependent_captions_train2014.json 50 --batch-size 10
+python audit/audit_captions.py --llm --batch-size 10
+python audit/classify_questions.py --batch-size 10
 ```
 
-Output: `{stem}_llm_caption_audit_k{k}_seed42.json` ba `label` / `error_type` / `reason`.
+Default output: `*_scored.json` next to the gold file (use `--in-place` to
+overwrite). Console prints accuracy vs `manual_label`.
 
 ## Re-pilot (before full 443k)
 
@@ -420,7 +425,8 @@ Output: `{stem}_llm_caption_audit_k{k}_seed42.json` ba `label` / `error_type` / 
 python generate.py --split train --llm --max-items 25000 --batch-size 10 \
   --model qwen2.5:3b-instruct-q4_K_M \
   --checkpoint-every 50 --output outputs/pilot_25k.json
-python audit/audit_captions.py outputs/pilot_25k.json 100 --batch-size 10
+python audit/audit_captions.py --llm --batch-size 10
+python audit/classify_questions.py --batch-size 10
 ```
 
 ## Notes

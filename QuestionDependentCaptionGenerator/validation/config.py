@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 # Bumped whenever fast/LLM validator rules or defaults change.
-VALIDATOR_VERSION = "v6_suspicious_quantifiers_aligned"
+VALIDATOR_VERSION = "v7_relation05_paraphrase_pass"
 
 
 @dataclass(frozen=True)

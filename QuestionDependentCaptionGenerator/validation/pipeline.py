@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from validation.checks import FLAG_SUSPICIOUS
+from validation.checks import (
+    CAPTION_STATUS_MANUAL,
+    CAPTION_STATUS_READY,
+    FLAG_SUSPICIOUS,
+)
 from validation.config import ValidationConfig
 from validation.fast_validator import FastResult, FastVerdict, fast_validate
 from validation.llm_validator import JudgeItem, LlmVerdict, llm_validate_batch
@@ -39,6 +43,7 @@ class RowValidationOutcome:
     kept: bool
     trace: ValidationTrace
     flags: List[str] = field(default_factory=list)
+    caption_status: Optional[str] = None
 
 
 def _source_from_rule(rule: str) -> str:
@@ -103,7 +108,12 @@ def validate_single_row(
 
     if fast.verdict == FastVerdict.PASS:
         trace.final_verdict = "PASS"
-        return RowValidationOutcome(kept=True, trace=trace, flags=fast.flags)
+        return RowValidationOutcome(
+            kept=True,
+            trace=trace,
+            flags=fast.flags,
+            caption_status=CAPTION_STATUS_READY,
+        )
 
     if fast.verdict == FastVerdict.FAIL:
         trace.final_verdict = "FAIL"
@@ -120,19 +130,34 @@ def validate_single_row(
         if jv and jv.verdict == LlmVerdict.PASS:
             trace.llm_verdict = "PASS"
             trace.final_verdict = "PASS"
-            return RowValidationOutcome(kept=True, trace=trace, flags=fast.flags)
+            return RowValidationOutcome(
+                kept=True,
+                trace=trace,
+                flags=fast.flags,
+                caption_status=CAPTION_STATUS_READY,
+            )
         flags = _with_suspicious_flag(fast.flags)
         trace.llm_verdict = "SUSPICIOUS"
         trace.final_verdict = "SUSPICIOUS"
         trace.validation_flags = flags
-        return RowValidationOutcome(kept=True, trace=trace, flags=flags)
+        return RowValidationOutcome(
+            kept=True,
+            trace=trace,
+            flags=flags,
+            caption_status=CAPTION_STATUS_MANUAL,
+        )
 
     # No LLM available: keep as SUSPICIOUS rather than dropping.
     flags = _with_suspicious_flag(fast.flags)
     trace.llm_verdict = None
     trace.final_verdict = "SUSPICIOUS"
     trace.validation_flags = flags
-    return RowValidationOutcome(kept=True, trace=trace, flags=flags)
+    return RowValidationOutcome(
+        kept=True,
+        trace=trace,
+        flags=flags,
+        caption_status=CAPTION_STATUS_MANUAL,
+    )
 
 
 def validate_rows(
@@ -227,6 +252,7 @@ def validate_rows(
         if fast.verdict == FastVerdict.PASS:
             trace.final_verdict = "PASS"
             out_row = dict(row)
+            out_row["caption_status"] = CAPTION_STATUS_READY
             if fast.flags:
                 out_row["validation_flags"] = sorted(fast.flags)
             else:
@@ -247,8 +273,11 @@ def validate_rows(
                 trace.llm_verdict = "PASS"
                 trace.final_verdict = "PASS"
                 out_row = dict(row)
+                out_row["caption_status"] = CAPTION_STATUS_READY
                 if fast.flags:
                     out_row["validation_flags"] = sorted(fast.flags)
+                else:
+                    out_row.pop("validation_flags", None)
                 kept.append(out_row)
             else:
                 stats.llm_suspicious_count += 1
@@ -260,9 +289,97 @@ def validate_rows(
                 trace.validation_flags = flags
                 out_row = dict(row)
                 out_row["validation_flags"] = flags
+                out_row["caption_status"] = CAPTION_STATUS_MANUAL
                 kept.append(out_row)
 
         if log_writer:
             log_writer.write(trace)
 
     return kept, failed, stats
+
+
+def score_rows_keep_all(
+    rows: List[Dict[str, Any]],
+    *,
+    config: Optional[ValidationConfig] = None,
+    client: Any = None,
+    use_llm: bool = True,
+) -> Tuple[List[Dict[str, Any]], ValidationStats]:
+    """Score every row with the same fast+LLM logic as :func:`validate_rows`.
+
+    Unlike :func:`validate_rows`, failed rows are **kept** in the output list
+    (for gold-audit scoring). Each output dict preserves input fields and adds:
+
+    - ``fast_validator_label``: PASS | FAIL | UNKNOWN
+    - ``llm_judge_label``: PASS | SUSPICIOUS when LLM ran; omitted otherwise
+    - ``caption_status``: Ready / Manual when final is PASS or SUSPICIOUS
+    """
+    cfg = config or ValidationConfig()
+    stats = ValidationStats()
+    scored: List[Dict[str, Any]] = []
+
+    fast_results: List[FastResult] = []
+    unknown_indices: List[int] = []
+
+    for i, row in enumerate(rows):
+        question = str(row.get("question") or "")
+        answer = str(row.get("answer") or "")
+        caption = str(row.get("caption") or "")
+        fast = fast_validate(question, answer, caption, config=cfg)
+        fast_results.append(fast)
+        if fast.verdict == FastVerdict.PASS:
+            stats.fast_pass_count += 1
+        elif fast.verdict == FastVerdict.FAIL:
+            stats.fast_fail_count += 1
+        else:
+            stats.fast_unknown_count += 1
+            unknown_indices.append(i)
+
+    llm_verdicts: Dict[int, LlmVerdict] = {}
+    if use_llm and client is not None and unknown_indices:
+        batch_size = cfg.llm_batch_size
+        for start in range(0, len(unknown_indices), batch_size):
+            chunk_idx = unknown_indices[start : start + batch_size]
+            items = [
+                JudgeItem(
+                    index=pos,
+                    question=str(rows[pos].get("question") or ""),
+                    answer=str(rows[pos].get("answer") or ""),
+                    caption=str(rows[pos].get("caption") or ""),
+                )
+                for pos in chunk_idx
+            ]
+            for jr in llm_validate_batch(client, items, config=cfg):
+                llm_verdicts[jr.index] = jr.verdict
+
+    for i, row in enumerate(rows):
+        fast = fast_results[i]
+        out_row = dict(row)
+        out_row["fast_validator_label"] = fast.verdict.value
+        out_row.pop("llm_judge_label", None)
+        out_row.pop("caption_status", None)
+
+        if fast.verdict == FastVerdict.PASS:
+            out_row["caption_status"] = CAPTION_STATUS_READY
+        elif fast.verdict == FastVerdict.FAIL:
+            pass  # no caption_status / llm_judge_label on hard fail
+        else:
+            if use_llm and client is not None:
+                verdict = llm_verdicts.get(i, LlmVerdict.SUSPICIOUS)
+                out_row["llm_judge_label"] = verdict.value
+                if verdict == LlmVerdict.PASS:
+                    stats.llm_pass_count += 1
+                    out_row["caption_status"] = CAPTION_STATUS_READY
+                else:
+                    stats.llm_suspicious_count += 1
+                    out_row["caption_status"] = CAPTION_STATUS_MANUAL
+                    out_row["validation_flags"] = _with_suspicious_flag(fast.flags)
+            else:
+                stats.llm_suspicious_count += 1
+                out_row["caption_status"] = CAPTION_STATUS_MANUAL
+                out_row["validation_flags"] = _with_suspicious_flag(fast.flags)
+
+        scored.append(out_row)
+
+    return scored, stats
+

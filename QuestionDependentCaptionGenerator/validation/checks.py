@@ -292,7 +292,7 @@ def is_semantically_suspicious(
         if relation_ratio < 0.75:
             return True
     else:
-        if relation_ratio < 0.65:
+        if relation_ratio < 0.5:
             return True
     allowed = content_words(f"{question} {answer}")
     extra = content_words(caption) - allowed
@@ -429,6 +429,10 @@ FLAG_ANSWER_PARTIAL = "answer_partial_match"
 FLAG_OVERLAP_BORDERLINE = "overlap_borderline"
 FLAG_QUANTIFIER_INCOMPLETE = "quantifier_incomplete"
 FLAG_SUSPICIOUS = "suspicious"
+
+# Human-facing status written on kept caption rows.
+CAPTION_STATUS_READY = "Ready to Use"
+CAPTION_STATUS_MANUAL = "Need to Manual validate"
 
 VALIDATION_FLAGS = (
     FLAG_RELATION_LOW,

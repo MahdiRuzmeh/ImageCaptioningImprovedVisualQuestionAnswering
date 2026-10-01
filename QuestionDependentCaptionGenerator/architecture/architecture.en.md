@@ -47,11 +47,13 @@ flowchart TB
   end
   subgraph qc [QC]
     AUDIT[audit_captions.py]
+    CLFGOLD[classify_questions.py]
     TESTS[tests/]
   end
   subgraph data [Data]
     VQA[(VQA JSON)]
     OUT[(outputs/*.json)]
+    GOLD[(GoldAuditor/*.json)]
   end
   VQA --> GEN
   GEN --> RULES
@@ -59,7 +61,8 @@ flowchart TB
   GEN --> LLM
   LLM --> PROMPT
   GEN --> OUT
-  AUDIT --> OUT
+  AUDIT --> GOLD
+  CLFGOLD --> GOLD
   TESTS --> RULES
   TESTS --> LLM
 ```
@@ -71,7 +74,9 @@ QuestionDependentCaptionGenerator/
 ├── llm_prompts.py           # Packed batch prompt + few-shots
 ├── llm_client.py            # Ollama client + validators + retry
 ├── question_classifier.py   # Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL
-├── audit/audit_captions.py  # LLM sample auditor (batched PASS/FAIL + P/R)
+├── audit/audit_captions.py  # Gold caption scorer (fast + LLM judge labels)
+├── audit/classify_questions.py  # Gold classifier scorer
+├── audit/GoldAuditor/       # manual_label gold sets
 ├── tests/                   # Unit tests for known failure cases
 ├── architecture/            # This documentation
 └── outputs/                 # Generated caption JSON (+ failure logs + sidecar)
@@ -83,8 +88,9 @@ QuestionDependentCaptionGenerator/
 | `caption_rules.py` | `is_ocr_question`, narrow rewrite rules, `generate_caption`, safety gates |
 | `llm_prompts.py` | System prompt, few-shots, packed user prompt (`PROMPT_VERSION`) |
 | `llm_client.py` | HTTP chat, parse JSON captions, Tier-1 lexical + Tier-2 semantic judge |
-| `question_classifier.py` | `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL` with a **blacklist gate** (`_NON_VISUAL_CANDIDATE_RE`: OCR / knowledge / opinion); no marker → `default_visual`; marker → LLM confirm (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, prompt `v12_expanded_blacklist_2`); Fast Path is only an exemption; every row records `visual_filter_source` |
-| `audit/audit_captions.py` | Sample `k` captions; batched Ollama PASS/FAIL audit |
+| `question_classifier.py` | `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL` with a **blacklist gate** (`_NON_VISUAL_CANDIDATE_RE`: OCR / knowledge / opinion); no marker → `default_visual`; marker → LLM confirm (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`); Fast Path is only an exemption; every row records `visual_filter_source` |
+| `audit/audit_captions.py` | Score `GoldAuditor/caption_audit_manual.json` with production validator; write `fast_validator_label` / `llm_judge_label` / `caption_status` |
+| `audit/classify_questions.py` | Score `GoldAuditor/classifier_audit_manual.json` with production classifier; write `classifier_label` |
 
 ---
 
@@ -141,7 +147,7 @@ flowchart TD
 6. **Binary classifier (always on)** — Blacklist gate: a question is `DIRECTLY_VISUAL` by default (`visual_filter_source=default_visual`). Only `_NON_VISUAL_CANDIDATE_RE` matches (OCR / external knowledge / opinion / non-visual senses / place identity) reach Qwen for confirmation (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, prompt `v12_expanded_blacklist_2`). Fast Path (`_FAST_PATH_VISUAL_RE`) is only an **exemption** that skips the LLM even when a marker fires. `--no-fast-path` disables that exemption (non-candidates still default visual). Dropped rows may store `non_visual_reason`. Incremental checkpoint every `--classifier-checkpoint-every N`, keyed on `prompt_version` and `fast_path_enabled`. Ollama is required for this stage even when `--llm` is off.
 7. **Optional LLM fallback** — Packed batches; Tier-1 hard rejects then Tier-2 semantic judge; **1** regenerate; salvage rounds also get one single-item retry so a batch parse failure is never dropped untested. Every retry is written to `*_validation_audit.jsonl`.
 8. **Hard drop** — Empty / short / `needs_llm` rows never enter the written set.
-9. **Final validation pass** — The hard validator runs once more over **all** remaining captions (rule and LLM alike); soft findings are stored as `validation_flags` and the row is kept (`info.validation_flagged_count`).
+9. **Final validation pass** — The hard validator runs once more over **all** remaining captions (rule and LLM alike); soft findings are stored as `validation_flags` and the row is kept (`info.validation_flagged_count`). Kept rows also get `caption_status` (`Ready to Use` or `Need to Manual validate` when SUSPICIOUS).
 
 ---
 
@@ -354,7 +360,7 @@ flowchart LR
 
 Sidecars: `{stem}_not_directly_visual.json` (classifier drops, each with `visual_filter_source` and optional `non_visual_reason`), `{stem}_low_consensus.json` (`--min-consensus` drops), and `{stem}_validation_audit.jsonl` (one record per retried item) keep dropped and retried questions for later analysis.
 
-`rule` is a rule name, `llm_fallback`, or (transiently before drop) `needs_llm`. `visual_filter_source` is written on every classified row (`fast_path` / `default_visual` / `llm_classifier`); `validation_flags` only when a soft check fired.
+`rule` is a rule name, `llm_fallback`, or (transiently before drop) `needs_llm`. `visual_filter_source` is written on every classified row (`fast_path` / `default_visual` / `llm_classifier`); `validation_flags` only when a soft check fired. `caption_status` is `Ready to Use` or `Need to Manual validate` (SUSPICIOUS).
 
 ---
 
@@ -368,7 +374,7 @@ Sidecars: `{stem}_not_directly_visual.json` (classifier drops, each with `visual
 | Failure log | `*.json.llm_failures.log` with reason codes |
 | Retry audit log | `{stem}_validation_audit.jsonl`, one record per retried item (validator and generation retries) |
 | Reproducibility | Store model, host, `prompt_version`, batch size, classifier metadata |
-| QC audit | `python audit/audit_captions.py outputs/....json 50 --batch-size 10` |
+| QC audit | `python audit/audit_captions.py --llm --batch-size 10` and `python audit/classify_questions.py --batch-size 10` on GoldAuditor sets |
 | Eval hygiene | DIRECTLY_VISUAL filter applies only to captioner supervision, not raw VQA2 eval |
 
 ### Recommended pilot before full train (~443k)
@@ -377,7 +383,8 @@ Sidecars: `{stem}_not_directly_visual.json` (classifier drops, each with `visual
 python generate.py --split train --llm --max-items 25000 --batch-size 10 \
   --model qwen2.5:3b-instruct-q4_K_M \
   --checkpoint-every 50 --output outputs/pilot_25k.json
-python audit/audit_captions.py outputs/pilot_25k.json 100 --batch-size 10
+python audit/audit_captions.py --llm --batch-size 10
+python audit/classify_questions.py --batch-size 10
 ```
 
 Freeze the generator only after manual spot-checks of rule vs LLM samples.

@@ -49,11 +49,13 @@ flowchart TB
   end
   subgraph qc [QC]
     AUDIT[audit_captions.py]
+    CLFGOLD[classify_questions.py]
     TESTS[tests/]
   end
   subgraph data [Data]
     VQA[(VQA JSON)]
     OUT[(outputs/*.json)]
+    GOLD[(GoldAuditor/*.json)]
   end
   VQA --> GEN
   GEN --> RULES
@@ -61,7 +63,8 @@ flowchart TB
   GEN --> LLM
   LLM --> PROMPT
   GEN --> OUT
-  AUDIT --> OUT
+  AUDIT --> GOLD
+  CLFGOLD --> GOLD
   TESTS --> RULES
   TESTS --> LLM
 ```
@@ -73,7 +76,9 @@ QuestionDependentCaptionGenerator/
 ├── llm_prompts.py           # packed prompt + few-shot
 ├── llm_client.py            # Ollama client + validator + retry
 ├── question_classifier.py   # filter-e binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL
-├── audit_captions.py        # LLM sample auditor (batched PASS/FAIL + P/R)
+├── audit/audit_captions.py  # Gold caption scorer (fast + LLM judge labels)
+├── audit/classify_questions.py  # Gold classifier scorer
+├── audit/GoldAuditor/       # manual_label gold sets
 ├── tests/                   # unit test rooye bug-haye shenakhte-shode
 ├── architecture/            # hamin docs
 └── outputs/                 # caption JSON (+ failure log)
@@ -85,8 +90,9 @@ QuestionDependentCaptionGenerator/
 | `caption_rules.py` | `is_ocr_question`, ghavanin-e rewrite, `generate_caption` |
 | `llm_prompts.py` | System prompt-e version-dar (`PROMPT_VERSION`) |
 | `llm_client.py` | Chat API, parse, Tier-1 lexical + Tier-2 semantic judge |
-| `question_classifier.py` | DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL — **blacklist gate** (`_NON_VISUAL_CANDIDATE_RE`: OCR / knowledge / opinion); bedoon marker → `default_visual`; ba marker → LLM confirm (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, prompt `v12_expanded_blacklist_2`); Fast Path faghat exemption; har row `visual_filter_source` migire |
-| `audit/audit_captions.py` | Sample `k` caption; batched Ollama PASS/FAIL |
+| `question_classifier.py` | DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL — **blacklist gate** (`_NON_VISUAL_CANDIDATE_RE`: OCR / knowledge / opinion); bedoon marker → `default_visual`; ba marker → LLM confirm (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`); Fast Path faghat exemption; har row `visual_filter_source` migire |
+| `audit/audit_captions.py` | Score-e `GoldAuditor/caption_audit_manual.json` ba production validator; `fast_validator_label` / `llm_judge_label` / `caption_status` |
+| `audit/classify_questions.py` | Score-e `GoldAuditor/classifier_audit_manual.json` ba production classifier; `classifier_label` |
 
 ---
 
@@ -143,7 +149,7 @@ flowchart TD
 6. **Classifier-e binary (hamishe on)** — Blacklist gate: soal default `DIRECTLY_VISUAL` (`visual_filter_source=default_visual`). Faghat match-haye `_NON_VISUAL_CANDIDATE_RE` (OCR / knowledge / opinion / senses / place identity) be Qwen miran baraye confirm (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, prompt `v12_expanded_blacklist_2`). Fast Path (`_FAST_PATH_VISUAL_RE`) faghat **exemption** ast. `--no-fast-path` exemption ro khamoosh mikone (non-candidate ha hanuz default visual). Drop-ha mitunan `non_visual_reason` dashte bashan. Checkpoint har `--classifier-checkpoint-every N`, keyed on `prompt_version` va `fast_path_enabled`. Ollama lazem ast hata bedoon `--llm`.
 7. **Ekhtiari: LLM** — Tier-1 (hard reject + flag) + Tier-2; 1 regenerate; salvage ham ye single-item retry dare, pas parse failure-e batch bedoon test-e tanha drop nemishe. Har retry → `*_validation_audit.jsonl`.
 8. **Hazf-e sakht** — Caption-e khali / `needs_llm` toye file-e nahayi neveshte nemishe.
-9. **Pass-e nahayi-e validator** — Check-haye hard ye bar dige ru **hame** caption ha (rule + LLM); moshkel-haye mashkuk → `validation_flags` va row mimoone (`info.validation_flagged_count`).
+9. **Pass-e nahayi-e validator** — Check-haye hard ye bar dige ru **hame** caption ha (rule + LLM); moshkel-haye mashkuk → `validation_flags` va row mimoone (`info.validation_flagged_count`). Kept rows `caption_status` migiran (`Ready to Use` ya `Need to Manual validate` baraye SUSPICIOUS).
 
 ---
 
@@ -368,7 +374,7 @@ Sidecar-ha: `{stem}_not_directly_visual.json` (ba `visual_filter_source` va opti
 | Checkpoint | Save-e atomic har N batch; Ctrl+C ham save mikone |
 | Failure log | `*.json.llm_failures.log` ba dalil-e khata |
 | Retry audit log | `{stem}_validation_audit.jsonl` — yek record baraye har item-e retry-shode |
-| Audit | `python audit/audit_captions.py outputs/....json 50 --batch-size 10` |
+| Audit | `python audit/audit_captions.py --llm --batch-size 10` va `python audit/classify_questions.py --batch-size 10` rooye GoldAuditor |
 
 ### Pilot-e pishnahadi ghabl az kol-e train (~443 hezar)
 
@@ -376,7 +382,8 @@ Sidecar-ha: `{stem}_not_directly_visual.json` (ba `visual_filter_source` va opti
 python generate.py --split train --llm --max-items 25000 --batch-size 10 \
   --model qwen2.5:3b-instruct-q4_K_M \
   --checkpoint-every 50 --output outputs/pilot_25k.json
-python audit/audit_captions.py outputs/pilot_25k.json 100 --batch-size 10
+python audit/audit_captions.py --llm --batch-size 10
+python audit/classify_questions.py --batch-size 10
 ```
 
 Bad az barresi-ye dasti-ye sample-haye Rule va LLM, version-e generator ro freeze konid.

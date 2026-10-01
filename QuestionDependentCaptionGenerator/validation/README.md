@@ -77,8 +77,10 @@ missing quantity expression → soft flag + **UNKNOWN**.
 - Prompt: aligned with caption-generation rules + few-shots in
   `llm_validator.py` (`_JUDGE_RULES_AND_FEW_SHOTS`)
 - PASS when the caption is grammatical, expresses the answer, and adds no
-  facts beyond Q+A (natural paraphrases / articles / digit↔word / quantifier
-  phrasing such as \"Not both …\" are PASS)
+  facts beyond Q+A (natural paraphrases / articles / digit↔word / omitted
+  redundant question nouns / action paraphrases such as
+  \"What are the animals doing? / eating\" → \"The animals are eating.\" /
+  quantifier phrasing such as \"Not both …\" are PASS)
 - SUSPICIOUS on grammar errors, missing/wrong answer, hallucinations, meaning
   change, or unnecessary extra details — **caption is kept** and logged
 - Output: JSON array `[{"id": 0, "verdict": "PASS"|"SUSPICIOUS"}, ...]`
@@ -95,7 +97,23 @@ missing quantity expression → soft flag + **UNKNOWN**.
 | `overlap_pass_threshold` | 0.50 | More fast PASS vs more LLM calls |
 | `llm_batch_size` | 10 | Ollama throughput |
 
-`validator_version`: `v6_suspicious_quantifiers_aligned`
+`validator_version`: `v7_relation05_paraphrase_pass`
+
+## Caption status
+
+Kept rows also get **`caption_status`**:
+
+| Value | When |
+|-------|------|
+| `Ready to Use` | Fast PASS, or UNKNOWN + LLM PASS |
+| `Need to Manual validate` | Final verdict `SUSPICIOUS` |
+
+Fast FAIL rows go to the failed sidecar and do not receive `caption_status`.
+
+Gold tuning (fill `fast_validator_label` / `llm_judge_label` / `caption_status`
+vs human `manual_label`) lives in
+[`audit/audit_captions.py`](../audit/audit_captions.py) — see
+[audit/README.md](../audit/README.md).
 
 ## Output files
 
@@ -107,6 +125,9 @@ missing quantity expression → soft flag + **UNKNOWN**.
 
 Log record fields: `question_id`, `captions_trace[]`, `fast_verdict`,
 `fast_reasons`, `llm_verdict`, `final_verdict`, `validation_flags`.
+
+Kept annotation rows also include `caption_status`
+(`Ready to Use` / `Need to Manual validate`).
 
 ## CLI (standalone re-validation)
 
@@ -157,6 +178,6 @@ Borderline overlap or soft flags (e.g. `relation_low`) → batched LLM judge.
 | `fast_validator.py` | `fast_validate()` → PASS/FAIL/UNKNOWN |
 | `llm_validator.py` | Batched LLM PASS/SUSPICIOUS judge |
 | `logging.py` | `ValidationTrace`, JSONL writer |
-| `pipeline.py` | `validate_rows()` orchestration |
+| `pipeline.py` | `validate_rows()` / `score_rows_keep_all()` orchestration |
 | `batch_integration.py` | Hook for `llm_client.captions_with_retry` |
 | `cli.py` | Standalone re-validation CLI |

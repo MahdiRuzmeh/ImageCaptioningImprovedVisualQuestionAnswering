@@ -5,6 +5,8 @@ Public API for :mod:`generate` and the standalone CLI.
 
 from validation.batch_integration import CaptionValidation, validate_generated_batch
 from validation.checks import (
+    CAPTION_STATUS_MANUAL,
+    CAPTION_STATUS_READY,
     FLAG_ANSWER_PARTIAL,
     FLAG_NO_ANSWER_WITHOUT_NEGATION,
     FLAG_OVERLAP_BORDERLINE,
@@ -27,7 +29,7 @@ from validation.logging import (
     validation_log_path,
 )
 from validation.overlap import compute_overlap_ratio
-from validation.pipeline import RowValidationOutcome, ValidationStats, validate_rows
+from validation.pipeline import RowValidationOutcome, ValidationStats, score_rows_keep_all, validate_rows
 
 # Legacy alias used by generate.py
 VALIDATION_FAIL_REASONS = _VALIDATION_FAIL_REASONS
@@ -40,6 +42,7 @@ __all__ = [
     "FastResult",
     "fast_validate",
     "validate_rows",
+    "score_rows_keep_all",
     "validate_generated_batch",
     "CaptionValidation",
     "llm_validate_batch",
@@ -63,4 +66,6 @@ __all__ = [
     "FLAG_OVERLAP_BORDERLINE",
     "FLAG_QUANTIFIER_INCOMPLETE",
     "FLAG_SUSPICIOUS",
+    "CAPTION_STATUS_READY",
+    "CAPTION_STATUS_MANUAL",
 ]

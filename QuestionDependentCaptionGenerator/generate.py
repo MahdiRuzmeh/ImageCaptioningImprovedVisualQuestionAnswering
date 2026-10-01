@@ -43,6 +43,9 @@ from question_classifier import (
     load_classifier_checkpoint,
 )
 from validation import (
+    CAPTION_STATUS_MANUAL,
+    CAPTION_STATUS_READY,
+    FLAG_SUSPICIOUS,
     VALIDATOR_VERSION,
     ValidationConfig,
     ValidationLogWriter,
@@ -777,6 +780,10 @@ def apply_llm_fallbacks(
                 rows[row_i]["validation_flags"] = list(outcome.flags)
             else:
                 rows[row_i].pop("validation_flags", None)
+            if FLAG_SUSPICIOUS in (outcome.flags or []):
+                rows[row_i]["caption_status"] = CAPTION_STATUS_MANUAL
+            else:
+                rows[row_i]["caption_status"] = CAPTION_STATUS_READY
         if retry_audit is not None and RetryAuditLogger.should_log(outcome):
             retry_audit.log_retry(
                 question_id=int(rows[row_i]["question_id"]),
