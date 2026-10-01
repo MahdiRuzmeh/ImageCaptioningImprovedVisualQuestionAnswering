@@ -36,7 +36,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-CLASSIFIER_PROMPT_VERSION = "v13_lighting_ocr_no_unsure_bias"
+CLASSIFIER_PROMPT_VERSION = "v14_purpose_future"
 
 QUESTION_LABELS = (
     "DIRECTLY_VISUAL",
@@ -132,6 +132,12 @@ _FEW_SHOT_BLOCK = (
     "Q: What mountain was this taken at?\n"
     "NEEDS_KNOWLEDGE\n"
     "Q: What are the boats designed for?\n"
+    "NEEDS_KNOWLEDGE\n"
+    "Q: What is the purpose of this display?\n"
+    "NEEDS_KNOWLEDGE\n"
+    "Q: Would this bus take you to Manchester?\n"
+    "NEEDS_KNOWLEDGE\n"
+    "Q: Are the kids going to play in a tournament?\n"
     "NEEDS_KNOWLEDGE\n"
     "Q: Does this refrigerator have digital features?\n"
     "NEEDS_KNOWLEDGE\n"
@@ -293,6 +299,7 @@ _NON_VISUAL_CANDIDATE_RE = re.compile(
     \bpopular\b | \bfamous\b |
     \bdesigned\s+for\b | \bdigital\b | \bofficial\b |
     \bfree[-\s]?range\b | \btourists?\b | \borganic\b |
+    \bpurpos |                                        # purpose / purposes / on purpose
     \bwork(?:s|ing)?\s*\?*\s*$ |
     \bwhat\s+will\s+happen\b | \bgoing\s+to\s+happen\b |
 
@@ -306,6 +313,9 @@ _NON_VISUAL_CANDIDATE_RE = re.compile(
     \bwhich\s+part\s+of\s+the\s+world\b |
     \btaken\s+(?:at|in)\b |
     \bwhat\s+(?:mountain|lake|river|street|beach|park)\b |
+
+    # --- personal hypothetical (would this … you …) ---
+    \bwould\s+(?:this|that|the|a|an)\b.{0,50}?\byou\b |
 
     # --- non-visual senses ---
     \bsquishy\b | \bsmell\w*\b | \btaste\w*\b | \bloud\b |
@@ -342,6 +352,19 @@ _SUSPECT_EXEMPT_RE = re.compile(
     \bcity\s+bus(?:es)?\b |
     \bcan\s+you\s+spot\b |
     \blook(?:s|ing)?\s+like\b
+    """,
+    re.I | re.X,
+)
+
+
+# Fast Path must never exempt intention / purpose questions even when a
+# spatial whitelist shape accidentally matches (e.g. "Are the kids going to
+# play in a tournament?" looks like "Are … in a …").
+_FAST_PATH_BLOCK_RE = re.compile(
+    r"""
+    \bpurpos |
+    \bgoing\s+to\b |
+    \babout\s+to\b
     """,
     re.I | re.X,
 )
@@ -409,10 +432,13 @@ def is_fast_path_visual(question: str) -> bool:
     """True when a question may skip the LLM entirely (whitelist exemption).
 
     A whitelist match skips confirmation even if a blacklist marker is also
-    present (e.g. ``Do you see a boat?``).
+    present (e.g. ``Do you see a boat?``). Intention / purpose markers never
+    skip the LLM.
     """
     q = (question or "").strip()
     if not q:
+        return False
+    if _FAST_PATH_BLOCK_RE.search(q):
         return False
     return bool(_FAST_PATH_VISUAL_RE.search(q))
 
