@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -24,7 +23,6 @@ if str(_PKG_DIR) not in sys.path:
     sys.path.insert(0, str(_PKG_DIR))
 
 from question_classifier import (  # noqa: E402
-    CLASSIFIER_PROMPT_VERSION,
     QuestionClassifier,
     VISUAL_FILTER_DEFAULT,
     VISUAL_FILTER_FAST_PATH,
@@ -38,6 +36,8 @@ DEFAULT_HOST = "http://localhost:11434"
 DEFAULT_BATCH_SIZE = 10
 AUDIT_DIR = Path(__file__).resolve().parent
 DEFAULT_GOLD = AUDIT_DIR / "GoldAuditor" / "classifier_audit_manual.json"
+
+_VALID_LABELS = frozenset({"DIRECTLY_VISUAL", "NOT_DIRECTLY_VISUAL"})
 
 
 def load_gold(path: Path) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
@@ -63,6 +63,7 @@ def _gate_record(row: Dict[str, Any], *, fast_path: bool) -> Dict[str, Any]:
     out.pop("visual_filter_source", None)
     out.pop("detail", None)
     out.pop("non_visual_reason", None)
+    out.pop("agreement", None)
 
     if fast_path and is_fast_path_visual(question):
         out["classifier_label"] = "DIRECTLY_VISUAL"
@@ -145,58 +146,27 @@ def classify_gold_records(
     return scored
 
 
-def print_metrics(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
-    """Print accuracy / confusion vs ``manual_label``."""
-    tp = fp = tn = fn = 0
-    skipped = 0
-    pred_counts: Counter = Counter()
-    source_counts: Counter = Counter()
+def row_agreement(row: Dict[str, Any]) -> Optional[bool]:
+    """True/False when manual vs classifier can be compared; else None."""
+    gold = str(row.get("manual_label") or "").strip().upper()
+    pred = str(row.get("classifier_label") or "").strip().upper()
+    if gold not in _VALID_LABELS or pred not in _VALID_LABELS:
+        return None
+    return gold == pred
 
+
+def annotate_agreement(records: Sequence[Dict[str, Any]]) -> int:
+    """Set ``agreement`` on each row; return disagreement count."""
+    disagreements = 0
     for row in records:
-        gold = str(row.get("manual_label") or "").strip().upper()
-        pred = str(row.get("classifier_label") or "").strip().upper()
-        pred_counts[pred or "None"] += 1
-        source_counts[str(row.get("visual_filter_source") or "None")] += 1
-
-        if gold not in {"DIRECTLY_VISUAL", "NOT_DIRECTLY_VISUAL"}:
-            skipped += 1
+        agreed = row_agreement(row)
+        if agreed is None:
+            row.pop("agreement", None)
             continue
-        if pred not in {"DIRECTLY_VISUAL", "NOT_DIRECTLY_VISUAL"}:
-            skipped += 1
-            continue
-
-        # Treat DIRECTLY_VISUAL as the positive class for confusion reporting.
-        pred_pos = pred == "DIRECTLY_VISUAL"
-        gold_pos = gold == "DIRECTLY_VISUAL"
-        if pred_pos and gold_pos:
-            tp += 1
-        elif pred_pos and not gold_pos:
-            fp += 1
-        elif not pred_pos and not gold_pos:
-            tn += 1
-        else:
-            fn += 1
-
-    labeled = tp + fp + tn + fn
-    accuracy = (tp + tn) / labeled if labeled else 0.0
-    summary = {
-        "tp_directly_visual": tp,
-        "fp_directly_visual": fp,
-        "tn_not_directly_visual": tn,
-        "fn_missed_directly_visual": fn,
-        "skipped": skipped,
-        "accuracy": round(accuracy, 4),
-        "classifier_label_counts": dict(pred_counts),
-        "visual_filter_source_counts": dict(source_counts),
-    }
-    print(
-        f"Metrics vs manual_label: accuracy={accuracy:.4f} "
-        f"(tp={tp} fp={fp} tn={tn} fn={fn}; skipped={skipped})",
-        flush=True,
-    )
-    print(f"  classifier_label_counts={dict(pred_counts)}", flush=True)
-    print(f"  visual_filter_source_counts={dict(source_counts)}", flush=True)
-    return summary
+        row["agreement"] = agreed
+        if not agreed:
+            disagreements += 1
+    return disagreements
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -259,11 +229,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
     info, records = load_gold(gold_path)
+    info.pop("classifier_scoring", None)
+    info.pop("disagreement_count", None)
+
     fast_path = not args.no_fast_path
     print(
         f"Gold classifier audit: {gold_path.name} n={len(records)} "
-        f"model={args.model} batch_size={args.batch_size} "
-        f"fast_path={fast_path} prompt={CLASSIFIER_PROMPT_VERSION}",
+        f"llm={True} fast_path={fast_path}",
         flush=True,
     )
     scored = classify_gold_records(
@@ -273,17 +245,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         batch_size=args.batch_size,
         fast_path=fast_path,
     )
-    metrics = print_metrics(scored)
+    disagreement_count = annotate_agreement(scored)
+    print(
+        f"Disagreements (manual_label vs classifier_label): {disagreement_count}",
+        flush=True,
+    )
 
     out_info = dict(info)
-    out_info["classifier_scoring"] = {
-        "prompt_version": CLASSIFIER_PROMPT_VERSION,
-        "model": args.model,
-        "host": args.host,
-        "batch_size": args.batch_size,
-        "fast_path_enabled": fast_path,
-        **metrics,
-    }
+    out_info["disagreement_count"] = disagreement_count
 
     if args.in_place:
         out_path = gold_path
@@ -291,6 +260,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         out_path = args.output.resolve()
     else:
         out_path = gold_path.with_name(f"{gold_path.stem}_scored.json")
+        if gold_path.stem.endswith("_scored"):
+            out_path = gold_path
 
     payload = {"info": out_info, "records": scored}
     out_path.parent.mkdir(parents=True, exist_ok=True)

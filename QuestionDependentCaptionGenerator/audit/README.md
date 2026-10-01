@@ -92,8 +92,12 @@ python audit/classify_questions.py audit/GoldAuditor/classifier_audit_manual.jso
 | `classifier_label` | `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL` |
 | `visual_filter_source` | `fast_path` / `default_visual` / `llm_classifier` |
 | `detail` / `non_visual_reason` | Optional gate / LLM detail |
+| `agreement` | `true` / `false` — manual vs `classifier_label` |
 
-Console prints accuracy / confusion vs `manual_label`.
+Console prints how many items disagree: ``manual_label`` vs
+``classifier_label``. Output ``info`` stores only ``disagreement_count``
+(plus the original gold metadata). Filter disagreements with
+``"agreement": false``.
 
 ---
 
