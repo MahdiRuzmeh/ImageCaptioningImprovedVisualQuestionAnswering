@@ -5059,6 +5059,27 @@
       "answer": "eating",
       "caption": "The animals are eating.",
       "manual_label": "PASS"
+    },
+    {
+      "question": "Is there a zebra?",
+      "question_id": 25005,
+      "answer": "no",
+      "caption": "There is a zebra.",
+      "manual_label": "FAILED"
+    },
+    {
+      "question": "What is in front of the giraffes?",
+      "question_id": 25000,
+      "answer": "tree",
+      "caption": "Giraffes are in front of the tree.",
+      "manual_label": "FAILED"
+    },
+    {
+      "question": "Are they standing in a mud puddle?",
+      "question_id": 312005,
+      "answer": "no",
+      "caption": "Not both giraffes are standing.",
+      "manual_label": "FAILED"
     }
   ]
 }
