@@ -48,15 +48,15 @@ python audit/audit_captions.py audit/GoldAuditor/caption_audit_manual.json --in-
 | Field | Values |
 |-------|--------|
 | `manual_label` | Preserved (`PASS` / `FAILED`) |
-| `fast_validator_label` | `PASS` / `FAIL` / `UNKNOWN` |
+| `fast_validator_label` | `FAIL` / `UNKNOWN` |
 | `llm_judge_label` | `PASS` / `SUSPICIOUS` when LLM ran; omitted otherwise |
-| `caption_status` | `Ready to Use` (PASS) / `Need to Manual validate` (SUSPICIOUS) |
+| `caption_status` | `Ready to Use` (LLM PASS) / `Need to Manual validate` (SUSPICIOUS) |
 | `agreement` | `true` / `false` — manual vs validator prediction |
 
 Console prints how many items disagree: ``manual_label`` vs validator
-prediction (fast PASS/FAIL, or UNKNOWN + ``llm_judge_label``). Output
-``info`` stores only ``disagreement_count`` (plus the original gold metadata).
-Filter disagreements in the scored JSON with ``"agreement": false``.
+prediction (good = UNKNOWN + ``llm_judge_label`` PASS; FAIL is not-good).
+Output ``info`` stores only ``disagreement_count`` (plus the original gold
+metadata). Filter disagreements in the scored JSON with ``"agreement": false``.
 
 ---
 

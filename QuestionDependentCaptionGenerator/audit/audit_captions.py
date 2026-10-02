@@ -48,13 +48,14 @@ def load_gold(path: Path) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
 
 
 def predicted_good(row: Dict[str, Any]) -> bool:
-    """True when validator predicts a good caption (aligns with manual PASS)."""
+    """True when validator predicts a good caption (aligns with manual PASS).
+
+    Fast layer is FAIL | UNKNOWN only. A caption is predicted good only when
+    the LLM judge returns PASS (UNKNOWN without a judge label counts as not-good).
+    """
     fast = str(row.get("fast_validator_label") or "").upper()
-    if fast == "PASS":
-        return True
     if fast == "FAIL":
         return False
-    # UNKNOWN → use LLM judge when present; otherwise treat as not-good.
     llm = str(row.get("llm_judge_label") or "").upper()
     return llm == "PASS"
 

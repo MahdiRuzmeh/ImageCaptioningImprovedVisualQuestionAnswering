@@ -12,7 +12,7 @@ Pipeline:
 4. Binary classifier (hamishe): `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. The gate is a **blacklist** (`_NON_VISUAL_CANDIDATE_RE`: OCR / external knowledge / opinion / non-visual senses / place identity). No marker → `default_visual` (DIRECTLY_VISUAL, no LLM). Marker → Qwen confirms with `NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL` (`v12_expanded_blacklist_2`). Fast Path (`_FAST_PATH_VISUAL_RE`) is only an **exemption** that skips the LLM even when a marker fires. Har row `visual_filter_source` (`fast_path` / `default_visual` / `llm_classifier`) migire. Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad). Ollama baraye in marhale lazem ast hata bedoon `--llm`.
 5. Rule engine try mikone (`caption_rules.py`) — faghat pattern haye daghigh va motmaen
 6. Age hich rule match nakone, row `rule="needs_llm"` va `caption=""` mishe
-7. Age `--llm` on bashe → Ollama ba packed batch + **two-layer validator** (`validation/`: fast PASS/FAIL/UNKNOWN → batched LLM judge) + **1 regenerate** then drop
+7. Age `--llm` on bashe → Ollama ba packed batch + **two-layer validator** (`validation/`: fast FAIL/UNKNOWN → batched LLM judge) + **1 batched regenerate** then drop
 8. Validator ru **hame** caption ha (rule ham) run mishe; `final_validation_pass` log-e kamel toye `*_validation_log.jsonl` va row haye FAIL toye `*_validation_failed.json`. Har retry (validator ya generation) toye `*_validation_audit.jsonl` ham sabt mishe
 
 ## Files
@@ -199,9 +199,12 @@ Note ru relation ratio (hala faghat flag): **≥50%** az stem-haye *required*-e 
 
 Ghazavat-e semantic **faghat** kar-e in judge ast, na regex.
 
-**Retry policy:** FAIL → **1** regenerate (`single_retries=1`) → FAIL dobare → drop. Counts: `info.validation_retry_count`, `info.validation_failure_count`, `info.validation_flagged_count`.
+**Retry policy:** FAIL → **1** batched regenerate (`retry_rounds=1`) of all
+failed items in the pack → FAIL again → drop. Counts: `info.validation_retry_count`,
+`info.validation_failure_count`, `info.validation_flagged_count`.
 
-**Final salvage:** leftover `needs_llm` **batched**, va har leftover ye single-item retry ham migire (`single_retries=1`), pas ye parse failure-e batch bedoon test-e tanha drop nemishe.
+**Final salvage:** leftover `needs_llm` **batched**, with one batched regenerate
+round for FAILs (`retry_rounds=1`).
 
 ### Retry audit log (`*_validation_audit.jsonl`)
 
@@ -354,7 +357,7 @@ Accounting fields (bayad jam beshan):
 
 Identity: `input ≈ ocr + low_consensus + duplicate + not_directly_visual + num_samples + dropped_empty + validation_failure` (va `directly_visual ≈ num_samples + dropped_empty + validation_failure`). `validation_flagged_count` va `rule_validation_reject_count` in identity ro **avaz nemikonan** — flag row ro drop nemikone va rule reject faghat row ro be LLM mifreste.
 
-`info.llm.validation` = `{single_retries, salvage_single_retries, tier, validator_version, relation_min_ratio}` — `validator_version` har bar ke ghavanin-e accept/reject-e Tier-1 avaz beshan bump mishe, pas har output JSON mige ba kodum validator sakhte shode.
+`info.llm.validation` = `{retry_rounds, single_retries, salvage_retry_rounds, salvage_single_retries, tier, validator_version, relation_min_ratio}` — `validator_version` har bar ke ghavanin-e accept/reject-e fast layer avaz beshan bump mishe, pas har output JSON mige ba kodum validator sakhte shode.
 
 ## QC validators (LLM)
 

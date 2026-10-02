@@ -49,12 +49,11 @@ def validate_generated_batch(
     Returns:
         One :class:`CaptionValidation` per input item.
 
-        Fast FAIL → ``ok=False`` (hard reject). LLM non-PASS → ``ok=True``
-        with reason ``suspicious`` (kept, not dropped).
+        Fast FAIL → ``ok=False`` (hard reject). UNKNOWN → LLM judge;
+        LLM PASS → ``ok=True``; LLM non-PASS → ``ok=True`` with reason
+        ``suspicious`` (kept, not dropped).
     """
     cfg = config or ValidationConfig()
-    n = len(items)
-    del n
     fast_results: List[FastResult] = []
     unknown_positions: List[int] = []
 
@@ -88,36 +87,33 @@ def validate_generated_batch(
 
     outcomes: List[CaptionValidation] = []
     for i, fast in enumerate(fast_results):
-        if fast.verdict == FastVerdict.PASS:
-            outcomes.append(CaptionValidation(ok=True, reason="ok", flags=fast.flags))
-        elif fast.verdict == FastVerdict.FAIL:
+        if fast.verdict == FastVerdict.FAIL:
             reason = fast.reasons[0] if fast.reasons else "fast_fail"
             outcomes.append(
                 CaptionValidation(ok=False, reason=reason, flags=fast.flags)
             )
-        else:
-            if use_llm and client is not None:
-                if llm_pass.get(i, False):
-                    outcomes.append(
-                        CaptionValidation(ok=True, reason="ok", flags=fast.flags)
-                    )
-                else:
-                    flags = list(fast.flags)
-                    if FLAG_SUSPICIOUS not in flags:
-                        flags.append(FLAG_SUSPICIOUS)
-                    outcomes.append(
-                        CaptionValidation(
-                            ok=True,
-                            reason="suspicious",
-                            flags=sorted(set(flags)),
-                        )
-                    )
+        elif use_llm and client is not None:
+            if llm_pass.get(i, False):
+                outcomes.append(
+                    CaptionValidation(ok=True, reason="ok", flags=fast.flags)
+                )
             else:
+                flags = list(fast.flags)
+                if FLAG_SUSPICIOUS not in flags:
+                    flags.append(FLAG_SUSPICIOUS)
                 outcomes.append(
                     CaptionValidation(
                         ok=True,
-                        reason="needs_semantic_review",
-                        flags=fast.flags,
+                        reason="suspicious",
+                        flags=sorted(set(flags)),
                     )
                 )
+        else:
+            outcomes.append(
+                CaptionValidation(
+                    ok=True,
+                    reason="needs_semantic_review",
+                    flags=fast.flags,
+                )
+            )
     return outcomes

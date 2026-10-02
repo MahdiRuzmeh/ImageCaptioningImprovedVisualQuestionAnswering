@@ -11,6 +11,9 @@ from typing import List, Sequence, Set, Tuple
 from caption_rules import DIGIT_TO_WORD
 
 _WORD_TO_DIGIT = {word: digit for digit, word in DIGIT_TO_WORD.items()}
+_WORD_TO_DIGIT.update(
+    {word.replace("-", " "): digit for digit, word in DIGIT_TO_WORD.items() if "-" in word}
+)
 
 _INFLECTION_SUFFIXES = ("ing", "edly", "ed", "es", "s")
 
@@ -71,12 +74,20 @@ def numeric_equivalents(token: str) -> Set[str]:
     """A token plus its digit<->word number form (e.g. '2' <-> 'two').
 
     For ``1`` / ``one``, also accept indefinite articles ``a`` / ``an``.
+    Hyphenated forms also accept a space-separated variant (``forty-one`` /
+    ``forty one``).
     """
     equivalents = {token}
     if token in DIGIT_TO_WORD:
-        equivalents.add(DIGIT_TO_WORD[token])
+        word = DIGIT_TO_WORD[token]
+        equivalents.add(word)
+        if "-" in word:
+            equivalents.add(word.replace("-", " "))
     if token in _WORD_TO_DIGIT:
         equivalents.add(_WORD_TO_DIGIT[token])
+    spaced = token.replace("-", " ")
+    if spaced in _WORD_TO_DIGIT:
+        equivalents.add(_WORD_TO_DIGIT[spaced])
     # Answer "1" may appear as "one", "a", or "an" in a natural caption.
     if token in {"1", "one"} or "1" in equivalents or "one" in equivalents:
         equivalents.update({"1", "one", "a", "an"})
@@ -132,7 +143,16 @@ def token_present(token: str, caption_lower: str) -> bool:
     if len(token_stem) < 3:
         return False
     caption_word_list = re.findall(r"[a-z']+", caption_lower)
-    return any(stem(w) == token_stem for w in caption_word_list)
+
+    def _compatible(a: str, b: str) -> bool:
+        if a == b:
+            return True
+        # snowboarding ↔ snowboarders: shared long prefix after stemming
+        if len(a) >= 5 and len(b) >= 5 and (a.startswith(b) or b.startswith(a)):
+            return True
+        return False
+
+    return any(_compatible(token_stem, stem(w)) for w in caption_word_list)
 
 
 def normalize_phrase(text: str) -> str:

@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 # Bumped whenever fast/LLM validator rules or defaults change.
-VALIDATOR_VERSION = "v7_relation05_paraphrase_pass"
+VALIDATOR_VERSION = "v9_judge_pass_bias_lexical"
 
 
 @dataclass(frozen=True)
@@ -19,9 +19,11 @@ class ValidationConfig:
     Attributes:
         min_words: Captions with fewer words fail format check (default 3).
         max_words: Captions with more words fail format check (default 30).
-        overlap_fail_threshold: Below this ratio → fast FAIL (default 0.30).
-        overlap_pass_threshold: At/above + hard checks → fast PASS (default 0.50).
-        llm_batch_size: Items per batched LLM judge call (default 10).
+        overlap_fail_threshold: Below this ratio → soft flag ``overlap_too_low``
+            and escalate to LLM (default 0.30). Never a hard FAIL.
+        overlap_pass_threshold: At/above this ratio → no overlap soft flag
+            (default 0.50). Borderline band is between fail and pass thresholds.
+        llm_batch_size: Items per batched LLM judge / retry pack (default 10).
         relation_min_ratio: Legacy alias used in overlap computation (0.50).
     """
 

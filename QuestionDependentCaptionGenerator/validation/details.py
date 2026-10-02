@@ -169,7 +169,7 @@ def rejection_detail(
         return quantifier_mismatch_detail(question, answer, caption)
     if reason == "overlap_too_low":
         return (
-            f"overlap ratio below fail threshold for caption={caption!r} "
-            f"(Q={question!r})"
+            f"overlap ratio soft-flagged as too low for caption={caption!r} "
+            f"(Q={question!r}; escalate to LLM judge)"
         )
     return answer_mismatch_detail(answer, caption)

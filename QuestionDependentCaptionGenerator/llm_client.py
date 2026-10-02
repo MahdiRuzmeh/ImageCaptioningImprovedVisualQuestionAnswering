@@ -313,13 +313,23 @@ class OllamaClient:
         pairs: Sequence[Tuple[str, str]],
         *,
         single_retries: int = 1,
+        retry_rounds: Optional[int] = None,
     ) -> List[ItemOutcome]:
-        """Batch try, then per-item single retries with reasons."""
+        """Batch generate, then batched regenerate for fast-FAIL items.
+
+        ``retry_rounds`` (preferred) defaults to ``single_retries`` for
+        backward compatibility. At most one regenerate pass is typical.
+        Failures are re-packed into caption batches (``llm_batch_size``),
+        not retried one-by-one.
+        """
+        rounds = single_retries if retry_rounds is None else retry_rounds
+        rounds = max(0, int(rounds))
         pairs_list = list(pairs)
         n = len(pairs_list)
         out: List[ItemOutcome] = [
             ItemOutcome(reason="pending", detail="not attempted") for _ in range(n)
         ]
+        pack_size = max(1, int(self.validation_config.llm_batch_size))
 
         batch = self.chat_captions(pairs_list)
         tentative: List[Optional[str]] = [None] * n
@@ -343,7 +353,6 @@ class OllamaClient:
                         retry_kind="validator",
                     )
 
-            # Batch contamination pass on tentative accepts
             if any(tentative):
                 post_validations = self._validate_batch_captions(
                     pairs_list,
@@ -385,46 +394,51 @@ class OllamaClient:
                     retry_kind="generation",
                 )
 
-        if all(o.caption is not None for o in out):
+        if all(o.caption is not None for o in out) or rounds <= 0:
             return out
 
-        for i, (q, a) in enumerate(pairs_list):
-            if out[i].caption is not None:
-                continue
-            last = out[i]
-            for attempt in range(1, single_retries + 1):
-                single = self.chat_captions([(q, a)])
-                tag = f"single#{attempt}"
-                if single.captions is None:
-                    last.attempts.append(f"{tag}:{single.reason}")
-                    last.reason = single.reason
-                    last.detail = single.detail
+        # Batched regenerate for still-missing slots (one round by default).
+        for attempt in range(1, rounds + 1):
+            fail_indices = [i for i, o in enumerate(out) if o.caption is None]
+            if not fail_indices:
+                break
+            for start in range(0, len(fail_indices), pack_size):
+                chunk_idx = fail_indices[start : start + pack_size]
+                chunk_pairs = [pairs_list[i] for i in chunk_idx]
+                tag = f"retry_batch#{attempt}"
+                retry = self.chat_captions(chunk_pairs)
+                if retry.captions is None:
+                    for i in chunk_idx:
+                        out[i].attempts.append(f"{tag}:{retry.reason}")
+                        out[i].reason = retry.reason
+                        out[i].detail = retry.detail
                     continue
-                cap = single.captions[0]
-                results = self._validate_batch_captions([(q, a)], [cap])
-                result = results[0]
-                if result.ok:
-                    out[i] = ItemOutcome(
-                        caption=cap,
-                        reason="ok",
-                        detail=f"accepted from {tag}",
-                        attempts=last.attempts + [f"{tag}:ok"],
-                        flags=result.flags,
-                        first_caption=last.first_caption,
-                        first_reason=last.first_reason,
-                        retry_kind=last.retry_kind or "generation",
-                    )
-                    break
-                last.attempts.append(f"{tag}:{result.reason}")
-                last.reason = result.reason
-                last.detail = rejection_detail(result.reason, a, cap, q)
-                last.flags = result.flags
-                if last.first_caption is None:
-                    last.first_caption = cap
-                    last.first_reason = result.reason
-                    last.retry_kind = last.retry_kind or "validator"
-            else:
-                out[i] = last
+                results = self._validate_batch_captions(chunk_pairs, retry.captions)
+                for local, i in enumerate(chunk_idx):
+                    q, a = pairs_list[i]
+                    cap = retry.captions[local]
+                    result = results[local]
+                    last = out[i]
+                    if result.ok:
+                        out[i] = ItemOutcome(
+                            caption=cap,
+                            reason="ok",
+                            detail=f"accepted from {tag}",
+                            attempts=last.attempts + [f"{tag}:ok"],
+                            flags=result.flags,
+                            first_caption=last.first_caption,
+                            first_reason=last.first_reason,
+                            retry_kind=last.retry_kind or "validator",
+                        )
+                    else:
+                        last.attempts.append(f"{tag}:{result.reason}")
+                        last.reason = result.reason
+                        last.detail = rejection_detail(result.reason, a, cap, q)
+                        last.flags = result.flags
+                        if last.first_caption is None:
+                            last.first_caption = cap
+                            last.first_reason = result.reason
+                            last.retry_kind = last.retry_kind or "validator"
         return out
 
 

@@ -850,7 +850,7 @@ def apply_llm_fallbacks(
             print(
                 f"Final salvage round {round_i}/{final_retries}: "
                 f"{len(leftover)} leftovers in {n_salvage} packed batches "
-                f"(batch-size={batch_size}, one single-item retry per leftover)",
+                f"(batch-size={batch_size}, one batched regenerate round for FAILs)",
                 flush=True,
             )
 
@@ -1498,7 +1498,9 @@ def main() -> None:
             "failure_log": str(log_path.resolve()),
             "retry_audit_log": str(audit_path.resolve()),
             "validation": {
+                "retry_rounds": 1,
                 "single_retries": 1,
+                "salvage_retry_rounds": 1,
                 "salvage_single_retries": 1,
                 "tier": "fast_three_class+batch_llm_judge",
                 "validator_version": VALIDATOR_VERSION,

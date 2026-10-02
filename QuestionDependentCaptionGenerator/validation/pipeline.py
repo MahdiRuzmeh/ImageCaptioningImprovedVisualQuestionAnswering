@@ -20,7 +20,6 @@ from validation.logging import CaptionTraceEntry, ValidationLogWriter, Validatio
 class ValidationStats:
     """Counters for one validation run."""
 
-    fast_pass_count: int = 0
     fast_fail_count: int = 0
     fast_unknown_count: int = 0
     llm_pass_count: int = 0
@@ -28,7 +27,6 @@ class ValidationStats:
 
     def to_dict(self) -> Dict[str, int]:
         return {
-            "fast_pass_count": self.fast_pass_count,
             "fast_fail_count": self.fast_fail_count,
             "fast_unknown_count": self.fast_unknown_count,
             "llm_pass_count": self.llm_pass_count,
@@ -106,15 +104,6 @@ def validate_single_row(
     trace.fast_reasons = list(fast.reasons)
     trace.validation_flags = list(fast.flags)
 
-    if fast.verdict == FastVerdict.PASS:
-        trace.final_verdict = "PASS"
-        return RowValidationOutcome(
-            kept=True,
-            trace=trace,
-            flags=fast.flags,
-            caption_status=CAPTION_STATUS_READY,
-        )
-
     if fast.verdict == FastVerdict.FAIL:
         trace.final_verdict = "FAIL"
         return RowValidationOutcome(kept=False, trace=trace, flags=fast.flags)
@@ -188,7 +177,6 @@ def validate_rows(
     kept: List[Dict[str, Any]] = []
     failed: List[Dict[str, Any]] = []
 
-    # First pass: fast validate everything
     fast_results: List[FastResult] = []
     unknown_indices: List[int] = []
 
@@ -198,15 +186,12 @@ def validate_rows(
         caption = str(row.get("caption") or "")
         fast = fast_validate(question, answer, caption, config=cfg)
         fast_results.append(fast)
-        if fast.verdict == FastVerdict.PASS:
-            stats.fast_pass_count += 1
-        elif fast.verdict == FastVerdict.FAIL:
+        if fast.verdict == FastVerdict.FAIL:
             stats.fast_fail_count += 1
         else:
             stats.fast_unknown_count += 1
             unknown_indices.append(i)
 
-    # Batch LLM judge for UNKNOWN
     llm_pass: Dict[int, bool] = {}
     if use_llm and client is not None and unknown_indices:
         batch_size = cfg.llm_batch_size
@@ -249,7 +234,19 @@ def validate_rows(
             validation_flags=list(fast.flags),
         )
 
-        if fast.verdict == FastVerdict.PASS:
+        if fast.verdict == FastVerdict.FAIL:
+            trace.final_verdict = "FAIL"
+            failed.append(row)
+            if log_writer:
+                log_writer.write(trace)
+            continue
+
+        passed = (
+            llm_pass.get(i, False) if use_llm and client is not None else False
+        )
+        if passed:
+            stats.llm_pass_count += 1
+            trace.llm_verdict = "PASS"
             trace.final_verdict = "PASS"
             out_row = dict(row)
             out_row["caption_status"] = CAPTION_STATUS_READY
@@ -258,39 +255,18 @@ def validate_rows(
             else:
                 out_row.pop("validation_flags", None)
             kept.append(out_row)
-        elif fast.verdict == FastVerdict.FAIL:
-            trace.final_verdict = "FAIL"
-            failed.append(row)
-            if log_writer:
-                log_writer.write(trace)
-            continue
         else:
-            passed = (
-                llm_pass.get(i, False) if use_llm and client is not None else False
+            stats.llm_suspicious_count += 1
+            flags = _with_suspicious_flag(fast.flags)
+            trace.llm_verdict = (
+                "SUSPICIOUS" if use_llm and client is not None else None
             )
-            if passed:
-                stats.llm_pass_count += 1
-                trace.llm_verdict = "PASS"
-                trace.final_verdict = "PASS"
-                out_row = dict(row)
-                out_row["caption_status"] = CAPTION_STATUS_READY
-                if fast.flags:
-                    out_row["validation_flags"] = sorted(fast.flags)
-                else:
-                    out_row.pop("validation_flags", None)
-                kept.append(out_row)
-            else:
-                stats.llm_suspicious_count += 1
-                flags = _with_suspicious_flag(fast.flags)
-                trace.llm_verdict = (
-                    "SUSPICIOUS" if use_llm and client is not None else None
-                )
-                trace.final_verdict = "SUSPICIOUS"
-                trace.validation_flags = flags
-                out_row = dict(row)
-                out_row["validation_flags"] = flags
-                out_row["caption_status"] = CAPTION_STATUS_MANUAL
-                kept.append(out_row)
+            trace.final_verdict = "SUSPICIOUS"
+            trace.validation_flags = flags
+            out_row = dict(row)
+            out_row["validation_flags"] = flags
+            out_row["caption_status"] = CAPTION_STATUS_MANUAL
+            kept.append(out_row)
 
         if log_writer:
             log_writer.write(trace)
@@ -310,7 +286,7 @@ def score_rows_keep_all(
     Unlike :func:`validate_rows`, failed rows are **kept** in the output list
     (for gold-audit scoring). Each output dict preserves input fields and adds:
 
-    - ``fast_validator_label``: PASS | FAIL | UNKNOWN
+    - ``fast_validator_label``: FAIL | UNKNOWN
     - ``llm_judge_label``: PASS | SUSPICIOUS when LLM ran; omitted otherwise
     - ``caption_status``: Ready / Manual when final is PASS or SUSPICIOUS
     """
@@ -327,9 +303,7 @@ def score_rows_keep_all(
         caption = str(row.get("caption") or "")
         fast = fast_validate(question, answer, caption, config=cfg)
         fast_results.append(fast)
-        if fast.verdict == FastVerdict.PASS:
-            stats.fast_pass_count += 1
-        elif fast.verdict == FastVerdict.FAIL:
+        if fast.verdict == FastVerdict.FAIL:
             stats.fast_fail_count += 1
         else:
             stats.fast_unknown_count += 1
@@ -359,9 +333,7 @@ def score_rows_keep_all(
         out_row.pop("llm_judge_label", None)
         out_row.pop("caption_status", None)
 
-        if fast.verdict == FastVerdict.PASS:
-            out_row["caption_status"] = CAPTION_STATUS_READY
-        elif fast.verdict == FastVerdict.FAIL:
+        if fast.verdict == FastVerdict.FAIL:
             pass  # no caption_status / llm_judge_label on hard fail
         else:
             if use_llm and client is not None:
@@ -382,4 +354,3 @@ def score_rows_keep_all(
         scored.append(out_row)
 
     return scored, stats
-

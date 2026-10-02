@@ -53,13 +53,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--overlap-fail",
         type=float,
         default=0.30,
-        help="Overlap ratio below this → fast FAIL (default: 0.30)",
+        help="Overlap ratio below this → soft flag overlap_too_low / UNKNOWN (default: 0.30)",
     )
     parser.add_argument(
         "--overlap-pass",
         type=float,
         default=0.50,
-        help="Overlap ratio at/above this → fast PASS candidate (default: 0.50)",
+        help="Overlap ratio at/above this → no overlap soft flag (default: 0.50)",
     )
     parser.add_argument(
         "--min-words",
@@ -146,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"Validated {len(rows)} rows: kept {len(kept)}, failed {len(failed)} "
-        f"(fast pass={stats.fast_pass_count}, fail={stats.fast_fail_count}, "
+        f"(fast fail={stats.fast_fail_count}, "
         f"unknown={stats.fast_unknown_count}; "
         f"llm pass={stats.llm_pass_count}, "
         f"suspicious={stats.llm_suspicious_count})"

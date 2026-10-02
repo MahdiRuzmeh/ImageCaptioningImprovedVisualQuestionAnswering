@@ -16,6 +16,7 @@ from validation.tokens import (
     _YES,
     answer_requires_verbatim,
     content_words,
+    is_content,
     normalize_phrase,
     numeric_equivalents,
     required_question_stems,
@@ -52,9 +53,10 @@ _NON_SENTENTIAL_NO_RE = re.compile(
     re.I | re.X,
 )
 
-# Quantifier / quantity phrases the fast validator should ground.
-_QUANTIFIER_IN_QUESTION_RE = re.compile(
-    r"\b(?:all|both|any|none|neither|at\s+least|at\s+most|less\s+than|"
+# Quantifier / quantity phrases that require a quantity cue in the caption.
+# Bare "any" is existential (Are there any X?) — not incomplete without a cue.
+_QUANTIFIER_INCOMPLETE_QUESTION_RE = re.compile(
+    r"\b(?:all|both|none|neither|at\s+least|at\s+most|less\s+than|"
     r"more\s+than)\b",
     re.I,
 )
@@ -70,7 +72,9 @@ _QUANTIFIER_IN_CAPTION_RE = re.compile(
 # ---------------------------------------------------------------------------
 
 _BRACKET_CHARS = "[]{}()"
-_QUOTE_CHARS = "\"\u201c\u201d'"
+_DOUBLE_QUOTE_CHARS = "\"\u201c\u201d"
+# Paired single quotes around a phrase — not possessives (boy's) or contractions.
+_QUOTED_PHRASE_RE = re.compile(r"(?<!\w)'[^']+'(?!\w)")
 _ANSWER_PHRASE_RE = re.compile(r"\bthe answer\b", re.I)
 
 _CAPTION_AFFIRMS_RE = re.compile(r"^\s*yes\b|\bthe answer is yes\b", re.I)
@@ -91,15 +95,17 @@ def caption_format_is_valid(
     if not c:
         return False, "empty_caption"
     word_count = len(c.split())
+    # Allow terse no-existence captions: "No microwave."
     if word_count < cfg.min_words:
-        return False, "too_short"
+        if not re.fullmatch(r"No\s+\w[\w'-]*\.?", c, flags=re.I):
+            return False, "too_short"
     if word_count > cfg.max_words:
         return False, "too_long"
     if "?" in c:
         return False, "contains_question_mark"
     if any(ch in c for ch in _BRACKET_CHARS):
         return False, "contains_brackets"
-    if any(ch in c for ch in _QUOTE_CHARS):
+    if any(ch in c for ch in _DOUBLE_QUOTE_CHARS) or _QUOTED_PHRASE_RE.search(c):
         return False, "contains_quotes"
     if ".." in c:
         return False, "double_period"
@@ -121,10 +127,20 @@ def has_sentential_negation(caption: str) -> bool:
     return bool(_NEGATION_RE.search(_NON_SENTENTIAL_NO_RE.sub(" ", caption)))
 
 
-def has_spurious_negation(answer: str, caption: str) -> bool:
-    """True if caption negates a statement that a non-yes/no answer never implied."""
+def has_spurious_negation(
+    answer: str,
+    caption: str,
+    question: str = "",
+) -> bool:
+    """True if caption negates a statement that a non-yes/no answer never implied.
+
+    When the question itself is negative (\"How many … are not …?\"), a matching
+    \"not\" in the caption is expected, not spurious.
+    """
     a = answer.strip().lower()
     if not a or a in _YES or a in _NO:
+        return False
+    if question and _QUESTION_NEGATION_RE.search(question):
         return False
     if not has_sentential_negation(caption):
         return False
@@ -194,9 +210,23 @@ def echoes_question(question: str, caption: str) -> bool:
 
 def answer_verbatim_in_caption(answer: str, caption: str) -> bool:
     """Require answer phrase (light-normalized) to appear in the caption."""
-    a_norm = normalize_phrase(answer)
+    a_raw = (answer or "").strip().lower()
     c_norm = normalize_phrase(caption)
-    if not a_norm or not c_norm:
+    if not a_raw or not c_norm:
+        return False
+    # Common fraction paraphrases before punctuation stripping.
+    _FRACTION_EQ = {
+        "1/2": {"half", "1/2", "0.5", "one half"},
+        "1/4": {"quarter", "1/4", "0.25", "one quarter"},
+        "3/4": {"three quarters", "3/4", "0.75"},
+    }
+    if a_raw in _FRACTION_EQ:
+        for eq in _FRACTION_EQ[a_raw]:
+            if eq in c_norm or re.search(rf"\b{re.escape(eq)}\b", c_norm):
+                return True
+
+    a_norm = normalize_phrase(answer)
+    if not a_norm:
         return False
     if a_norm in c_norm:
         return True
@@ -205,7 +235,11 @@ def answer_verbatim_in_caption(answer: str, caption: str) -> bool:
         for eq in numeric_equivalents(tokens[0]):
             if re.search(rf"\b{re.escape(eq)}\b", c_norm):
                 return True
-    content_tokens = [t for t in tokens if t not in {"a", "an", "the"}]
+        return token_present(tokens[0], c_norm)
+    # Drop articles and other non-content tokens (e.g. "holding it" → "holding").
+    content_tokens = [t for t in tokens if is_content(t) or t.isdigit()]
+    if not content_tokens:
+        content_tokens = [t for t in tokens if t not in {"a", "an", "the"}]
     if not content_tokens:
         content_tokens = tokens
     return all(token_present(t, c_norm) for t in content_tokens)
@@ -279,6 +313,50 @@ def has_unsupported_facts(question: str, answer: str, caption: str) -> bool:
     return False
 
 
+def solitude_quantifier_trap(question: str, answer: str, caption: str) -> bool:
+    """True for \"all alone\" / no wrongly rewritten as \"Not all … are alone\"."""
+    if answer.strip().lower() not in _NO:
+        return False
+    q = (question or "").lower()
+    c = (caption or "").lower()
+    if not re.search(r"\balone\b", q):
+        return False
+    return bool(re.search(r"\bnot\s+all\b", c))
+
+
+def lexical_caption_looks_faithful(
+    question: str,
+    answer: str,
+    caption: str,
+    *,
+    relation_min_ratio: float = 0.5,
+) -> bool:
+    """High-precision lexical signal that a caption is a faithful Q+A restatement.
+
+    Used to recover from small-model LLM judge false SUSPICIOUS labels — not
+    as a fast-layer PASS. Returns False on meaning traps the lexicon can catch.
+    """
+    if not (question or "").strip() or not (caption or "").strip():
+        return False
+    if solitude_quantifier_trap(question, answer, caption):
+        return False
+    if quantifier_hard_mismatch(question, answer, caption):
+        return False
+    if has_unsupported_facts(question, answer, caption):
+        return False
+    if not answer_in_caption(
+        answer, caption, question, relation_min_ratio=relation_min_ratio
+    ):
+        return False
+    a = answer.strip().lower()
+    if a in _NO and not has_sentential_negation(caption):
+        return False
+    if a in _YES and has_sentential_negation(caption):
+        if not _QUESTION_NEGATION_RE.search(question or ""):
+            return False
+    return True
+
+
 def is_semantically_suspicious(
     question: str,
     answer: str,
@@ -302,8 +380,12 @@ def is_semantically_suspicious(
 
 
 def question_has_quantifier(question: str) -> bool:
-    """True when the question uses a quantity/quantifier phrase."""
-    return bool(_QUANTIFIER_IN_QUESTION_RE.search(question or ""))
+    """True when the question uses a quantity phrase that needs grounding.
+
+    Bare existential ``any`` (Are there any flowers?) is excluded — existence
+    captions need not repeat a quantity word.
+    """
+    return bool(_QUANTIFIER_INCOMPLETE_QUESTION_RE.search(question or ""))
 
 
 def caption_expresses_quantifier(caption: str) -> bool:
@@ -427,6 +509,7 @@ FLAG_UNSUPPORTED_FACTS = "unsupported_facts_suspect"
 FLAG_NO_ANSWER_WITHOUT_NEGATION = "no_answer_without_negation"
 FLAG_ANSWER_PARTIAL = "answer_partial_match"
 FLAG_OVERLAP_BORDERLINE = "overlap_borderline"
+FLAG_OVERLAP_TOO_LOW = "overlap_too_low"
 FLAG_QUANTIFIER_INCOMPLETE = "quantifier_incomplete"
 FLAG_SUSPICIOUS = "suspicious"
 
@@ -440,6 +523,7 @@ VALIDATION_FLAGS = (
     FLAG_NO_ANSWER_WITHOUT_NEGATION,
     FLAG_ANSWER_PARTIAL,
     FLAG_OVERLAP_BORDERLINE,
+    FLAG_OVERLAP_TOO_LOW,
     FLAG_QUANTIFIER_INCOMPLETE,
     FLAG_SUSPICIOUS,
 )
@@ -464,7 +548,6 @@ _VALIDATION_FAIL_REASONS = {
     "batch_contamination",
     "semantic_fail",
     "quantifier_mismatch",
-    "overlap_too_low",
 } | _FORMAT_REASONS
 
 
@@ -519,7 +602,7 @@ def caption_hard_reject_reason(
         return "polarity_mismatch"
     if has_no_polarity_mismatch(answer, caption, question):
         return "polarity_mismatch"
-    if has_spurious_negation(answer, caption):
+    if has_spurious_negation(answer, caption, question):
         return "spurious_negation"
     if quantifier_hard_mismatch(question, answer, caption):
         return "quantifier_mismatch"

@@ -1,6 +1,6 @@
-"""Fast (lexical) validator: PASS, FAIL, or UNKNOWN without calling an LLM.
+"""Fast (lexical) validator: FAIL or UNKNOWN without calling an LLM.
 
-The fast layer never decides semantic correctness. It only accepts or rejects
+The fast layer never decides semantic correctness. It only hard-rejects
 captions when confidence is very high; everything else goes to the LLM judge.
 """
 
@@ -12,19 +12,17 @@ from typing import List, Optional, Sequence, Tuple
 
 from validation.checks import (
     FLAG_OVERLAP_BORDERLINE,
+    FLAG_OVERLAP_TOO_LOW,
     caption_hard_reject_reason,
     caption_soft_flags,
-    is_semantically_suspicious,
-    question_relation_preserved,
 )
 from validation.config import ValidationConfig
 from validation.overlap import compute_overlap_ratio, overlap_verdict
 
 
 class FastVerdict(str, Enum):
-    """Three-class fast validator outcome."""
+    """Two-class fast validator outcome (no PASS — meaning is LLM-only)."""
 
-    PASS = "PASS"
     FAIL = "FAIL"
     UNKNOWN = "UNKNOWN"
 
@@ -40,7 +38,8 @@ class FastResult:
 
     @property
     def is_pass(self) -> bool:
-        return self.verdict == FastVerdict.PASS
+        """Always False — fast layer never auto-accepts."""
+        return False
 
     @property
     def is_fail(self) -> bool:
@@ -65,9 +64,8 @@ def fast_validate(
 
     Decision tree:
       1. Format + hard rejects → FAIL
-      2. Overlap below fail threshold → FAIL
-      3. Overlap pass band + no soft flags + not suspicious → PASS
-      4. Otherwise → UNKNOWN (escalate to LLM judge)
+      2. Otherwise → UNKNOWN (escalate to LLM judge), with soft flags
+         including low/borderline overlap for the judge / audit trail.
 
     Args:
         question: VQA question text.
@@ -82,11 +80,7 @@ def fast_validate(
         :class:`FastResult` with verdict, machine-readable reasons, and flags.
     """
     cfg = config or ValidationConfig()
-    reasons: List[str] = []
 
-    # ---------------------------------------------------------------------------
-    # Hard rejects (format, echo, polarity, verbatim answer, contamination)
-    # ---------------------------------------------------------------------------
     hard = caption_hard_reject_reason(
         answer,
         caption,
@@ -103,54 +97,20 @@ def fast_validate(
             overlap_ratio=compute_overlap_ratio(question, caption),
         )
 
-    # ---------------------------------------------------------------------------
-    # 1.4 Asymmetric overlap
-    # ---------------------------------------------------------------------------
     band, ratio = overlap_verdict(question, caption, cfg)
-    if band == "fail":
-        return FastResult(
-            verdict=FastVerdict.FAIL,
-            reasons=["overlap_too_low"],
-            overlap_ratio=ratio,
-        )
-
     flags = caption_soft_flags(
         question, answer, caption, relation_min_ratio=cfg.relation_min_ratio
     )
-    if band == "borderline":
+    if band == "fail":
+        if FLAG_OVERLAP_TOO_LOW not in flags:
+            flags = list(flags) + [FLAG_OVERLAP_TOO_LOW]
+    elif band == "borderline":
         if FLAG_OVERLAP_BORDERLINE not in flags:
             flags = list(flags) + [FLAG_OVERLAP_BORDERLINE]
 
-    _rel_ok, rel_ratio = (
-        question_relation_preserved(
-            question, caption, relation_min_ratio=cfg.relation_min_ratio
-        )
-        if question.strip()
-        else (True, 1.0)
-    )
-
-    if flags or is_semantically_suspicious(
-        question, answer, caption, relation_ratio=rel_ratio
-    ):
-        return FastResult(
-            verdict=FastVerdict.UNKNOWN,
-            reasons=sorted(set(flags)),
-            flags=flags,
-            overlap_ratio=ratio,
-        )
-
-    if band == "pass":
-        return FastResult(
-            verdict=FastVerdict.PASS,
-            reasons=[],
-            flags=[],
-            overlap_ratio=ratio,
-        )
-
-    # borderline without flags/suspicion still unknown
     return FastResult(
         verdict=FastVerdict.UNKNOWN,
-        reasons=[FLAG_OVERLAP_BORDERLINE],
+        reasons=sorted(set(flags)),
         flags=flags,
         overlap_ratio=ratio,
     )
