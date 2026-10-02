@@ -424,7 +424,7 @@
       "question_id": 1518001,
       "answer": "yes",
       "caption": "This is an urban place.",
-      "manual_label": "FAILED"
+      "manual_label": "PASS"
     },
     {
       "question": "Is the sled going uphill?",
@@ -682,8 +682,8 @@
       "question": "Which of the arms of the man on the far left is solid purple?",
       "question_id": 2658001,
       "answer": "right",
-      "caption": "Only one arm of the man on the far left is solid purple.",
-      "manual_label": "FAILED"
+      "caption": "A solid purple arm is on the right arm of the man on the far left.",
+      "manual_label": "PASS"
     },
     {
       "question": "What kind of heating system is used in this room?",
@@ -1404,7 +1404,7 @@
       "question_id": 490009,
       "answer": "no clock",
       "caption": "No clock.",
-      "manual_label": "FAILED"
+      "manual_label": "PASS"
     },
     {
       "question": "Are these plantains?",
@@ -2426,7 +2426,7 @@
       "question_id": 2774003,
       "answer": "no",
       "caption": "No belt is worn.",
-      "manual_label": "FAILED"
+      "manual_label": "PASS"
     },
     {
       "question": "Is this a spacious room?",
@@ -4639,13 +4639,6 @@
       "answer": "fries",
       "caption": "Fries are next to the sandwich.",
       "manual_label": "PASS"
-    },
-    {
-      "question": "What numbers can be seen?",
-      "question_id": 1224001,
-      "answer": "16",
-      "caption": "Sixteen numbers can be seen.",
-      "manual_label": "FAILED"
     },
     {
       "question": "How many siblings are in the picture?",
