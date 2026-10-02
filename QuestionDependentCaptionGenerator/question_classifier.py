@@ -36,7 +36,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-CLASSIFIER_PROMPT_VERSION = "v14_purpose_future"
+CLASSIFIER_PROMPT_VERSION = "v15_emotion_blacklist"
 
 QUESTION_LABELS = (
     "DIRECTLY_VISUAL",
@@ -85,7 +85,9 @@ _SYSTEM_PROMPT = (
     "\n"
     "VISUAL — default. A human can reasonably answer from the image alone "
     "(object recognition, actions, attributes, scene type, comparisons, "
-    "lighting / day-vs-night / nighttime, \"could this be…\").\n"
+    "counting visible objects, lighting / day-vs-night / nighttime, "
+    "\"could this be…\", naming a plainly visible everyday object or animal "
+    "when no brand/sign must be read).\n"
     "\n"
     "NEEDS_OCR — answering requires reading rendered text, digits, logos, "
     "brand names, signs, train/bus numbers, license plates, or a clock face "
@@ -95,14 +97,17 @@ _SYSTEM_PROMPT = (
     "appearance (breed, manufacturer, country of a flag, animal sounds, "
     "price, designed-for purpose, digital/official status, free-range, "
     "tourist identity, whether a machine works, organic claims, named "
-    "place identity). Lighting or whether a photo was taken at night is "
-    "NOT knowledge — that is VISUAL.\n"
+    "place identity, distance to a store, regional geography). Lighting or "
+    "whether a photo was taken at night is NOT knowledge — that is VISUAL. "
+    "Guessing time of day from shadows is VISUAL. Counting animals you can "
+    "see is VISUAL. \"What is the name of\" a visible common object/fruit "
+    "(no brand/OCR) is VISUAL.\n"
     "\n"
     "NEEDS_OPINION — answering requires personal preference, subjective "
-    "judgment, guessed age/size, emotion reading that is not clear from "
-    "the image, social relationships, condition judgments, or nutrition "
+    "judgment, guessed age/size, emotion reading (sad, happy, tired, fun), "
+    "social relationships, condition judgments, or nutrition "
     "claims (would you, beautiful, how old, how big, scared, know each "
-    "other, like, good shape, low-protein).\n"
+    "other, like, good shape, low-protein, why motive questions).\n"
 )
 
 _FEW_SHOT_BLOCK = (
@@ -118,6 +123,8 @@ _FEW_SHOT_BLOCK = (
     "Q: What language is on the sign?\n"
     "NEEDS_OCR\n"
     "Q: What is the numbers of the train?\n"
+    "NEEDS_OCR\n"
+    "Q: How many numbers are in the bus number?\n"
     "NEEDS_OCR\n"
     "Q: What sound does this animal make?\n"
     "NEEDS_KNOWLEDGE\n"
@@ -151,6 +158,12 @@ _FEW_SHOT_BLOCK = (
     "NEEDS_KNOWLEDGE\n"
     "Q: Is the pizza sauce organic?\n"
     "NEEDS_KNOWLEDGE\n"
+    "Q: Is there a Wal-Mart within a mile of this place?\n"
+    "NEEDS_KNOWLEDGE\n"
+    "Q: Is this picture taken in the midwest?\n"
+    "NEEDS_KNOWLEDGE\n"
+    "Q: Are these animals native to Iceland?\n"
+    "NEEDS_KNOWLEDGE\n"
     "Q: Would you eat this?\n"
     "NEEDS_OPINION\n"
     "Q: Do you like this?\n"
@@ -166,6 +179,14 @@ _FEW_SHOT_BLOCK = (
     "Q: Is this a small town?\n"
     "NEEDS_OPINION\n"
     "Q: Is the cat scared?\n"
+    "NEEDS_OPINION\n"
+    "Q: Is this person sad?\n"
+    "NEEDS_OPINION\n"
+    "Q: Are they happy?\n"
+    "NEEDS_OPINION\n"
+    "Q: Is the building old?\n"
+    "NEEDS_OPINION\n"
+    "Q: Why would this be in black and white?\n"
     "NEEDS_OPINION\n"
     "Q: Is this a low-protein meal?\n"
     "NEEDS_OPINION\n"
@@ -200,6 +221,18 @@ _FEW_SHOT_BLOCK = (
     "Q: Is it nighttime?\n"
     "VISUAL\n"
     "Q: Is it daytime?\n"
+    "VISUAL\n"
+    "Q: Can you count all of the mice?\n"
+    "VISUAL\n"
+    "Q: Is the man trying to catch a Frisbee?\n"
+    "VISUAL\n"
+    "Q: Can you tell what time of day it is by the shadow?\n"
+    "VISUAL\n"
+    "Q: What is the name of the small round green fruit next to the apple?\n"
+    "VISUAL\n"
+    "Q: Is this a library or professional office?\n"
+    "VISUAL\n"
+    "Q: Where is the license plate located?\n"
     "VISUAL"
 )
 
@@ -269,7 +302,12 @@ _NON_VISUAL_CANDIDATE_RE = re.compile(
     \b(?:safe|safety|healthy|nutritious|tasty|delicious|beautiful|ugly|
        attractive|comfortable|dangerous|expensive|valuable|cheap|personality|
        professional|romantic|strong|weak|scared|afraid|
-       protein|calorie|carb)\b |
+       sad|happy|angry|upset|tired|bored|excited|fun|mood|
+       protein|calorie|carb|edible|sugar|vitamin|homemade)\b |
+    \bfeel(?:s|ing)?\b |
+    \bold\b | \byoung\b |
+    \bwhy\b |
+    \bnative\s+to\b |
     \bsmall\s+(?:town|city|village)\b |
     \bbig\s+event\b |
 
@@ -290,6 +328,7 @@ _NON_VISUAL_CANDIDATE_RE = re.compile(
         (?:bus|train|plane|flight|truck|taxi|jersey|shirt|uniform)\b |
     \bnumbers?\s+of\s+the\s+(?:train|bus|plane|truck|car|jersey|shirt)\b |
     \b(?:train|bus|jersey|shirt|gate|room)\s+numbers?\b |
+    \bbus\s+number\b |
 
     # --- outside-world knowledge ---
     \ballowed\b | \blegal\b | \brules?\b | \bendangered\b |
@@ -302,6 +341,8 @@ _NON_VISUAL_CANDIDATE_RE = re.compile(
     \bpurpos |                                        # purpose / purposes / on purpose
     \bwork(?:s|ing)?\s*\?*\s*$ |
     \bwhat\s+will\s+happen\b | \bgoing\s+to\s+happen\b |
+    \bantique\b | \bmiles?\b | \bwal[-\s]?mart\b | \bmidwest\b |
+    \bamerican\s+flag\b | \bno\s+parking\b |
 
     # --- intention / future action ---
     \babout\s+to\b | \bgoing\s+to\b | \bwant(?:s|ed)?\s+to\b |
@@ -431,16 +472,21 @@ def is_non_visual_suspect(question: str) -> bool:
 def is_fast_path_visual(question: str) -> bool:
     """True when a question may skip the LLM entirely (whitelist exemption).
 
-    A whitelist match skips confirmation even if a blacklist marker is also
-    present (e.g. ``Do you see a boat?``). Intention / purpose markers never
-    skip the LLM.
+    Requires a whitelist shape **and** that the question is not a non-visual
+    candidate (after perception exempts). Intention / purpose markers never
+    skip the LLM. This blocks geo/OCR/knowledge leaks such as
+    ``How many miles to Essex hall?`` that match ``how many`` but need the judge.
     """
     q = (question or "").strip()
     if not q:
         return False
     if _FAST_PATH_BLOCK_RE.search(q):
         return False
-    return bool(_FAST_PATH_VISUAL_RE.search(q))
+    if not _FAST_PATH_VISUAL_RE.search(q):
+        return False
+    if is_non_visual_candidate(q):
+        return False
+    return True
 
 
 def is_subjective_candidate(question: str) -> bool:
