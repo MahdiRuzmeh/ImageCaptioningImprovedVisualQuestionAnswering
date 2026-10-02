@@ -2,8 +2,8 @@
   "info": {
     "description": "GoldAuditor caption set after cleanup (deduped; OCR/personal/knowledge questions removed).",
     "seed": 43,
-    "sample_size": 719,
-    "num_records": 719,
+    "sample_size": 722,
+    "num_records": 722,
     "manual_label_values": [
       "PASS",
       "FAILED"
