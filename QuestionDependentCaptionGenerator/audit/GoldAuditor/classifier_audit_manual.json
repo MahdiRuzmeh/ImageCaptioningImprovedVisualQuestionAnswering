@@ -67,8 +67,8 @@
       "manual_label": "DIRECTLY_VISUAL"
     },
     {
-      "question": "Is this giraffe sad?",
-      "question_id": 224248002,
+      "question": "Is this person sad?",
+      "question_id": 4442001,
       "answer": "no",
       "manual_label": "NOT_DIRECTLY_VISUAL"
     },
