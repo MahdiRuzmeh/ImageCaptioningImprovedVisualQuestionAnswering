@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from validation.config import ValidationConfig
 from validation.checks import (
     lexical_caption_looks_faithful,
+    neither_stronger_than_no_trap,
     solitude_quantifier_trap,
 )
 
@@ -121,6 +122,7 @@ _JUDGE_RULES_AND_FEW_SHOTS = (
     "- Missing or incorrect answer.\n"
     "- Hallucinated objects/attributes/counts not in the question or answer.\n"
     "- Changed meaning or contradiction with the answer.\n"
+    "- Wrong subject or objects not present in the question and answer.\n"
     "\n"
     "Do NOT mark SUSPICIOUS for style alone, articles, digit/word numbers, "
     "omitted redundant nouns, or generation-style quantifier phrasing "
@@ -223,6 +225,36 @@ _JUDGE_RULES_AND_FEW_SHOTS = (
     "Question: Is this elephant all alone?\n"
     "Answer: no\n"
     "Caption: Not all the elephants are alone.\n"
+    "Label: SUSPICIOUS\n"
+    "\n"
+    "Example 17\n"
+    "Question: Is the tennis net purple?\n"
+    "Answer: no\n"
+    "Caption: The green fence is not purple.\n"
+    "Label: SUSPICIOUS\n"
+    "\n"
+    "Example 18\n"
+    "Question: Did one of the guys just take off his shirt?\n"
+    "Answer: no\n"
+    "Caption: One of the guys is not shirtless.\n"
+    "Label: SUSPICIOUS\n"
+    "\n"
+    "Example 19\n"
+    "Question: Are both men smiling?\n"
+    "Answer: no\n"
+    "Caption: Neither man is smiling.\n"
+    "Label: SUSPICIOUS\n"
+    "\n"
+    "Example 20\n"
+    "Question: Does the weather appear to be snowy?\n"
+    "Answer: yes\n"
+    "Caption: Snow appears on the ground.\n"
+    "Label: SUSPICIOUS\n"
+    "\n"
+    "Example 21\n"
+    "Question: Are they standing in a mud puddle?\n"
+    "Answer: no\n"
+    "Caption: Not both giraffes are standing.\n"
     "Label: SUSPICIOUS\n"
     "\n"
 )
@@ -442,6 +474,11 @@ def llm_validate_batch(
         if solitude_quantifier_trap(item.question, item.answer, item.caption):
             verdict = LlmVerdict.SUSPICIOUS
             detail = "solitude_quantifier_trap"
+        elif neither_stronger_than_no_trap(
+            item.question, item.answer, item.caption
+        ):
+            verdict = LlmVerdict.SUSPICIOUS
+            detail = "neither_stronger_than_no"
         elif verdict == LlmVerdict.SUSPICIOUS and lexical_caption_looks_faithful(
             item.question, item.answer, item.caption
         ):

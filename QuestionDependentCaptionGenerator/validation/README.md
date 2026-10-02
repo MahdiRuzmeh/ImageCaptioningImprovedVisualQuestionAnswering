@@ -55,8 +55,10 @@ Uses light stemming and wh-category exclusion (see `overlap.py`).
 Low overlap is **never** a hard FAIL — the LLM judge decides.
 
 Hard rejects only: format issues, `echoes_question`, `polarity_mismatch`,
-`spurious_negation`, `answer_mismatch`, `quantifier_mismatch`,
-`batch_contamination`.
+`quantifier_mismatch`, `batch_contamination`.
+
+(`spurious_negation` and `answer_mismatch` are **not** hard rejects — they
+escalate as UNKNOWN for the LLM judge.)
 
 Number grounding: digit↔word for **0–99** (e.g. `40` ↔ `forty`); answer `1`
 also matches `one` / `a` / `an`.
@@ -101,7 +103,7 @@ There is **no** fast `PASS`.
 | `overlap_pass_threshold` | 0.50 | Borderline vs high-overlap soft flags |
 | `llm_batch_size` | 10 | Ollama throughput / retry pack size |
 
-`validator_version`: `v8_fast_fail_or_unknown`
+`validator_version`: `v10_soft_answer_negation_judge_shots`
 
 ## Caption status on kept rows
 

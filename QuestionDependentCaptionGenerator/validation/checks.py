@@ -324,6 +324,17 @@ def solitude_quantifier_trap(question: str, answer: str, caption: str) -> bool:
     return bool(re.search(r"\bnot\s+all\b", c))
 
 
+def neither_stronger_than_no_trap(question: str, answer: str, caption: str) -> bool:
+    """True when answer is only ``no`` to a both-question but caption says ``neither``."""
+    if answer.strip().lower() not in _NO:
+        return False
+    q = (question or "").lower()
+    c = (caption or "").lower()
+    if not re.search(r"\bboth\b", q):
+        return False
+    return bool(re.search(r"\bneither\b", c))
+
+
 def lexical_caption_looks_faithful(
     question: str,
     answer: str,
@@ -340,7 +351,15 @@ def lexical_caption_looks_faithful(
         return False
     if solitude_quantifier_trap(question, answer, caption):
         return False
+    if neither_stronger_than_no_trap(question, answer, caption):
+        return False
     if quantifier_hard_mismatch(question, answer, caption):
+        return False
+    if has_spurious_negation(answer, caption, question):
+        return False
+    if answer_requires_verbatim(answer) and not answer_verbatim_in_caption(
+        answer, caption
+    ):
         return False
     if has_unsupported_facts(question, answer, caption):
         return False
@@ -541,10 +560,8 @@ _FORMAT_REASONS = {
 }
 
 _VALIDATION_FAIL_REASONS = {
-    "answer_mismatch",
     "echoes_question",
     "polarity_mismatch",
-    "spurious_negation",
     "batch_contamination",
     "semantic_fail",
     "quantifier_mismatch",
@@ -602,14 +619,8 @@ def caption_hard_reject_reason(
         return "polarity_mismatch"
     if has_no_polarity_mismatch(answer, caption, question):
         return "polarity_mismatch"
-    if has_spurious_negation(answer, caption, question):
-        return "spurious_negation"
     if quantifier_hard_mismatch(question, answer, caption):
         return "quantifier_mismatch"
-    if answer_requires_verbatim(answer) and not answer_verbatim_in_caption(
-        answer, caption
-    ):
-        return "answer_mismatch"
     if (
         batch_pairs is not None
         and batch_captions is not None

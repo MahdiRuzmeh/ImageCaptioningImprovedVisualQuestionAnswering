@@ -23,7 +23,7 @@ Pipeline:
 | `generate.py` | CLI: rules + always-on classifier + optional LLM fallback |
 | `llm_prompts.py` | Packed prompt (chand Q+A toye yek request) |
 | `llm_client.py` | Ollama HTTP client + concurrent workers |
-| `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v7_relation05_paraphrase_pass`) |
+| `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v10_soft_answer_negation_judge_shots`) |
 | `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (blacklist gate + LLM confirm; Fast Path exemption) |
 | `audit/audit_captions.py` | Gold caption scorer — fills `fast_validator_label` / `llm_judge_label` / `caption_status` ([audit/README.md](audit/README.md)) |
 | `audit/classify_questions.py` | Gold classifier scorer — fills `classifier_label` ([audit/README.md](audit/README.md)) |
@@ -285,8 +285,6 @@ Typical reasons:
 | `http_error` | Ollama HTTP error (model missing, …) |
 | `parse_length_mismatch` | Model did not return N captions as JSON array |
 | `parse_json_error` / `parse_no_json_array` | Response was not valid JSON |
-| `answer_mismatch` | Caption omitted the answer tokens |
-| `spurious_negation` | Answer isn't yes/no, but caption added "no"/"not"/... (meaning-flip hallucination, e.g. "No clock was made by Rolex." for answer "rolex") |
 | `contains_question_mark` | Caption is a question, or echoes/repeats the question, instead of a statement |
 | `contains_brackets` / `contains_quotes` | Caption has `[]`/`{}` or quotation marks (echoed formatting) |
 | `contains_answer_phrase` | Caption literally says "the answer"/"the answer is" instead of a natural sentence |
@@ -294,9 +292,11 @@ Typical reasons:
 | `too_short` / `empty_caption` | Caption has fewer than 2 words, or is empty |
 | `echoes_question` | Caption just repeats the question |
 | `polarity_mismatch` | `yes` answer with a negated caption, or `no` answer that explicitly says "Yes" |
-| `semantic_fail` / `suspicious` | Tier-2 Qwen judge returned SUSPICIOUS (caption kept + logged) |
+| `quantifier_mismatch` | Clear quantifier polarity contradiction |
+| `semantic_fail` / `suspicious` | LLM judge returned SUSPICIOUS (caption kept + logged) |
 | `empty_response` / `timeout` | Model returned nothing / timed out |
 
+`answer_mismatch` and `spurious_negation` are **no longer hard reject reasons** — those cases escalate as UNKNOWN to the LLM judge.
 `relation_mismatch` and `unsupported_facts` are **no longer reject reasons** — they became the `relation_low` / `unsupported_facts_suspect` flags.
 
 If `--llm` finishes with any `needs_llm` left, the process exits with code `1` and prints the log path. Fix the top reason and re-run the same command.

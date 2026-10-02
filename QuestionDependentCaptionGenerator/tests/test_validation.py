@@ -83,6 +83,26 @@ class TestFastValidator(unittest.TestCase):
         )
         self.assertNotIn("answer_mismatch", r.reasons)
 
+    def test_overcast_contrastive_negation_unknown(self) -> None:
+        """Contrastive 'not sunny but overcast' is not a hard FAIL."""
+        r = fast_validate(
+            "Is it overcast or sunny?",
+            "overcast",
+            "It is not sunny but overcast outside.",
+        )
+        self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
+        self.assertNotIn("spurious_negation", r.reasons)
+
+    def test_ones_on_top_paraphrase_unknown(self) -> None:
+        """Missing filler 'ones' is not a hard answer_mismatch FAIL."""
+        r = fast_validate(
+            "Which bananas are newer?",
+            "ones on top",
+            "The newer bananas are on top.",
+        )
+        self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
+        self.assertNotIn("answer_mismatch", r.reasons)
+
     def test_unknown_borderline_overlap(self) -> None:
         cfg = ValidationConfig(overlap_fail_threshold=0.30, overlap_pass_threshold=0.90)
         r = fast_validate(
@@ -215,6 +235,38 @@ class TestLexicalJudgeOverride(unittest.TestCase):
                 "Is this elephant all alone?",
                 "no",
                 "Not all the elephants are alone.",
+            )
+        )
+
+    def test_neither_trap_blocks_lexical_pass(self) -> None:
+        from validation.checks import (
+            lexical_caption_looks_faithful,
+            neither_stronger_than_no_trap,
+        )
+
+        self.assertTrue(
+            neither_stronger_than_no_trap(
+                "Are both men smiling?",
+                "no",
+                "Neither man is smiling.",
+            )
+        )
+        self.assertFalse(
+            lexical_caption_looks_faithful(
+                "Are both men smiling?",
+                "no",
+                "Neither man is smiling.",
+            )
+        )
+
+    def test_spurious_denial_blocks_lexical_pass(self) -> None:
+        from validation.checks import lexical_caption_looks_faithful
+
+        self.assertFalse(
+            lexical_caption_looks_faithful(
+                "What kind of food is shown?",
+                "pizza",
+                "The food shown is not pizza.",
             )
         )
 
