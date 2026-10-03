@@ -313,12 +313,6 @@
       "manual_label": "DIRECTLY_VISUAL"
     },
     {
-      "question": "What is the woman carrying?",
-      "question_id": 4404007,
-      "answer": "umbrella",
-      "manual_label": "DIRECTLY_VISUAL"
-    },
-    {
       "question": "Do you think this man is an expert on technology?",
       "question_id": 53339029,
       "answer": "no",
