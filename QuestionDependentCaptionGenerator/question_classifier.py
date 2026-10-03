@@ -4,21 +4,21 @@ Dataset generation always labels questions:
 
     DIRECTLY_VISUAL | NOT_DIRECTLY_VISUAL
 
-The gate is a **blacklist**: every question is ``DIRECTLY_VISUAL`` by default.
-Only questions that match ``_NON_VISUAL_CANDIDATE_RE`` (OCR / external
-knowledge / personal opinion markers) reach Qwen for a narrow confirmation
-(``NEEDS_OCR`` / ``NEEDS_KNOWLEDGE`` / ``NEEDS_OPINION`` / ``VISUAL``).
-Unambiguous colour / count / existence / spatial shapes still skip the LLM
-via ``_FAST_PATH_VISUAL_RE`` even when a blacklist marker fires.
+Cascade (v17+):
+
+1. **Fast checker (blacklist)** — high-precision ``_NON_VISUAL_CANDIDATE_RE``
+   match → ``NOT_DIRECTLY_VISUAL`` (``visual_filter_source=blacklist``), no LLM.
+2. **Else UNKNOWN** — batched into ``classify_batch``; Qwen returns
+   ``NEEDS_OCR`` / ``NEEDS_KNOWLEDGE`` / ``NEEDS_OPINION`` / ``VISUAL``,
+   mapped to binary labels (``visual_filter_source=llm_classifier``).
+
+Only the LLM asserts ``DIRECTLY_VISUAL``. Soft / ambiguous cues are left
+UNKNOWN so the LLM can rescue visible cases (e.g. ``old man wearing glasses``).
 
 ``DIRECTLY_VISUAL`` means a human could reasonably answer by looking at the
 image alone. ``NOT_DIRECTLY_VISUAL`` means answering needs rendered text
 (OCR), personal opinion/preference, or external factual knowledge
 unavailable from appearance.
-
-Every classified row records ``visual_filter_source``
-(``fast_path`` / ``default_visual`` / ``llm_classifier``). Dropped rows also
-store ``non_visual_reason`` when the LLM confirmed a drop.
 
 ``generate.py`` always constructs a ``QuestionClassifier`` (Ollama). The
 offline ``--drop-subjective-candidates`` regex gate remains available on
@@ -36,7 +36,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-CLASSIFIER_PROMPT_VERSION = "v15_emotion_blacklist"
+CLASSIFIER_PROMPT_VERSION = "v18c_visual_rescue"
 
 QUESTION_LABELS = (
     "DIRECTLY_VISUAL",
@@ -53,9 +53,11 @@ CONFIRM_LABELS = (
 
 # Provenance of a DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL decision, stored per
 # row as ``visual_filter_source`` for later error analysis.
+VISUAL_FILTER_BLACKLIST = "blacklist"
+VISUAL_FILTER_LLM = "llm_classifier"
+# Legacy strings kept for reading older audit / output JSON only.
 VISUAL_FILTER_FAST_PATH = "fast_path"
 VISUAL_FILTER_DEFAULT = "default_visual"
-VISUAL_FILTER_LLM = "llm_classifier"
 
 # Offline / candidate-drop regex (broadened beyond the old subjective-only gate).
 _CANDIDATE_RE = re.compile(
@@ -83,86 +85,93 @@ _SYSTEM_PROMPT = (
     "\n"
     "Return ONLY one of these labels:\n"
     "\n"
-    "VISUAL — default. A human can reasonably answer from the image alone "
-    "(object recognition, actions, attributes, scene type, comparisons, "
-    "counting visible objects, lighting / day-vs-night / nighttime, "
-    "\"could this be…\", naming a plainly visible everyday object or animal "
-    "when no brand/sign must be read).\n"
+    "VISUAL — default. Prefer VISUAL whenever the answer is visible in the "
+    "pixels. Includes: object recognition; visible actions (doing, eating, "
+    "throwing, playing, holding); attributes and clothing (including "
+    "wearing glasses = eyewear); counting / \"how many\"; existence "
+    "\"is there\"; relative comparisons (\"same size\", \"same color\"); "
+    "contents of containers by appearance (\"what's in the glass/plate\" — "
+    "not reading a printed label); common category labels (\"what kind of "
+    "animal/food/room\" when the answer is cat/dog/pizza/kitchen, not a "
+    "breed or brand); scene/sport/room type; lighting / day-vs-night; "
+    "weather; B/W vs sepia; apparent sex/gender from appearance; WHERE a "
+    "plate/sign is or WHETHER text is present (without reading it).\n"
     "\n"
-    "NEEDS_OCR — answering requires reading rendered text, digits, logos, "
-    "brand names, signs, train/bus numbers, license plates, or a clock face "
-    "(exact time shown).\n"
+    "NEEDS_OCR — only reading or decoding rendered text, digits, logos, "
+    "brand names, signs, train/bus numbers, license-plate digits, letter "
+    "glyphs, or exact clock/watch time. Do NOT use OCR for drinks/food/"
+    "objects by appearance, or for eyeglasses/eyewear.\n"
     "\n"
-    "NEEDS_KNOWLEDGE — answering requires external facts unavailable from "
-    "appearance (breed, manufacturer, country of a flag, animal sounds, "
-    "price, designed-for purpose, digital/official status, free-range, "
-    "tourist identity, whether a machine works, organic claims, named "
-    "place identity, distance to a store, regional geography). Lighting or "
-    "whether a photo was taken at night is NOT knowledge — that is VISUAL. "
-    "Guessing time of day from shadows is VISUAL. Counting animals you can "
-    "see is VISUAL. \"What is the name of\" a visible common object/fruit "
-    "(no brand/OCR) is VISUAL.\n"
+    "Day vs night or time of day FROM LIGHTING OR SHADOWS is VISUAL, not OCR.\n"
     "\n"
-    "NEEDS_OPINION — answering requires personal preference, subjective "
-    "judgment, guessed age/size, emotion reading (sad, happy, tired, fun), "
-    "social relationships, condition judgments, or nutrition "
-    "claims (would you, beautiful, how old, how big, scared, know each "
-    "other, like, good shape, low-protein, why motive questions).\n"
+    "NEEDS_KNOWLEDGE — external facts unavailable from appearance (breed/"
+    "species taxonomy, manufacturer, country of a flag, animal sounds, "
+    "price, designed-for purpose, digital/official, free-range, tourists, "
+    "organic, named place, distance, regional geography). NOT knowledge: "
+    "\"what kind of animal\" meaning cat/dog; \"are they eating\"; "
+    "counting; relative same-size comparisons; apparent sex from look.\n"
+    "\n"
+    "NEEDS_OPINION — preference, emotion, absolute guessed age/size "
+    "(\"how old\", \"how big\"), social relationships, condition/nutrition "
+    "judgments. NOT opinion: \"what is the person doing\" or other visible "
+    "actions.\n"
 )
 
 _FEW_SHOT_BLOCK = (
-    "Examples:\n"
-    "Q: What is the name of the hotel?\n"
-    "NEEDS_OCR\n"
-    "Q: What word is written?\n"
-    "NEEDS_OCR\n"
+    "Examples (contrastive pairs — note the difference):\n"
     "Q: What brand is shown?\n"
     "NEEDS_OCR\n"
+    "Q: What's in the glass?\n"
+    "VISUAL\n"
+    "Q: What word is written?\n"
+    "NEEDS_OCR\n"
+    "Q: Is she wearing glasses?\n"
+    "VISUAL\n"
     "Q: What license plate number?\n"
     "NEEDS_OCR\n"
-    "Q: What language is on the sign?\n"
+    "Q: Where is the license plate located?\n"
+    "VISUAL\n"
+    "Q: What time is it?\n"
     "NEEDS_OCR\n"
-    "Q: What is the numbers of the train?\n"
-    "NEEDS_OCR\n"
-    "Q: How many numbers are in the bus number?\n"
-    "NEEDS_OCR\n"
+    "Q: Can you tell what time of day it is by the shadow?\n"
+    "VISUAL\n"
+    "Q: What breed is this dog?\n"
+    "NEEDS_KNOWLEDGE\n"
+    "Q: What kind of animal is in the picture?\n"
+    "VISUAL\n"
     "Q: What sound does this animal make?\n"
     "NEEDS_KNOWLEDGE\n"
+    "Q: Are the animals eating?\n"
+    "VISUAL\n"
+    "Q: How big is the sandwich?\n"
+    "NEEDS_OPINION\n"
+    "Q: Are both of these animals the same size?\n"
+    "VISUAL\n"
+    "Q: How old is animal?\n"
+    "NEEDS_OPINION\n"
+    "Q: What is this person doing?\n"
+    "VISUAL\n"
+    "Q: Is this person sad?\n"
+    "NEEDS_OPINION\n"
+    "Q: What is the person doing?\n"
+    "VISUAL\n"
+    "Q: What is the sex of the player?\n"
+    "VISUAL\n"
     "Q: Who manufactured this?\n"
     "NEEDS_KNOWLEDGE\n"
     "Q: What country is this flag from?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: What breed is this dog?\n"
     "NEEDS_KNOWLEDGE\n"
     "Q: What is the price?\n"
     "NEEDS_KNOWLEDGE\n"
     "Q: What mountain was this taken at?\n"
     "NEEDS_KNOWLEDGE\n"
-    "Q: What are the boats designed for?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: What is the purpose of this display?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Would this bus take you to Manchester?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Are the kids going to play in a tournament?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Does this refrigerator have digital features?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Is this an official photograph?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Are these giraffes living free range?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Are the people on the elephants tourists?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Does this train work?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Is the pizza sauce organic?\n"
+    "Q: Are these animals native to Iceland?\n"
     "NEEDS_KNOWLEDGE\n"
     "Q: Is there a Wal-Mart within a mile of this place?\n"
     "NEEDS_KNOWLEDGE\n"
-    "Q: Is this picture taken in the midwest?\n"
+    "Q: Is the pizza sauce organic?\n"
     "NEEDS_KNOWLEDGE\n"
-    "Q: Are these animals native to Iceland?\n"
+    "Q: Does this train work?\n"
     "NEEDS_KNOWLEDGE\n"
     "Q: Would you eat this?\n"
     "NEEDS_OPINION\n"
@@ -170,69 +179,37 @@ _FEW_SHOT_BLOCK = (
     "NEEDS_OPINION\n"
     "Q: Is this beautiful?\n"
     "NEEDS_OPINION\n"
-    "Q: Have you ever been to this intersection?\n"
-    "NEEDS_OPINION\n"
-    "Q: How old is animal?\n"
-    "NEEDS_OPINION\n"
-    "Q: Are these wings strong?\n"
-    "NEEDS_OPINION\n"
-    "Q: Is this a small town?\n"
-    "NEEDS_OPINION\n"
-    "Q: Is the cat scared?\n"
-    "NEEDS_OPINION\n"
-    "Q: Is this person sad?\n"
-    "NEEDS_OPINION\n"
-    "Q: Are they happy?\n"
-    "NEEDS_OPINION\n"
-    "Q: Is the building old?\n"
-    "NEEDS_OPINION\n"
-    "Q: Why would this be in black and white?\n"
-    "NEEDS_OPINION\n"
-    "Q: Is this a low-protein meal?\n"
-    "NEEDS_OPINION\n"
     "Q: Do this man and woman know each other?\n"
     "NEEDS_OPINION\n"
-    "Q: How big is the sandwich?\n"
-    "NEEDS_OPINION\n"
-    "Q: Is this a big event?\n"
-    "NEEDS_OPINION\n"
-    "Q: Is the frisbee in good shape?\n"
-    "NEEDS_OPINION\n"
-    "Q: What sort of condiments does the man like?\n"
-    "NEEDS_OPINION\n"
-    "Q: Is the ground near the waterfront squishy?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: What is the green stuff?\n"
-    "VISUAL\n"
-    "Q: Are they playing polo?\n"
-    "VISUAL\n"
-    "Q: What is in the picture?\n"
-    "VISUAL\n"
-    "Q: Is this a banana toast?\n"
-    "VISUAL\n"
-    "Q: What is on the road?\n"
-    "VISUAL\n"
-    "Q: What is purple?\n"
-    "VISUAL\n"
-    "Q: What do these giraffes have in common?\n"
-    "VISUAL\n"
-    "Q: Was this picture taken at night?\n"
-    "VISUAL\n"
-    "Q: Is it nighttime?\n"
-    "VISUAL\n"
-    "Q: Is it daytime?\n"
+    "Q: What is the numbers of the train?\n"
+    "NEEDS_OCR\n"
+    "Q: The plane's stand resembles what letter?\n"
+    "NEEDS_OCR\n"
+    "Q: What is the name of the hotel?\n"
+    "NEEDS_OCR\n"
+    "Q: How many hot dogs are there?\n"
     "VISUAL\n"
     "Q: Can you count all of the mice?\n"
     "VISUAL\n"
-    "Q: Is the man trying to catch a Frisbee?\n"
+    "Q: Is there a banana on the plate?\n"
     "VISUAL\n"
-    "Q: Can you tell what time of day it is by the shadow?\n"
+    "Q: What is he wearing?\n"
+    "VISUAL\n"
+    "Q: What sport is being played?\n"
+    "VISUAL\n"
+    "Q: What kind of room is this?\n"
     "VISUAL\n"
     "Q: What is the name of the small round green fruit next to the apple?\n"
     "VISUAL\n"
+    "Q: Are they playing polo?\n"
+    "VISUAL\n"
     "Q: Is this a library or professional office?\n"
     "VISUAL\n"
-    "Q: Where is the license plate located?\n"
+    "Q: Is there text in the top right corner of this picture?\n"
+    "VISUAL\n"
+    "Q: Was this picture taken at night?\n"
+    "VISUAL\n"
+    "Q: Do you find meat in the salad?\n"
     "VISUAL"
 )
 
@@ -241,7 +218,10 @@ _USER_PROMPT_INTRO = (
     "personal opinion beyond looking at the image.\n"
     "Return ONLY one label: NEEDS_OCR, NEEDS_KNOWLEDGE, NEEDS_OPINION, or "
     "VISUAL.\n"
-    "VISUAL is the default when a human could answer from the image alone.\n"
+    "Prefer VISUAL whenever the answer is visible in the pixels "
+    "(actions, counting, clothing/eyewear, sport, room, contents of a "
+    "glass, kind of animal vs breed, same size vs how big, apparent sex).\n"
+    "Do NOT invent labels such as NEEDS_COUNTING — use VISUAL for counts.\n"
 )
 
 _USER_PROMPT_TEMPLATE = (
@@ -259,7 +239,10 @@ def _build_batch_user_prompt(questions: Sequence[str]) -> str:
         "or personal opinion beyond looking at the image.",
         "Return ONLY a JSON array of label strings: NEEDS_OCR, "
         "NEEDS_KNOWLEDGE, NEEDS_OPINION, or VISUAL.",
-        "VISUAL is the default when a human could answer from the image alone.",
+        "Prefer VISUAL whenever the answer is visible in the pixels "
+        "(actions, counting, clothing/eyewear, sport, room, contents of a "
+        "glass, kind of animal vs breed, same size vs how big, apparent sex).",
+        "Do NOT invent labels such as NEEDS_COUNTING — use VISUAL for counts.",
         "",
         _FEW_SHOT_BLOCK,
         "",
@@ -275,49 +258,47 @@ def _build_batch_user_prompt(questions: Sequence[str]) -> str:
     return "\n".join(lines)
 
 
-# Blacklist gate: questions that MIGHT need something beyond the pixels.
-# Only these candidates reach the LLM for confirmation. Everything else is
-# DIRECTLY_VISUAL by default (``default_visual``).
+# Fast checker: high-precision auto-NDV. Match → NOT_DIRECTLY_VISUAL with no LLM.
+# Soft / ambiguous cues (bare old/young, emotion words, intention "trying to",
+# bare "text"/"license", cold/warm, general "what kind of room/shoes") stay
+# UNKNOWN → batched LLM.
 #
-# Families:
-#   1. personal opinion / preference / subjective judgment
-#   2. OCR / reading rendered text or digits
-#   3. outside-world knowledge (breed, manufacturer, designed-for, …)
-#   4. non-visual senses / place identity
-#
-# Note: ``made of`` is intentionally NOT a candidate (visible material) while
+# Note: ``made of`` is intentionally NOT listed (visible material) while
 # ``who made`` is (maker/brand knowledge).
 _NON_VISUAL_CANDIDATE_RE = re.compile(
     r"""
-    # --- personal / opinion / preference / subjective judgment ---
+    # --- personal preference / opinion (high precision) ---
     \bhave\s+you\s+ever\b |
     \b(?:do|would|did|have|can|could)\s+you\b |
     \bdo\s+we\b | \bwould\s+one\b | \byour\b | \bprefer\b | \bfavorite\b |
     \bwhose\b |
     \bhow\s+(?:old|big|small|large|tall|heavy|long|wide)\b |
     \bknow\s+each\s+other\b |
-    \b(?:do|does|did)\s+(?:the|a|an|he|she|they|this|that|his|her|their)\s+
-        \w+(?:\s+\w+){0,2}\s+like\b |
+    \blooking\s+forward\b |
+    \b(?:do|does|did)\s+(?:the|a|an|he|she|they|this|that|these|those|
+        his|her|their|people|dogs?|kids?|children|man|woman|person)\s+
+        \w*(?:\s+\w+){0,3}\s+like\b |
     \bin\s+(?:good|bad|poor)\s+shape\b |
     \b(?:safe|safety|healthy|nutritious|tasty|delicious|beautiful|ugly|
        attractive|comfortable|dangerous|expensive|valuable|cheap|personality|
-       professional|romantic|strong|weak|scared|afraid|
-       sad|happy|angry|upset|tired|bored|excited|fun|mood|
-       protein|calorie|carb|edible|sugar|vitamin|homemade)\b |
-    \bfeel(?:s|ing)?\b |
-    \bold\b | \byoung\b |
-    \bwhy\b |
+       romantic|scared|afraid|
+       protein|calorie|carb|edible|sugar|vitamin|homemade|vegan)\b |
     \bnative\s+to\b |
     \bsmall\s+(?:town|city|village)\b |
     \bbig\s+event\b |
+    \bbalanced\s+meal\b |
 
-    # --- OCR / reading rendered text or digits ---
+    # --- OCR / reading rendered text or digits (high precision) ---
     \bsays?\b | \bsaying\b | \bwritten\b | \bprinted\b | \bspelled\b |
-    \b(?:word|words|letter|letters|initials|caption|slogan|text)\b |
-    \bname\s+(?:of|on)\b | \bwhat\s+name\s+is\s+on\b | \bname\s+is\s+on\b |
+    \b(?:words?|letters?|initials|caption|slogan)\b |
+    \bname\s+on\b | \bwhat\s+name\s+is\s+on\b | \bname\s+is\s+on\b |
+    \bwhat\s+is\s+the\s+name\s+of\s+the\s+(?:hotel|restaurant|store|shop|
+        company|team|street|building)\b |
     \bnamed\b | \bbrand\b | \blogo\b |
     \bcompany\b | \badvertis\w*\b | \bmentioned\b | \blanguage\b |
-    \bwhat\s+time\b | \b(?:month|year|date)\b | \blicense\b |
+    \blisted\s+on\b |
+    \bwhat\s+time\b | \b(?:month|year|date)\b |
+    \blicense\s+plate\s+numbers?\b | \bplate\s+numbers?\b |
     \bphone\s+number\b | \bwebsite\b | \bscore\b |
     \bwhat\s+(?:is|are)\s+the\s+numbers?\b |
     \bwhat\s+number\s+(?:bus|train|plane|flight|truck|taxi|jersey|shirt|
@@ -332,7 +313,9 @@ _NON_VISUAL_CANDIDATE_RE = re.compile(
 
     # --- outside-world knowledge ---
     \ballowed\b | \blegal\b | \brules?\b | \bendangered\b |
-    \b(?:breed|species)\b | \bsound\s+does\b |
+    \b(?:breed|species)\b |
+    \bwhat\s+(?:kind|type)\s+of\s+(?:dog|cat|breed)\b |
+    \bsound\s+(?:does|might|is|can|would)\b | \bwhat\s+sound\b |
     \bwho\s+(?:made|makes|built|owns|invented)\b | \bmanufactur\w*\b |
     \bcost\b | \bprice\b |
     \bpopular\b | \bfamous\b |
@@ -343,24 +326,26 @@ _NON_VISUAL_CANDIDATE_RE = re.compile(
     \bwhat\s+will\s+happen\b | \bgoing\s+to\s+happen\b |
     \bantique\b | \bmiles?\b | \bwal[-\s]?mart\b | \bmidwest\b |
     \bamerican\s+flag\b | \bno\s+parking\b |
+    \bairline\b | \bclimate\b | \bhumid\b |
+    \bspecialize\b | \bculinary\b |
+    \balarm\s+set\b |
+    \bbreak\s+if\s+dropped\b |
+    \bbrothers?\b | \bhigh\s+school\b |
+    \bintersection\b |
 
-    # --- intention / future action ---
-    \babout\s+to\b | \bgoing\s+to\b | \bwant(?:s|ed)?\s+to\b |
-    \btry(?:ing|s)?\s+to\b | \bplan(?:s|ning)?\s+to\b | \bintend\w*\b |
-    \bwill\s+\w+\b |
+    # --- hypothetical / counterfactual ---
+    \bwould\s+(?:this|that|it|the|a|an)\b |
 
     # --- geography / place identity (outside the pixels) ---
     \bcountry\b | \bnation\w*\b | \bcontinent\b |
     \bwhich\s+part\s+of\s+the\s+world\b |
     \btaken\s+(?:at|in)\b |
     \bwhat\s+(?:mountain|lake|river|street|beach|park)\b |
-
-    # --- personal hypothetical (would this … you …) ---
-    \bwould\s+(?:this|that|the|a|an)\b.{0,50}?\byou\b |
+    \bchinatown\b | \bsan\s+francisco\b | \bbrisbane\b | \balaska\b |
 
     # --- non-visual senses ---
     \bsquishy\b | \bsmell\w*\b | \btaste\w*\b | \bloud\b |
-    \bwarm\b | \bcold\b | \btemperature\b | \bsoft\s+to\s+the\s+touch\b
+    \btemperature\b | \bsoft\s+to\s+the\s+touch\b
     """,
     re.I | re.X,
 )
@@ -369,14 +354,12 @@ _NON_VISUAL_CANDIDATE_RE = re.compile(
 _NON_VISUAL_SUSPECT_RE = _NON_VISUAL_CANDIDATE_RE
 
 
-# Frequent phrasings that trip a blacklist marker while describing something
-# plainly visible ("can you see" is perception, not preference; "time of day"
-# is daylight, not a clock face; "can be seen" is a VQA counting idiom).
-# Removed before the candidate test so they only exempt themselves — "Do you
-# see a brand name?" still stays a candidate.
+# Phrasings that would trip a hard-NDV marker while describing perception.
+# Stripped before the blacklist test ("Do you see a boat?" stays UNKNOWN→LLM).
 _SUSPECT_EXEMPT_RE = re.compile(
     r"""
-    \b(?:can|could|do|did|would)\s+you\s+see\b |
+    \b(?:can|could|do|did|would)\s+you\s+
+        (?:see|spot|find|count|tell|make\s+out)\b |
     \b(?:can|could)\s+be\s+seen\b |
     \bwhat\s+time\s+of\s+(?:day|year)\b |
     \btaken\s+at\s+night\b |
@@ -391,72 +374,19 @@ _SUSPECT_EXEMPT_RE = re.compile(
     \bright\s+side\b |
     \btrash\s+can\b |
     \bcity\s+bus(?:es)?\b |
-    \bcan\s+you\s+spot\b |
-    \blook(?:s|ing)?\s+like\b
-    """,
-    re.I | re.X,
-)
-
-
-# Fast Path must never exempt intention / purpose questions even when a
-# spatial whitelist shape accidentally matches (e.g. "Are the kids going to
-# play in a tournament?" looks like "Are … in a …").
-_FAST_PATH_BLOCK_RE = re.compile(
-    r"""
-    \bpurpos |
-    \bgoing\s+to\b |
-    \babout\s+to\b
-    """,
-    re.I | re.X,
-)
-
-
-# Fast Path exemption: unambiguous visual shapes that skip the LLM even when
-# a blacklist marker is present (e.g. "Do you see a boat?").
-#
-#   - colour:     "What color is the bus?" / "What colors are the cows?"
-#   - counting:   "How many cookies are there?" / "Number of animals?"
-#   - existence:  "Is there a clock on the wall?" / "Do you see a boat?"
-#   - scene type: "What sport/room/animal/food/…"
-#   - spatial:    plain is/are DET NP PREP DET noun; "What is under the table?"
-#   - action:     end-anchored "What is the man doing/holding/wearing?"
-#   - sky:        "Is the sky clear?"
-_FAST_PATH_VISUAL_RE = re.compile(
-    r"""
-    ^\s*(?:
-        what\s+colou?rs?\b |
-        what\s+(?:animals?|shape|sport|game|activity|room|scene|place|
-                  foods?|fruits?|dish)\b |
-        number\s+of\b |
-        how\s+many\b |
-        (?:is|are)\s+there\b |
-        is\s+the\s+sky\b |
-        (?:do|can|could|did|would)\s+you\s+see\b |
-        what\s+is\s+
-            (?:under|over|above|below|behind|beside|next\s+to|
-               in\s+front\s+of)\b |
-        what\s+(?:is|are)\s+
-            (?:the|this|that|he|she|it|they|these|those|a|an)\b
-            [\w'\s,-]*\b(?:doing|holding|wearing)\s*\??\s*$ |
-        (?:is|are)\s+
-            (?:the|a|an|this|that|these|those|his|her|its|their)\s+
-            [\w'-]+(?:\s+[\w'-]+){0,3}\s+
-            (?:on\s+top\s+of|in\s+front\s+of|next\s+to|
-               on|in|under|underneath|above|below|behind|beside|
-               between|near|inside|outside|beneath)\s+
-            (?:the|a|an|this|that|these|those|his|her|its|their)\s+
-            [\w'-]+\s*\??\s*$
-    )
+    \blook(?:s|ing)?\s+like\b |
+    \bblack\s+and\s+white\b | \bsepia\b |
+    \bdo\s+you\s+think\b.{0,60}\b(?:black\s+and\s+white|sepia|coloration)\b
     """,
     re.I | re.X,
 )
 
 
 def is_non_visual_candidate(question: str) -> bool:
-    """True when a question carries an OCR / opinion / knowledge marker.
+    """True when the fast checker should assert NOT_DIRECTLY_VISUAL.
 
-    Only candidates reach the LLM confirmation stage. Non-candidates are
-    kept DIRECTLY_VISUAL with ``visual_filter_source=default_visual``.
+    High-precision blacklist match → hard NDV (no LLM). Non-matches are
+    UNKNOWN and go to the batched LLM classifier.
     """
     q = (question or "").strip()
     if not q:
@@ -470,23 +400,8 @@ def is_non_visual_suspect(question: str) -> bool:
 
 
 def is_fast_path_visual(question: str) -> bool:
-    """True when a question may skip the LLM entirely (whitelist exemption).
-
-    Requires a whitelist shape **and** that the question is not a non-visual
-    candidate (after perception exempts). Intention / purpose markers never
-    skip the LLM. This blocks geo/OCR/knowledge leaks such as
-    ``How many miles to Essex hall?`` that match ``how many`` but need the judge.
-    """
-    q = (question or "").strip()
-    if not q:
-        return False
-    if _FAST_PATH_BLOCK_RE.search(q):
-        return False
-    if not _FAST_PATH_VISUAL_RE.search(q):
-        return False
-    if is_non_visual_candidate(q):
-        return False
-    return True
+    """Deprecated visual-DV fast path (removed in v17). Always False."""
+    return False
 
 
 def is_subjective_candidate(question: str) -> bool:
@@ -497,7 +412,8 @@ def is_subjective_candidate(question: str) -> bool:
 def confirm_to_binary(confirm: str) -> Tuple[str, Optional[str]]:
     """Map a four-way confirm token to (binary_label, non_visual_reason)."""
     token = (confirm or "").strip().upper().replace("-", "_").replace(" ", "_")
-    if token == "VISUAL":
+    if token == "VISUAL" or token.startswith("NEEDS_COUNT"):
+        # Model sometimes invents NEEDS_COUNTING; counting is visual.
         return "DIRECTLY_VISUAL", None
     if token in ("NEEDS_OCR", "NEEDS_KNOWLEDGE", "NEEDS_OPINION"):
         return "NOT_DIRECTLY_VISUAL", token
@@ -509,6 +425,41 @@ def confirm_to_binary(confirm: str) -> Tuple[str, Optional[str]]:
     raise ValueError(f"unknown confirm token: {confirm!r}")
 
 
+# High-precision VISUAL rescue after LLM over-drop (3B often mislabels these).
+_VISUAL_RESCUE_RE = re.compile(
+    r"""
+    \bwhat\s+(?:is|are)\s+.+\bdoing\b |
+    \bare\s+(?:the\s+|these\s+|both\s+(?:of\s+)?(?:the\s+|these\s+)?)?
+        (?:animals?|people|they|kids?|children|birds?|dogs?|cats?)\s+
+        (?:eating|playing|holding|running|sitting|standing|sleeping)\b |
+    \bsame\s+(?:size|colou?r|shape)\b |
+    \bwhat\s+kind\s+of\s+(?:animal|animals|food|room|hat|shoes?|tree|trees|
+        fence|fruit|fruits?|plane|floors?|flooring)\b |
+    \bwhat(?:'s|\s+is)\s+in\s+(?:the\s+)?(?:glass|bowl|plate|cup|box|picture|
+        image|basket|pot|mug)\b |
+    \bwearing\s+glasses\b |
+    \b(?:sex|gender)\s+of\b |
+    \bhow\s+many\b |
+    \b(?:is|are)\s+there\b |
+    \bwhat\s+(?:sport|colou?r|room)\b |
+    \bwhat\s+is\s+(?:he|she|the\s+(?:man|woman|person|people))\s+wearing\b
+    """,
+    re.I | re.X,
+)
+
+
+def maybe_rescue_visual(
+    question: str, label: str, reason: Optional[str]
+) -> Tuple[str, Optional[str]]:
+    """Flip clear visual over-drops from the LLM back to DIRECTLY_VISUAL."""
+    if label != "NOT_DIRECTLY_VISUAL":
+        return label, reason
+    q = (question or "").strip()
+    if q and _VISUAL_RESCUE_RE.search(q):
+        return "DIRECTLY_VISUAL", None
+    return label, reason
+
+
 def parse_classifier_label(raw: str) -> Optional[str]:
     """Extract a confirm or binary label from a model response.
 
@@ -518,6 +469,8 @@ def parse_classifier_label(raw: str) -> Optional[str]:
     text = (raw or "").strip().upper()
     text = re.sub(r"^```(?:\w+)?\s*|\s*```$", "", text).strip()
     text = text.replace("-", "_").replace(" ", "_")
+    if "NEEDS_COUNT" in text:
+        return "VISUAL"
     for label in (
         "NEEDS_KNOWLEDGE",
         "NEEDS_OPINION",
@@ -670,6 +623,7 @@ class QuestionClassifier:
             label, reason = confirm_to_binary(confirm)
         except ValueError:
             return None, f"parse_fail:{content!r}", None
+        label, reason = maybe_rescue_visual(question, label, reason)
         return label, "ok", reason
 
     def classify_batch(
@@ -703,11 +657,12 @@ class QuestionClassifier:
         if confirms is None:
             return None, parse_detail
         out: List[Tuple[str, Optional[str]]] = []
-        for confirm in confirms:
+        for q, confirm in zip(questions, confirms):
             try:
-                out.append(confirm_to_binary(confirm))
+                label, reason = confirm_to_binary(confirm)
             except ValueError:
                 return None, f"parse_item_fail:value={confirm!r}"
+            out.append(maybe_rescue_visual(q, label, reason))
         return out, "ok"
 
     def metadata(self) -> Dict[str, str]:
@@ -724,8 +679,8 @@ def _fresh_label_counts() -> Dict[str, int]:
     counts: Dict[str, int] = {lab: 0 for lab in QUESTION_LABELS}
     counts["OFFLINE_CANDIDATE_DROP"] = 0
     counts["PARSE_FAIL_DROP"] = 0
-    counts["FAST_PATH_VISUAL"] = 0
-    counts["DEFAULT_VISUAL"] = 0
+    counts["PARSE_FAIL_KEEP"] = 0
+    counts["BLACKLIST_NDV"] = 0
     return counts
 
 
@@ -771,15 +726,17 @@ def validate_classifier_checkpoint(
 ) -> bool:
     """True when a checkpoint matches the current run configuration.
 
-    ``fast_path`` is part of the identity: a checkpoint built with the Fast
-    Path enabled cannot be reused for a ``--no-fast-path`` comparison run
-    (and vice versa), because the two label different questions without an
-    LLM call.
+    ``fast_path`` here means blacklist auto-NDV enabled (``blacklist_drop``).
+    Checkpoints built with auto-drop on cannot be reused when
+    ``--no-blacklist-drop`` / ``--no-fast-path`` is set (and vice versa).
     """
     info = checkpoint.get("info") or {}
     if info.get("prompt_version") != CLASSIFIER_PROMPT_VERSION:
         return False
-    if bool(info.get("fast_path_enabled", True)) != bool(fast_path):
+    enabled = info.get("blacklist_drop_enabled")
+    if enabled is None:
+        enabled = info.get("fast_path_enabled", True)
+    if bool(enabled) != bool(fast_path):
         return False
     if int(info.get("pre_classify_count", -1)) != pre_classify_count:
         return False
@@ -850,8 +807,7 @@ def filter_non_visual_questions(
 
     Args:
         rows: caption rows (dicts with at least ``question``).
-        classifier: Ollama classifier; when provided, only blacklist
-            candidates that are not Fast Path exemptions reach the LLM.
+        classifier: Ollama classifier; UNKNOWN rows are batched to the LLM.
         offline_drop_candidates: when True and classifier is unavailable,
             drop all regex candidates (conservative offline mode).
         checkpoint_path: optional sidecar for incremental classifier resume.
@@ -859,9 +815,11 @@ def filter_non_visual_questions(
         resume: load and continue from ``checkpoint_path`` when valid.
         classifier_meta: model/host/prompt metadata for checkpoint validation.
         input_count: raw VQA input count before OCR/dedup (for validation).
-        fast_path: when False, Fast Path exemption is disabled so blacklist
-            candidates always go to the LLM (``--no-fast-path``).
-        batch_size: pack this many LLM-bound questions into one Ollama call
+        fast_path: when True (default), high-precision blacklist matches are
+            dropped as NOT_DIRECTLY_VISUAL without LLM. When False
+            (``--no-blacklist-drop`` / ``--no-fast-path``), every question is
+            UNKNOWN and goes to the batched LLM.
+        batch_size: pack this many UNKNOWN questions into one Ollama call
             (JSON array of labels); salvage with :meth:`classify_one` on
             batch parse failure.
 
@@ -869,13 +827,14 @@ def filter_non_visual_questions(
         (kept_rows, dropped_rows, label_counts)
 
         Kept rows and ``dropped_rows`` both carry ``visual_filter_source``
-        (``fast_path`` / ``default_visual`` / ``llm_classifier``);
+        (``blacklist`` / ``llm_classifier``);
         ``dropped_rows`` entries also include ``label``, optional
         ``non_visual_reason``, and optional ``detail``.
     """
     n_total = len(rows)
     pre_classify_count = n_total
     batch_n = max(1, int(batch_size))
+    blacklist_drop = bool(fast_path)
 
     if classifier is not None and checkpoint_path is not None and resume:
         existing = load_classifier_checkpoint(checkpoint_path)
@@ -884,7 +843,7 @@ def filter_non_visual_questions(
             pre_classify_count=pre_classify_count,
             input_count=input_count,
             classifier_meta=classifier_meta,
-            fast_path=fast_path,
+            fast_path=blacklist_drop,
         ):
             info = existing.get("info") or {}
             if info.get("status") == "complete":
@@ -915,7 +874,7 @@ def filter_non_visual_questions(
             pre_classify_count=pre_classify_count,
             input_count=input_count,
             classifier_meta=classifier_meta,
-            fast_path=fast_path,
+            fast_path=blacklist_drop,
         ):
             kept = list(existing.get("kept") or [])
             dropped = list(existing.get("dropped") or [])
@@ -936,7 +895,8 @@ def filter_non_visual_questions(
         out: Dict[str, Any] = {
             "status": status,
             "prompt_version": CLASSIFIER_PROMPT_VERSION,
-            "fast_path_enabled": bool(fast_path),
+            "blacklist_drop_enabled": bool(blacklist_drop),
+            "fast_path_enabled": bool(blacklist_drop),  # legacy alias
             "batch_size": batch_n,
             "input_count": input_count,
             "pre_classify_count": pre_classify_count,
@@ -969,31 +929,23 @@ def filter_non_visual_questions(
         )
 
     if classifier is not None and n_total:
-        n_exempt = (
+        n_blacklist = (
             sum(
                 1
                 for row in rows
-                if is_fast_path_visual(str(row.get("question") or ""))
+                if is_non_visual_candidate(str(row.get("question") or ""))
             )
-            if fast_path
+            if blacklist_drop
             else 0
         )
-        n_candidates = sum(
-            1
-            for row in rows
-            if is_non_visual_candidate(str(row.get("question") or ""))
-            and not (
-                fast_path
-                and is_fast_path_visual(str(row.get("question") or ""))
-            )
-        )
+        n_unknown = n_total - n_blacklist
         print(
             f"Question classifier: {n_total} questions "
-            f"(blacklist gate; default DIRECTLY_VISUAL), "
-            f"{n_exempt} Fast Path exemptions (no LLM), "
-            f"{n_candidates} blacklist candidates to confirm with the LLM "
+            f"(blacklist->NDV | UNKNOWN->batched LLM), "
+            f"{n_blacklist} blacklist NDV (no LLM), "
+            f"{n_unknown} UNKNOWN to confirm with the LLM "
             f"(batch-size={batch_n})"
-            + ("" if fast_path else " (--no-fast-path)")
+            + ("" if blacklist_drop else " (--no-blacklist-drop)")
             + "...",
             flush=True,
         )
@@ -1025,16 +977,12 @@ def filter_non_visual_questions(
     ) -> None:
         nonlocal newly_classified
         if label is None:
-            label_counts["PARSE_FAIL_DROP"] += 1
-            label_counts["NOT_DIRECTLY_VISUAL"] += 1
-            dropped.append(
-                _drop_record(
-                    row,
-                    "NOT_DIRECTLY_VISUAL",
-                    detail or "parse_fail",
-                    VISUAL_FILTER_LLM,
-                )
-            )
+            # Prefer keep on parse failure (only LLM asserts DIRECTLY_VISUAL;
+            # dropping UNKNOWN-on-parse massively over-filters visual Qs).
+            label_counts["PARSE_FAIL_KEEP"] = label_counts.get("PARSE_FAIL_KEEP", 0) + 1
+            label_counts["DIRECTLY_VISUAL"] += 1
+            row["visual_filter_source"] = VISUAL_FILTER_LLM
+            kept.append(row)
         else:
             label_counts[label] = label_counts.get(label, 0) + 1
             if label == "DIRECTLY_VISUAL":
@@ -1107,30 +1055,26 @@ def filter_non_visual_questions(
                     flush=True,
                 )
 
-            # Whitelist exemption: skip LLM even if a blacklist marker fires.
-            if fast_path and is_fast_path_visual(q):
-                label_counts["FAST_PATH_VISUAL"] += 1
-                label_counts["DIRECTLY_VISUAL"] += 1
-                row["visual_filter_source"] = VISUAL_FILTER_FAST_PATH
-                kept.append(row)
+            # Fast checker: high-precision blacklist → hard NDV (no LLM).
+            if blacklist_drop and is_non_visual_candidate(q):
+                label_counts["BLACKLIST_NDV"] += 1
+                label_counts["NOT_DIRECTLY_VISUAL"] += 1
+                dropped.append(
+                    _drop_record(
+                        row,
+                        "NOT_DIRECTLY_VISUAL",
+                        "blacklist",
+                        VISUAL_FILTER_BLACKLIST,
+                        non_visual_reason="BLACKLIST",
+                    )
+                )
                 if qid is not None:
                     classified_ids.add(qid)
                 newly_classified += 1
                 _maybe_save_checkpoint("in_progress")
                 continue
 
-            # No blacklist marker → default DIRECTLY_VISUAL (no LLM).
-            if not is_non_visual_candidate(q):
-                label_counts["DEFAULT_VISUAL"] += 1
-                label_counts["DIRECTLY_VISUAL"] += 1
-                row["visual_filter_source"] = VISUAL_FILTER_DEFAULT
-                kept.append(row)
-                if qid is not None:
-                    classified_ids.add(qid)
-                newly_classified += 1
-                _maybe_save_checkpoint("in_progress")
-                continue
-
+            # UNKNOWN → batched LLM (only path that can assert DIRECTLY_VISUAL).
             llm_buffer.append((row, qid, q))
             if len(llm_buffer) >= batch_n:
                 _flush_llm_buffer()

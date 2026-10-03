@@ -9,7 +9,7 @@ Pipeline:
 1. VQA questions + annotations ro load mikone (`input_count`)
 2. OCR-dependent Q/A pair ha (`is_ocr_question`) — soal hayi ke javab-eshun faghat az ru-ye reading-e text/adad-e ru-ye tasvir mishe fahmid (sign, logo, brand, plate, jersey number, clock) — kollan hazf mishan, chon `SimpleImageCaptioner` OCR nadare va nemitune in target ha ro yad begire; count-esh dar `info.ocr_excluded_count` save mishe
 3. Duplicate `(image_id, question, answer)` rows drop mishan (`info.duplicate_count`)
-4. Binary classifier (hamishe): `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. The gate is a **blacklist** (`_NON_VISUAL_CANDIDATE_RE`: OCR / external knowledge / opinion / non-visual senses / place identity). No marker → `default_visual` (DIRECTLY_VISUAL, no LLM). Marker → Qwen confirms with `NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL` (`v12_expanded_blacklist_2`). Fast Path (`_FAST_PATH_VISUAL_RE`) is only an **exemption** that skips the LLM even when a marker fires. Har row `visual_filter_source` (`fast_path` / `default_visual` / `llm_classifier`) migire. Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad). Ollama baraye in marhale lazem ast hata bedoon `--llm`.
+4. Binary classifier (hamishe): `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. Cascade: high-precision **blacklist** → hard `NOT_DIRECTLY_VISUAL` (`visual_filter_source=blacklist`); else **UNKNOWN** → batched Qwen confirm (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, prompt `v17_invert_cascade`) → binary label (`visual_filter_source=llm_classifier`). Only the LLM asserts `DIRECTLY_VISUAL`. Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad). Ollama baraye in marhale lazem ast hata bedoon `--llm`.
 5. Rule engine try mikone (`caption_rules.py`) — faghat pattern haye daghigh va motmaen
 6. Age hich rule match nakone, row `rule="needs_llm"` va `caption=""` mishe
 7. Age `--llm` on bashe → Ollama ba packed batch + **two-layer validator** (`validation/`: fast FAIL/UNKNOWN → batched LLM judge) + **1 batched regenerate** then drop
@@ -154,7 +154,7 @@ python generate.py --split train --llm --batch-size 10 --workers 1 \
 | `--checkpoint-every` | `1` | Har N LLM batch JSON save (`1`, `50`, `100`, …) |
 | `--classifier-checkpoint-every` | `50` | Har N classified question classifier checkpoint save |
 | `--min-consensus` | `0.0` (off) | Drop Q/A pair-hayi ke `answer_consensus` kamtar az in dare |
-| `--no-fast-path` | off | Fast Path whitelist ro khamoosh kon — hame soal ha be LLM classifier miran (kondtar; baraye andaze-giri-e false positive-haye Fast Path) |
+| `--no-blacklist-drop` / `--no-fast-path` | off | Blacklist auto-NDV ro khamoosh kon — hame soal ha UNKNOWN→batched LLM classifier |
 | `--no-resume` | off | Ignore classifier + LLM checkpoints (fresh start) |
 | `--output` | `outputs/...` | Override path output JSON |
 
@@ -320,13 +320,13 @@ If `--llm` finishes with any `needs_llm` left, the process exits with code `1` a
   "answer_consensus": 0.8,
   "caption": "The car is red.",
   "rule": "what_color",
-  "visual_filter_source": "fast_path"
+  "visual_filter_source": "llm_classifier"
 }
 ```
 
 `rule` mishe yeki az: rule name ha (`what_color`, `how_many`, `what_is_doing`, `who`, …), `needs_llm` (hanuz LLM nagerefte — `caption` khali), ya `llm_fallback` (LLM tolid karde).
 
-`visual_filter_source` hamishe neveshte mishe: `fast_path` (exemption, bedoon LLM), `default_visual` (blacklist match nashod, bedoon LLM), ya `llm_classifier` (Qwen confirm dad). Row-haye sidecar-e `*_not_directly_visual.json` ham hamin field ro daran (va optional `non_visual_reason`).
+`visual_filter_source` hamishe neveshte mishe: `blacklist` (hard NDV, bedoon LLM) ya `llm_classifier` (Qwen confirm dad). Row-haye sidecar-e `*_not_directly_visual.json` ham hamin field ro daran (va optional `non_visual_reason`).
 
 `validation_flags` (age vojood dashte bashe) list-e moshkel-haye mashkuk ast; oon row ha toye dataset **mimoonan**.
 
@@ -367,32 +367,27 @@ Beyond format checks, accepted LLM captions must pass Tier-1 relation / verbatim
 
 **Hamishe on.** Har generate classifier ro run mikone (Ollama lazem ast).
 
-`DIRECTLY_VISUAL` = soal ba negah kardan be tasvir javab dade mishe (object, rang, tedad, position, action, material, room/scene, sport/activity, weather, sen-e taghribi, expression, occupation az appearance, meal type, "could this be…", common visual inference) — **default hamin hast**.
+`DIRECTLY_VISUAL` = soal ba negah kardan be tasvir javab dade mishe (object, rang, tedad, position, action, material, room/scene, sport/activity, weather, sen-e taghribi, expression, occupation az appearance, meal type, "could this be…", common visual inference). **Faghat LLM mitune in label ro assert kone.**
 
-`NOT_DIRECTLY_VISUAL` vaghti ke javab yeki az in se ta ro lazem dare: **reading-e text-e ru-ye tasvir (OCR)**, **nazar/salighe-ye shakhsi**, ya **knowledge-e biruni** (seda-ye heyvan, sazande/brand, keshvar-e flag, breed, gheymat, named place identity, non-visual senses). Soal faghat ba **positive evidence** drop mishe.
+`NOT_DIRECTLY_VISUAL` vaghti ke javab yeki az in se ta ro lazem dare: **reading-e text-e ru-ye tasvir (OCR)**, **nazar/salighe-ye shakhsi**, ya **knowledge-e biruni** (seda-ye heyvan, sazande/brand, keshvar-e flag, breed, gheymat, named place identity, non-visual senses).
 
-### Blacklist gate (v12)
+### Cascade (v17)
 
-Gate ye **blacklist** ast (`_NON_VISUAL_CANDIDATE_RE`):
+1. High-precision blacklist match → `NOT_DIRECTLY_VISUAL` (`visual_filter_source=blacklist`, no LLM).
+2. Else UNKNOWN → batched Qwen confirm (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, `v17_invert_cascade`). `VISUAL` → keep; other three → drop with `non_visual_reason` (`visual_filter_source=llm_classifier`).
 
-1. No marker → `DIRECTLY_VISUAL` (`visual_filter_source=default_visual`, no LLM).
-2. Marker → Qwen confirms with `NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL` (`v12_expanded_blacklist_2`). `VISUAL` → keep; other three → drop with `non_visual_reason`.
-3. Fast Path (`_FAST_PATH_VISUAL_RE`) is only an **exemption**: colour / count / existence / spatial / animal|sport|room|food|… / do-you-see / end-anchored doing|holding|wearing skip the LLM even when a marker fires (`visual_filter_source=fast_path`).
+Soft cues (bare `old`/`young`, emotion words, intention `trying to`, bare `text`/`license`) **nist** toye hard blacklist — miran be LLM ta visual rescue beshe.
 
-Blacklist families: opinion (`would you`, `how old/big`, `scared`, `know each other`, `does the man like`, `good shape`, `protein`, `strong`, `small town`, `big event`, …), OCR text (`written`, `brand`, `what is the numbers`, train/bus numbers, …), external knowledge (`breed`, `designed for`, `digital`, `official`, `free range`, `tourists`, `organic`, `does … work`, `manufacturer`, `country`, `price`, …), non-visual senses (`squishy`, `smell`, `taste`, `temperature`, …).
+`made of` candidate **nist** (material-e visible) vali `who made` hast. `can be seen` / `can you see` / `next to` / `on the right` / `trash can` / `city bus` / `can you spot` / `looks like` exempt hastan.
 
-Modality (`could`/`should`/`might`), `why`/`purpose`/`used for`, and bare `city`/`state` are **not** blacklist markers (policy: visual inference stays DIRECTLY_VISUAL).
-
-`made of` candidate **nist** (material-e visible) vali `who made` hast. `can be seen` / `can you see` / `next to` / `on the right` / `trash can` / `city bus` / `can you spot` exempt hastan.
-
-Hazine: ~9% of questions reach the LLM confirm stage. Ba `--classifier-batch-size 10` packed Ollama calls; parse fail → salvage ba `classify_one`.
+Hazine: aksar soal ha UNKNOWN→LLM. Ba `--classifier-batch-size 10` packed Ollama calls; parse fail → salvage ba `classify_one`.
 
 ### Flags
 
 | Flag | Chi mikone |
 |------|------------|
-| `--classifier-batch-size` | Chand soal toye **yek** classifier Ollama call (JSON array of confirm labels, default `10`). Parse fail → per-item salvage. |
-| `--no-fast-path` | Fast Path exemption ro khamoosh mikone — blacklist candidates always go to LLM confirm (non-candidates still `default_visual`). |
+| `--classifier-batch-size` | Chand UNKNOWN soal toye **yek** classifier Ollama call (JSON array of confirm labels, default `10`). Parse fail → per-item salvage. |
+| `--no-blacklist-drop` / `--no-fast-path` | Blacklist auto-NDV off — hame soal ha be batched LLM miran. |
 | `--classifier-checkpoint-every` | Save classifier progress every N questions (default `50`). |
 | `--classifier-model` | Model Ollama baraye classifier; default = `--model` |
 
@@ -404,9 +399,9 @@ python generate.py --split train --llm \
 
 Sidecar: `outputs/v2_question_dependent_captions_{split}2014_not_directly_visual.json` — baraye tahlil-e ba'di. In filter **faghat** baraye dataset-e train-e Captioner ast; VQA2 asli baraye eval dastkhord nashavad.
 
-Counts: `info.directly_visual_count`, `info.not_directly_visual_count`, `info.question_classifier.label_counts` (`FAST_PATH_VISUAL`, `DEFAULT_VISUAL`, …), `info.question_classifier.fast_path_enabled`.
+Counts: `info.directly_visual_count`, `info.not_directly_visual_count`, `info.question_classifier.label_counts` (`BLACKLIST_NDV`, …), `info.question_classifier.blacklist_drop_enabled`.
 
-Note: `prompt_version` (`v12_expanded_blacklist_2`) avaz shode va checkpoint ba `fast_path_enabled` key mikhore, pas checkpoint-e ghadimi roye resume invalid hast — pak-esh kon ya `--no-resume` bede.
+Note: `prompt_version` (`v17_invert_cascade`) avaz shode va checkpoint ba `blacklist_drop_enabled` key mikhore, pas checkpoint-e ghadimi roye resume invalid hast — pak-esh kon ya `--no-resume` bede.
 
 ## Tests + gold audit
 

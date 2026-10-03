@@ -1,6 +1,6 @@
 """Score GoldAuditor classifier labels with the production question classifier.
 
-Uses the same Fast Path / default visual / LLM confirm gate as ``generate.py``
+Uses the same blacklist→NDV | UNKNOWN→batched LLM cascade as ``generate.py``
 (``filter_non_visual_questions`` / ``QuestionClassifier``).
 
 Usage (from QuestionDependentCaptionGenerator/):
@@ -24,10 +24,8 @@ if str(_PKG_DIR) not in sys.path:
 
 from question_classifier import (  # noqa: E402
     QuestionClassifier,
-    VISUAL_FILTER_DEFAULT,
-    VISUAL_FILTER_FAST_PATH,
+    VISUAL_FILTER_BLACKLIST,
     VISUAL_FILTER_LLM,
-    is_fast_path_visual,
     is_non_visual_candidate,
 )
 
@@ -55,8 +53,8 @@ def load_gold(path: Path) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     return dict(info), list(records)
 
 
-def _gate_record(row: Dict[str, Any], *, fast_path: bool) -> Dict[str, Any]:
-    """Apply fast/default gate; leave LLM rows pending."""
+def _gate_record(row: Dict[str, Any], *, blacklist_drop: bool) -> Dict[str, Any]:
+    """Apply fast blacklist NDV gate; leave UNKNOWN rows pending for LLM."""
     out = dict(row)
     question = str(row.get("question") or "").strip()
     out.pop("classifier_label", None)
@@ -65,16 +63,11 @@ def _gate_record(row: Dict[str, Any], *, fast_path: bool) -> Dict[str, Any]:
     out.pop("non_visual_reason", None)
     out.pop("agreement", None)
 
-    if fast_path and is_fast_path_visual(question):
-        out["classifier_label"] = "DIRECTLY_VISUAL"
-        out["visual_filter_source"] = VISUAL_FILTER_FAST_PATH
-        out["detail"] = "fast_path"
-        return out
-
-    if not is_non_visual_candidate(question):
-        out["classifier_label"] = "DIRECTLY_VISUAL"
-        out["visual_filter_source"] = VISUAL_FILTER_DEFAULT
-        out["detail"] = "default_visual"
+    if blacklist_drop and is_non_visual_candidate(question):
+        out["classifier_label"] = "NOT_DIRECTLY_VISUAL"
+        out["visual_filter_source"] = VISUAL_FILTER_BLACKLIST
+        out["detail"] = "blacklist"
+        out["non_visual_reason"] = "BLACKLIST"
         return out
 
     out["classifier_label"] = None
@@ -91,11 +84,12 @@ def classify_gold_records(
     batch_size: int = DEFAULT_BATCH_SIZE,
     fast_path: bool = True,
 ) -> List[Dict[str, Any]]:
-    """Score gold records with the production classifier gate."""
+    """Score gold records with the production classifier cascade."""
     classifier = QuestionClassifier(host=host, model=model)
     batch_n = max(1, int(batch_size))
+    blacklist_drop = bool(fast_path)
     scored: List[Dict[str, Any]] = [
-        _gate_record(row, fast_path=fast_path) for row in records
+        _gate_record(row, blacklist_drop=blacklist_drop) for row in records
     ]
     llm_indices = [
         i
@@ -105,7 +99,8 @@ def classify_gold_records(
     ]
     print(
         f"  gates done: {len(scored)} rows, "
-        f"{len(llm_indices)} llm_confirm (batch_size={batch_n})",
+        f"{len(scored) - len(llm_indices)} blacklist NDV, "
+        f"{len(llm_indices)} UNKNOWN->llm (batch_size={batch_n})",
         flush=True,
     )
 
@@ -123,8 +118,8 @@ def classify_gold_records(
             for i, q in zip(chunk_idxs, questions):
                 label, one_detail, reason = classifier.classify_one(q)
                 if label is None:
-                    scored[i]["classifier_label"] = "NOT_DIRECTLY_VISUAL"
-                    scored[i]["detail"] = one_detail or detail or "parse_fail"
+                    scored[i]["classifier_label"] = "DIRECTLY_VISUAL"
+                    scored[i]["detail"] = one_detail or detail or "parse_fail_keep"
                 else:
                     scored[i]["classifier_label"] = label
                     scored[i]["detail"] = one_detail or detail
@@ -133,8 +128,8 @@ def classify_gold_records(
         else:
             for i, (label, reason) in zip(chunk_idxs, results):
                 if label is None:
-                    scored[i]["classifier_label"] = "NOT_DIRECTLY_VISUAL"
-                    scored[i]["detail"] = detail or "parse_fail"
+                    scored[i]["classifier_label"] = "DIRECTLY_VISUAL"
+                    scored[i]["detail"] = detail or "parse_fail_keep"
                 else:
                     scored[i]["classifier_label"] = label
                     scored[i]["detail"] = detail
@@ -208,12 +203,16 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--batch-size",
         type=int,
         default=DEFAULT_BATCH_SIZE,
-        help=f"llm_confirm items per Ollama call (default {DEFAULT_BATCH_SIZE})",
+        help=f"UNKNOWN items per Ollama call (default {DEFAULT_BATCH_SIZE})",
     )
     parser.add_argument(
+        "--no-blacklist-drop",
         "--no-fast-path",
         action="store_true",
-        help="Disable Fast Path exemption (same as generate.py --no-fast-path)",
+        help=(
+            "Disable blacklist auto-NDV; send every question to the batched "
+            "LLM (same as generate.py --no-blacklist-drop / --no-fast-path)"
+        ),
     )
     return parser.parse_args(argv)
 
@@ -232,10 +231,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     info.pop("classifier_scoring", None)
     info.pop("disagreement_count", None)
 
-    fast_path = not args.no_fast_path
+    blacklist_drop = not args.no_blacklist_drop
     print(
         f"Gold classifier audit: {gold_path.name} n={len(records)} "
-        f"llm={True} fast_path={fast_path}",
+        f"llm={True} blacklist_drop={blacklist_drop}",
         flush=True,
     )
     scored = classify_gold_records(
@@ -243,7 +242,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         host=args.host,
         model=args.model,
         batch_size=args.batch_size,
-        fast_path=fast_path,
+        fast_path=blacklist_drop,
     )
     disagreement_count = annotate_agreement(scored)
     print(

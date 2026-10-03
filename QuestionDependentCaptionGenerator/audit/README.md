@@ -79,9 +79,9 @@ python audit/classify_questions.py audit/GoldAuditor/classifier_audit_manual.jso
 | Arg | Meaning |
 |-----|---------|
 | `gold_json` | Optional path (default: `audit/GoldAuditor/classifier_audit_manual.json`) |
-| `--batch-size` | LLM confirm batch size (default `10`) |
+| `--batch-size` | UNKNOWN items per Ollama call (default `10`) |
 | `--host` / `--model` | Ollama settings |
-| `--no-fast-path` | Same meaning as `generate.py --no-fast-path` |
+| `--no-blacklist-drop` / `--no-fast-path` | Disable blacklist auto-NDV; all rows → batched LLM |
 | `--output` / `--in-place` | Same as caption scorer |
 
 ### Fields written (per record)
@@ -90,7 +90,7 @@ python audit/classify_questions.py audit/GoldAuditor/classifier_audit_manual.jso
 |-------|--------|
 | `manual_label` | Preserved |
 | `classifier_label` | `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL` |
-| `visual_filter_source` | `fast_path` / `default_visual` / `llm_classifier` |
+| `visual_filter_source` | `blacklist` (hard NDV) / `llm_classifier` |
 | `detail` / `non_visual_reason` | Optional gate / LLM detail |
 | `agreement` | `true` / `false` — manual vs `classifier_label` |
 

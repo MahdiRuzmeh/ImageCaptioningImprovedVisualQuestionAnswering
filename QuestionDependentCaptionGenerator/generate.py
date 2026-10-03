@@ -1267,12 +1267,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--no-blacklist-drop",
         "--no-fast-path",
         action="store_true",
+        dest="no_fast_path",
         help=(
-            "Disable Fast Path exemption: blacklist candidates always go to "
-            "the LLM confirm stage (non-candidates still default to "
-            "DIRECTLY_VISUAL)"
+            "Disable blacklist auto-NDV: every question is UNKNOWN and goes "
+            "to the batched LLM classifier (no hard NOT_DIRECTLY_VISUAL "
+            "from regex)"
         ),
     )
     parser.add_argument(
@@ -1427,13 +1429,14 @@ def main() -> None:
             model=clf_model,
         )
         classifier_meta = clf.metadata()
-        classifier_meta["fast_path_enabled"] = not args.no_fast_path
+        classifier_meta["blacklist_drop_enabled"] = not args.no_fast_path
+        classifier_meta["fast_path_enabled"] = not args.no_fast_path  # legacy
         classifier_meta["batch_size"] = args.classifier_batch_size
         print(
             f"Question classifier: model={clf_model} "
             f"prompt={CLASSIFIER_PROMPT_VERSION} "
             f"batch-size={args.classifier_batch_size} "
-            f"fast_path={'off' if args.no_fast_path else 'on'}"
+            f"blacklist_drop={'off' if args.no_fast_path else 'on'}"
         )
         try:
             rows, dropped_not_visual, lab_counts = filter_non_visual_questions(
