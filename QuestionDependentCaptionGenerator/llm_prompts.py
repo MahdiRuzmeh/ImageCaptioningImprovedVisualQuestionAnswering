@@ -88,6 +88,19 @@ A: near a tree
 Good:
 "The giraffe is near a tree."
 
+Spatial relation:
+Keep the asked relation. The answer fills the asked slot; do not swap the two sides.
+
+Q: What is in front of the giraffes?
+A: tree
+
+Good:
+"A tree is in front of the giraffes."
+
+Bad:
+"Giraffes are in front of the tree."
+(Reversed in-front-of)
+
 Color:
 Q: What color is the umbrella?
 A: pink
@@ -300,6 +313,11 @@ _FEW_SHOT: List[Tuple[str, str, str]] = [
         "Are all the flowers white?",
         "no",
         "Not all the flowers are white.",
+    ),
+    (
+        "What is in front of the giraffes?",
+        "tree",
+        "A tree is in front of the giraffes.",
     ),
 ]
 
