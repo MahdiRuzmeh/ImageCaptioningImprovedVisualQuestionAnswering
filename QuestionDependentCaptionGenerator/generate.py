@@ -1308,7 +1308,12 @@ def main() -> None:
         Path(args.annotations) if args.annotations else paths["annotations"]
     )
     output_path = Path(args.output) if args.output else paths["output"]
-    clf_result_path = classification_result_path(args.split)
+    if args.output:
+        clf_result_path = output_path.with_name(
+            f"{output_path.stem}_classification_result.json"
+        )
+    else:
+        clf_result_path = classification_result_path(args.split)
 
     if not questions_json.is_file():
         raise FileNotFoundError(f"Questions file not found: {questions_json}")

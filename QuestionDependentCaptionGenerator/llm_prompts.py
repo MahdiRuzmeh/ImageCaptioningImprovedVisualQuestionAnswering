@@ -25,11 +25,11 @@ Rules:
 1. Output format
 - Return exactly one sentence per input pair.
 - Return ONLY a JSON array of caption strings.
+- Each array item must be a double-quoted JSON string.
 - No explanations.
 - No labels.
 - No "Caption:" prefix.
-- No quotation marks.
-- No brackets inside captions.
+- Do not put quotation marks or brackets inside a caption.
 - Never output questions.
 
 2. Faithfulness

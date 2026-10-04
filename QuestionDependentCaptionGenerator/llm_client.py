@@ -99,6 +99,34 @@ def _clean_caption(cap: str) -> Optional[str]:
     return cap
 
 
+def _parse_unquoted_caption_array(
+    arr_text: str, expected: int
+) -> Optional[List[str]]:
+    """Salvage ``[Sentence one., Sentence two.]`` (no JSON quotes).
+
+    qwen2.5:3b often emits a bracketed list of bare sentences. Items are
+    split on ``.,`` so commas inside a sentence stay intact.
+    """
+    inner = arr_text.strip()
+    if inner.startswith("["):
+        inner = inner[1:]
+    if inner.endswith("]"):
+        inner = inner[:-1]
+    inner = inner.strip()
+    if not inner:
+        return None
+    parts = re.split(r"(?<=[.!?])\s*,\s*", inner)
+    out: List[str] = []
+    for part in parts:
+        cleaned = _clean_caption(part.strip().strip("\"'"))
+        if cleaned is None:
+            return None
+        out.append(cleaned)
+    if len(out) != expected:
+        return None
+    return out
+
+
 def parse_caption_list(raw: str, expected: int) -> ParseResult:
     """Parse model response into ``expected`` caption strings."""
     text = _strip_fences(raw)
@@ -110,6 +138,13 @@ def parse_caption_list(raw: str, expected: int) -> ParseResult:
         try:
             data = json.loads(arr_text)
         except json.JSONDecodeError as exc:
+            salvaged = _parse_unquoted_caption_array(arr_text, expected)
+            if salvaged is not None:
+                return ParseResult(
+                    captions=salvaged,
+                    reason="ok",
+                    detail="accepted unquoted caption list",
+                )
             data = None
             if expected != 1:
                 return ParseResult(
@@ -315,12 +350,12 @@ class OllamaClient:
         single_retries: int = 1,
         retry_rounds: Optional[int] = None,
     ) -> List[ItemOutcome]:
-        """Batch generate, then batched regenerate for fast-FAIL items.
+        """Batch generate, then regenerate leftovers.
 
         ``retry_rounds`` (preferred) defaults to ``single_retries`` for
         backward compatibility. At most one regenerate pass is typical.
-        Failures are re-packed into caption batches (``llm_batch_size``),
-        not retried one-by-one.
+        Packed-batch parse failures are retried one Q+A at a time because
+        the 3B model often cannot emit a quoted JSON array.
         """
         rounds = single_retries if retry_rounds is None else retry_rounds
         rounds = max(0, int(rounds))
@@ -412,6 +447,43 @@ class OllamaClient:
                         out[i].attempts.append(f"{tag}:{retry.reason}")
                         out[i].reason = retry.reason
                         out[i].detail = retry.detail
+                    # Packed retry failed to parse — try each leftover alone.
+                    for i in chunk_idx:
+                        if out[i].caption is not None:
+                            continue
+                        q, a = pairs_list[i]
+                        single_tag = f"retry_single#{attempt}"
+                        single = self.chat_captions([(q, a)])
+                        last = out[i]
+                        if single.captions is None:
+                            last.attempts.append(f"{single_tag}:{single.reason}")
+                            last.reason = single.reason
+                            last.detail = single.detail
+                            continue
+                        cap = single.captions[0]
+                        results = self._validate_batch_captions([(q, a)], [cap])
+                        result = results[0]
+                        if result.ok:
+                            out[i] = ItemOutcome(
+                                caption=cap,
+                                reason="ok",
+                                detail=f"accepted from {single_tag}",
+                                attempts=last.attempts + [f"{single_tag}:ok"],
+                                flags=result.flags,
+                                first_caption=last.first_caption,
+                                first_reason=last.first_reason,
+                                retry_kind=last.retry_kind or "generation",
+                            )
+                        else:
+                            last.attempts.append(f"{single_tag}:{result.reason}")
+                            last.reason = result.reason
+                            last.detail = rejection_detail(
+                                result.reason, a, cap, q
+                            )
+                            last.flags = result.flags
+                            if last.first_caption is None:
+                                last.first_caption = cap
+                                last.first_reason = result.reason
                     continue
                 results = self._validate_batch_captions(chunk_pairs, retry.captions)
                 for local, i in enumerate(chunk_idx):
