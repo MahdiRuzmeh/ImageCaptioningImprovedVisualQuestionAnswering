@@ -1429,12 +1429,6 @@
       "manual_label": "DIRECTLY_VISUAL"
     },
     {
-      "question": "Is the giraffe eating the tree?",
-      "question_id": 25007,
-      "answer": "yes",
-      "manual_label": "DIRECTLY_VISUAL"
-    },
-    {
       "question": "How many men are wearing red tanks?",
       "question_id": 4376001,
       "answer": "1",
@@ -6022,6 +6016,12 @@
       "question": "What is in front of the giraffes?",
       "question_id": 25000,
       "answer": "tree",
+      "manual_label": "DIRECTLY_VISUAL"
+    },
+    {
+      "question": "What do these giraffes have in common?",
+      "question_id": 25001,
+      "answer": "eating",
       "manual_label": "DIRECTLY_VISUAL"
     },
     {
