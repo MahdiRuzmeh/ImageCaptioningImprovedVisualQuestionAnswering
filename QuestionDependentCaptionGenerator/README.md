@@ -9,7 +9,7 @@ Pipeline:
 1. VQA questions + annotations ro load mikone (`input_count`)
 2. OCR-dependent Q/A pair ha (`is_ocr_question`) — soal hayi ke javab-eshun faghat az ru-ye reading-e text/adad-e ru-ye tasvir mishe fahmid (sign, logo, brand, plate, jersey number, clock) — kollan hazf mishan, chon `SimpleImageCaptioner` OCR nadare va nemitune in target ha ro yad begire; count-esh dar `info.ocr_excluded_count` save mishe
 3. Duplicate `(image_id, question, answer)` rows drop mishan (`info.duplicate_count`)
-4. Binary classifier (hamishe): `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. Cascade: high-precision **blacklist** → hard `NOT_DIRECTLY_VISUAL` (`visual_filter_source=blacklist`); else **UNKNOWN** → batched Qwen confirm (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, prompt `v17_invert_cascade`) → binary label (`visual_filter_source=llm_classifier`). Only the LLM asserts `DIRECTLY_VISUAL`. Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad). Ollama baraye in marhale lazem ast hata bedoon `--llm`.
+4. Binary classifier (hamishe): `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. Cascade: high-precision **blacklist** → hard `NOT_DIRECTLY_VISUAL` (`visual_filter_source=blacklist`); else **UNKNOWN** → parallel per-question Qwen confirm with **chat-turn few-shots** (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, prompt `v19_chat_turn_fewshots`) → binary label (`visual_filter_source=llm_classifier`). Only the LLM asserts `DIRECTLY_VISUAL`. Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad). Ollama baraye in marhale lazem ast hata bedoon `--llm`.
 5. Rule engine try mikone (`caption_rules.py`) — faghat pattern haye daghigh va motmaen
 6. Age hich rule match nakone, row `rule="needs_llm"` va `caption=""` mishe
 7. Age `--llm` on bashe → Ollama ba packed batch + **two-layer validator** (`validation/`: fast FAIL/UNKNOWN → batched LLM judge) + **1 batched regenerate** then drop
@@ -24,7 +24,7 @@ Pipeline:
 | `llm_prompts.py` | Packed prompt (chand Q+A toye yek request) |
 | `llm_client.py` | Ollama HTTP client + concurrent workers |
 | `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v10_soft_answer_negation_judge_shots`) |
-| `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (blacklist gate + LLM confirm; Fast Path exemption) |
+| `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (blacklist → NDV; UNKNOWN → parallel chat-turn LLM) |
 | `audit/audit_captions.py` | Gold caption scorer — fills `fast_validator_label` / `llm_judge_label` / `caption_status` ([audit/README.md](audit/README.md)) |
 | `audit/classify_questions.py` | Gold classifier scorer — fills `classifier_label` ([audit/README.md](audit/README.md)) |
 
@@ -154,7 +154,8 @@ python generate.py --split train --llm --batch-size 10 --workers 1 \
 | `--checkpoint-every` | `1` | Har N LLM batch JSON save (`1`, `50`, `100`, …) |
 | `--classifier-checkpoint-every` | `50` | Har N classified question classifier checkpoint save |
 | `--min-consensus` | `0.0` (off) | Drop Q/A pair-hayi ke `answer_consensus` kamtar az in dare |
-| `--no-blacklist-drop` / `--no-fast-path` | off | Blacklist auto-NDV ro khamoosh kon — hame soal ha UNKNOWN→batched LLM classifier |
+| `--no-blacklist-drop` / `--no-fast-path` | off | Blacklist auto-NDV ro khamoosh kon — hame soal ha UNKNOWN→parallel LLM classifier |
+| `--llm-parallel` | `4` | Max concurrent classifier Ollama requests (set `OLLAMA_NUM_PARALLEL` >= this on the server) |
 | `--no-resume` | off | Ignore classifier + LLM checkpoints (fresh start) |
 | `--output` | `outputs/...` | Override path output JSON |
 
@@ -371,37 +372,42 @@ Beyond format checks, accepted LLM captions must pass Tier-1 relation / verbatim
 
 `NOT_DIRECTLY_VISUAL` vaghti ke javab yeki az in se ta ro lazem dare: **reading-e text-e ru-ye tasvir (OCR)**, **nazar/salighe-ye shakhsi**, ya **knowledge-e biruni** (seda-ye heyvan, sazande/brand, keshvar-e flag, breed, gheymat, named place identity, non-visual senses).
 
-### Cascade (v17)
+### Cascade (v19)
 
 1. High-precision blacklist match → `NOT_DIRECTLY_VISUAL` (`visual_filter_source=blacklist`, no LLM).
-2. Else UNKNOWN → batched Qwen confirm (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, `v17_invert_cascade`). `VISUAL` → keep; other three → drop with `non_visual_reason` (`visual_filter_source=llm_classifier`).
+2. Else UNKNOWN → flush groups of `--classifier-batch-size` questions; each question is **one** Ollama request with system prompt + **chat-turn few-shots** + that Q (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, `v19_chat_turn_fewshots`). Up to `--llm-parallel` requests run concurrently. `VISUAL` → keep; other three → drop with `non_visual_reason` (`visual_filter_source=llm_classifier`). Parse fail → keep as `DIRECTLY_VISUAL`.
 
 Soft cues (bare `old`/`young`, emotion words, intention `trying to`, bare `text`/`license`) **nist** toye hard blacklist — miran be LLM ta visual rescue beshe.
 
 `made of` candidate **nist** (material-e visible) vali `who made` hast. `can be seen` / `can you see` / `next to` / `on the right` / `trash can` / `city bus` / `can you spot` / `looks like` exempt hastan.
 
-Hazine: aksar soal ha UNKNOWN→LLM. Ba `--classifier-batch-size 10` packed Ollama calls; parse fail → salvage ba `classify_one`.
+Hazine: aksar soal ha UNKNOWN→LLM (yek request per question). Same few-shot prefix on every call so Ollama can cache it. Real speedup needs `OLLAMA_NUM_PARALLEL` >= `--llm-parallel` on the Ollama server (otherwise requests queue; still correct).
 
 ### Flags
 
 | Flag | Chi mikone |
 |------|------------|
-| `--classifier-batch-size` | Chand UNKNOWN soal toye **yek** classifier Ollama call (JSON array of confirm labels, default `10`). Parse fail → per-item salvage. |
-| `--no-blacklist-drop` / `--no-fast-path` | Blacklist auto-NDV off — hame soal ha be batched LLM miran. |
+| `--classifier-batch-size` | Chand UNKNOWN soal flush beshe be parallel `classify_batch` (default `10`). Har soal = yek Ollama request. |
+| `--llm-parallel` | Max concurrent classifier Ollama requests (default `4`). Set `OLLAMA_NUM_PARALLEL` >= this before `ollama serve`. |
+| `--no-blacklist-drop` / `--no-fast-path` | Blacklist auto-NDV off — hame soal ha be parallel LLM miran. |
 | `--classifier-checkpoint-every` | Save classifier progress every N questions (default `50`). |
 | `--classifier-model` | Model Ollama baraye classifier; default = `--model` |
 
 ```bash
+# PowerShell: enable 4 concurrent slots on the Ollama server
+$env:OLLAMA_NUM_PARALLEL = "4"
+ollama serve
+
 python generate.py --split train --llm \
   --model qwen2.5:3b-instruct-q4_K_M --batch-size 10 \
-  --classifier-batch-size 10
+  --classifier-batch-size 10 --llm-parallel 4
 ```
 
 Sidecar: `outputs/v2_question_dependent_captions_{split}2014_not_directly_visual.json` — baraye tahlil-e ba'di. In filter **faghat** baraye dataset-e train-e Captioner ast; VQA2 asli baraye eval dastkhord nashavad.
 
-Counts: `info.directly_visual_count`, `info.not_directly_visual_count`, `info.question_classifier.label_counts` (`BLACKLIST_NDV`, …), `info.question_classifier.blacklist_drop_enabled`.
+Counts: `info.directly_visual_count`, `info.not_directly_visual_count`, `info.question_classifier.label_counts` (`BLACKLIST_NDV`, …), `info.question_classifier.blacklist_drop_enabled`, `info.question_classifier.parallel`.
 
-Note: `prompt_version` (`v17_invert_cascade`) avaz shode va checkpoint ba `blacklist_drop_enabled` key mikhore, pas checkpoint-e ghadimi roye resume invalid hast — pak-esh kon ya `--no-resume` bede.
+Note: `prompt_version` (`v19_chat_turn_fewshots`) avaz shode va checkpoint ba `blacklist_drop_enabled` key mikhore, pas checkpoint-e ghadimi roye resume invalid hast — pak-esh kon ya `--no-resume` bede.
 
 ## Tests + gold audit
 
@@ -411,7 +417,7 @@ re-running the full corpus. Details: [audit/README.md](audit/README.md).
 ```bash
 cd QuestionDependentCaptionGenerator
 python audit/audit_captions.py --llm --batch-size 10
-python audit/classify_questions.py --batch-size 10
+python audit/classify_questions.py --batch-size 10 --llm-parallel 4
 ```
 
 Default output: `*_scored.json` next to the gold file (use `--in-place` to
@@ -424,7 +430,7 @@ python generate.py --split train --llm --max-items 25000 --batch-size 10 \
   --model qwen2.5:3b-instruct-q4_K_M \
   --checkpoint-every 50 --output outputs/pilot_25k.json
 python audit/audit_captions.py --llm --batch-size 10
-python audit/classify_questions.py --batch-size 10
+python audit/classify_questions.py --batch-size 10 --llm-parallel 4
 ```
 
 ## Notes

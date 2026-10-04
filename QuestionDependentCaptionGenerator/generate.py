@@ -1262,8 +1262,17 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=10,
         help=(
-            "Pack N questions into one classifier Ollama call "
-            "(JSON array of labels; default 10)"
+            "Flush N UNKNOWN questions at once to the parallel classifier "
+            "(one Ollama request per question; default 10)"
+        ),
+    )
+    parser.add_argument(
+        "--llm-parallel",
+        type=int,
+        default=4,
+        help=(
+            "Max concurrent classifier Ollama requests "
+            "(default 4; set OLLAMA_NUM_PARALLEL >= this on the server)"
         ),
     )
     parser.add_argument(
@@ -1321,6 +1330,8 @@ def main() -> None:
         raise ValueError("--classifier-checkpoint-every must be >= 1")
     if args.classifier_batch_size < 1:
         raise ValueError("--classifier-batch-size must be >= 1")
+    if args.llm_parallel < 1:
+        raise ValueError("--llm-parallel must be >= 1")
     if not 0.0 <= args.min_consensus <= 1.0:
         raise ValueError("--min-consensus must be between 0.0 and 1.0")
 
@@ -1427,6 +1438,7 @@ def main() -> None:
         clf = QuestionClassifier(
             host=args.ollama_host,
             model=clf_model,
+            parallel=args.llm_parallel,
         )
         classifier_meta = clf.metadata()
         classifier_meta["blacklist_drop_enabled"] = not args.no_fast_path
@@ -1436,6 +1448,7 @@ def main() -> None:
             f"Question classifier: model={clf_model} "
             f"prompt={CLASSIFIER_PROMPT_VERSION} "
             f"batch-size={args.classifier_batch_size} "
+            f"llm-parallel={args.llm_parallel} "
             f"blacklist_drop={'off' if args.no_fast_path else 'on'}"
         )
         try:

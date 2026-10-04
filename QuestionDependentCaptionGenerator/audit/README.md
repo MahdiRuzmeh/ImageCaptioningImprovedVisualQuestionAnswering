@@ -62,9 +62,9 @@ metadata). Filter disagreements in the scored JSON with ``"agreement": false``.
 
 ## Classifier gold scorer (`classify_questions.py`)
 
-Runs the same blacklist gate + Fast Path exemption + `QuestionClassifier` LLM
-confirm as [`question_classifier.py`](../question_classifier.py) /
-`generate.py`.
+Runs the same blacklist→NDV | UNKNOWN→parallel chat-turn LLM cascade as
+[`question_classifier.py`](../question_classifier.py) / `generate.py`
+(`v19_chat_turn_fewshots`).
 
 **Does not drop** rows — every gold record is scored in place.
 
@@ -72,16 +72,17 @@ confirm as [`question_classifier.py`](../question_classifier.py) /
 
 ```bash
 python audit/classify_questions.py
-python audit/classify_questions.py --batch-size 10
+python audit/classify_questions.py --batch-size 10 --llm-parallel 4
 python audit/classify_questions.py audit/GoldAuditor/classifier_audit_manual.json --in-place
 ```
 
 | Arg | Meaning |
 |-----|---------|
 | `gold_json` | Optional path (default: `audit/GoldAuditor/classifier_audit_manual.json`) |
-| `--batch-size` | UNKNOWN items per Ollama call (default `10`) |
+| `--batch-size` | UNKNOWN items flushed together to parallel `classify_batch` (default `10`) |
+| `--llm-parallel` | Max concurrent classifier Ollama requests (default `4`; set `OLLAMA_NUM_PARALLEL` >= this) |
 | `--host` / `--model` | Ollama settings |
-| `--no-blacklist-drop` / `--no-fast-path` | Disable blacklist auto-NDV; all rows → batched LLM |
+| `--no-blacklist-drop` / `--no-fast-path` | Disable blacklist auto-NDV; all rows → parallel LLM |
 | `--output` / `--in-place` | Same as caption scorer |
 
 ### Fields written (per record)

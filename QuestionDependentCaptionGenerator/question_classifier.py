@@ -4,11 +4,12 @@ Dataset generation always labels questions:
 
     DIRECTLY_VISUAL | NOT_DIRECTLY_VISUAL
 
-Cascade (v17+):
+Cascade (v19+):
 
 1. **Fast checker (blacklist)** — high-precision ``_NON_VISUAL_CANDIDATE_RE``
    match → ``NOT_DIRECTLY_VISUAL`` (``visual_filter_source=blacklist``), no LLM.
-2. **Else UNKNOWN** — batched into ``classify_batch``; Qwen returns
+2. **Else UNKNOWN** — buffered, then ``classify_batch`` runs one Ollama
+   request per question in parallel (chat-turn few-shots). Qwen returns
    ``NEEDS_OCR`` / ``NEEDS_KNOWLEDGE`` / ``NEEDS_OPINION`` / ``VISUAL``,
    mapped to binary labels (``visual_filter_source=llm_classifier``).
 
@@ -33,10 +34,11 @@ import re
 import tempfile
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-CLASSIFIER_PROMPT_VERSION = "v18c_visual_rescue"
+CLASSIFIER_PROMPT_VERSION = "v19_chat_turn_fewshots"
 
 QUESTION_LABELS = (
     "DIRECTLY_VISUAL",
@@ -85,177 +87,128 @@ _SYSTEM_PROMPT = (
     "\n"
     "Return ONLY one of these labels:\n"
     "\n"
-    "VISUAL — default. Prefer VISUAL whenever the answer is visible in the "
-    "pixels. Includes: object recognition; visible actions (doing, eating, "
-    "throwing, playing, holding); attributes and clothing (including "
-    "wearing glasses = eyewear); counting / \"how many\"; existence "
-    "\"is there\"; relative comparisons (\"same size\", \"same color\"); "
-    "contents of containers by appearance (\"what's in the glass/plate\" — "
-    "not reading a printed label); common category labels (\"what kind of "
-    "animal/food/room\" when the answer is cat/dog/pizza/kitchen, not a "
-    "breed or brand); scene/sport/room type; lighting / day-vs-night; "
-    "weather; B/W vs sepia; apparent sex/gender from appearance; WHERE a "
-    "plate/sign is or WHETHER text is present (without reading it).\n"
+    "VISUAL — default. A human can reasonably answer from the image alone "
+    "(object recognition, actions, attributes, scene type, comparisons, "
+    "sports, foods, vehicles, clothing, visible emotions, "
+    "\"could this be...\").\n"
     "\n"
-    "NEEDS_OCR — only reading or decoding rendered text, digits, logos, "
-    "brand names, signs, train/bus numbers, license-plate digits, letter "
-    "glyphs, or exact clock/watch time. Do NOT use OCR for drinks/food/"
-    "objects by appearance, or for eyeglasses/eyewear.\n"
+    "NEEDS_OCR — answering requires reading rendered text, digits, logos, "
+    "brand names, signs, jersey numbers, train/bus numbers, license plates, "
+    "clocks with digital displays, or any written content.\n"
     "\n"
-    "Day vs night or time of day FROM LIGHTING OR SHADOWS is VISUAL, not OCR.\n"
+    "NEEDS_KNOWLEDGE — answering requires external facts unavailable from "
+    "appearance (breed, manufacturer, country of a flag, landmark identity, "
+    "city, species, animal sounds, designed purpose, digital/official "
+    "status, free-range, tourist identity, whether a machine works, "
+    "organic/vegan claims, poisonous/edible, police uniform, etc.).\n"
     "\n"
-    "NEEDS_KNOWLEDGE — external facts unavailable from appearance (breed/"
-    "species taxonomy, manufacturer, country of a flag, animal sounds, "
-    "price, designed-for purpose, digital/official, free-range, tourists, "
-    "organic, named place, distance, regional geography). NOT knowledge: "
-    "\"what kind of animal\" meaning cat/dog; \"are they eating\"; "
-    "counting; relative same-size comparisons; apparent sex from look.\n"
+    "NEEDS_OPINION — answering requires personal preference, subjective "
+    "judgment, speculation, guessed age/size, uncertain emotion, social "
+    "relationships, condition judgments, quality judgments, nutrition "
+    "judgments, beauty, fashion, luxury, expense, speed, friendliness, or "
+    "similar opinion-based reasoning.\n"
     "\n"
-    "NEEDS_OPINION — preference, emotion, absolute guessed age/size "
-    "(\"how old\", \"how big\"), social relationships, condition/nutrition "
-    "judgments. NOT opinion: \"what is the person doing\" or other visible "
-    "actions.\n"
+    "Important rules:\n"
+    "- Recognizing visible objects, scenes, actions, sports, foods, "
+    "clothing, vehicles, animals, colors, shapes, quantities, positions, "
+    "and attributes is VISUAL.\n"
+    "- Do NOT choose NEEDS_KNOWLEDGE merely because an object has a "
+    "real-world identity.\n"
+    "- Choose NEEDS_KNOWLEDGE only when answering requires facts that "
+    "cannot be inferred from appearance alone.\n"
+    "- If the answer comes from reading text or symbols in the image, "
+    "choose NEEDS_OCR.\n"
+    "- If the answer depends on personal judgment, speculation, or "
+    "subjective interpretation, choose NEEDS_OPINION.\n"
+    "- When unsure, choose VISUAL.\n"
+    "\n"
+    "Return ONLY the label."
 )
 
-_FEW_SHOT_BLOCK = (
-    "Examples (contrastive pairs — note the difference):\n"
-    "Q: What brand is shown?\n"
-    "NEEDS_OCR\n"
-    "Q: What's in the glass?\n"
-    "VISUAL\n"
-    "Q: What word is written?\n"
-    "NEEDS_OCR\n"
-    "Q: Is she wearing glasses?\n"
-    "VISUAL\n"
-    "Q: What license plate number?\n"
-    "NEEDS_OCR\n"
-    "Q: Where is the license plate located?\n"
-    "VISUAL\n"
-    "Q: What time is it?\n"
-    "NEEDS_OCR\n"
-    "Q: Can you tell what time of day it is by the shadow?\n"
-    "VISUAL\n"
-    "Q: What breed is this dog?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: What kind of animal is in the picture?\n"
-    "VISUAL\n"
-    "Q: What sound does this animal make?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Are the animals eating?\n"
-    "VISUAL\n"
-    "Q: How big is the sandwich?\n"
-    "NEEDS_OPINION\n"
-    "Q: Are both of these animals the same size?\n"
-    "VISUAL\n"
-    "Q: How old is animal?\n"
-    "NEEDS_OPINION\n"
-    "Q: What is this person doing?\n"
-    "VISUAL\n"
-    "Q: Is this person sad?\n"
-    "NEEDS_OPINION\n"
-    "Q: What is the person doing?\n"
-    "VISUAL\n"
-    "Q: What is the sex of the player?\n"
-    "VISUAL\n"
-    "Q: Who manufactured this?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: What country is this flag from?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: What is the price?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: What mountain was this taken at?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Are these animals native to Iceland?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Is there a Wal-Mart within a mile of this place?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Is the pizza sauce organic?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Does this train work?\n"
-    "NEEDS_KNOWLEDGE\n"
-    "Q: Would you eat this?\n"
-    "NEEDS_OPINION\n"
-    "Q: Do you like this?\n"
-    "NEEDS_OPINION\n"
-    "Q: Is this beautiful?\n"
-    "NEEDS_OPINION\n"
-    "Q: Do this man and woman know each other?\n"
-    "NEEDS_OPINION\n"
-    "Q: What is the numbers of the train?\n"
-    "NEEDS_OCR\n"
-    "Q: The plane's stand resembles what letter?\n"
-    "NEEDS_OCR\n"
-    "Q: What is the name of the hotel?\n"
-    "NEEDS_OCR\n"
-    "Q: How many hot dogs are there?\n"
-    "VISUAL\n"
-    "Q: Can you count all of the mice?\n"
-    "VISUAL\n"
-    "Q: Is there a banana on the plate?\n"
-    "VISUAL\n"
-    "Q: What is he wearing?\n"
-    "VISUAL\n"
-    "Q: What sport is being played?\n"
-    "VISUAL\n"
-    "Q: What kind of room is this?\n"
-    "VISUAL\n"
-    "Q: What is the name of the small round green fruit next to the apple?\n"
-    "VISUAL\n"
-    "Q: Are they playing polo?\n"
-    "VISUAL\n"
-    "Q: Is this a library or professional office?\n"
-    "VISUAL\n"
-    "Q: Is there text in the top right corner of this picture?\n"
-    "VISUAL\n"
-    "Q: Was this picture taken at night?\n"
-    "VISUAL\n"
-    "Q: Do you find meat in the salad?\n"
-    "VISUAL"
-)
-
-_USER_PROMPT_INTRO = (
-    "Confirm whether this VQA question needs OCR, external knowledge, or "
-    "personal opinion beyond looking at the image.\n"
-    "Return ONLY one label: NEEDS_OCR, NEEDS_KNOWLEDGE, NEEDS_OPINION, or "
-    "VISUAL.\n"
-    "Prefer VISUAL whenever the answer is visible in the pixels "
-    "(actions, counting, clothing/eyewear, sport, room, contents of a "
-    "glass, kind of animal vs breed, same size vs how big, apparent sex).\n"
-    "Do NOT invent labels such as NEEDS_COUNTING — use VISUAL for counts.\n"
-)
-
-_USER_PROMPT_TEMPLATE = (
-    _USER_PROMPT_INTRO
-    + "\n"
-    + _FEW_SHOT_BLOCK
-    + "\n\nQ: {question}"
-)
+# Interleaved classes; last pair is VISUAL so the model ends on the default.
+_FEW_SHOT_PAIRS: List[Tuple[str, str]] = [
+    ("What is the name of the hotel?", "NEEDS_OCR"),
+    ("What is the green stuff?", "VISUAL"),
+    ("What sound does this animal make?", "NEEDS_KNOWLEDGE"),
+    ("Would you eat this?", "NEEDS_OPINION"),
+    ("What word is written?", "NEEDS_OCR"),
+    ("Are they playing polo?", "VISUAL"),
+    ("Who manufactured this?", "NEEDS_KNOWLEDGE"),
+    ("Do you like this?", "NEEDS_OPINION"),
+    ("What brand is shown?", "NEEDS_OCR"),
+    ("What is in the picture?", "VISUAL"),
+    ("What country is this flag from?", "NEEDS_KNOWLEDGE"),
+    ("Is this beautiful?", "NEEDS_OPINION"),
+    ("What is the license plate number?", "NEEDS_OCR"),
+    ("Is this banana toast?", "VISUAL"),
+    ("What breed is this dog?", "NEEDS_KNOWLEDGE"),
+    ("Have you ever been to this intersection?", "NEEDS_OPINION"),
+    ("What language is on the sign?", "NEEDS_OCR"),
+    ("What is on the road?", "VISUAL"),
+    ("What species of bird is this?", "NEEDS_KNOWLEDGE"),
+    ("How old is the animal?", "NEEDS_OPINION"),
+    ("What is the train number?", "NEEDS_OCR"),
+    ("What is purple?", "VISUAL"),
+    ("What is the price?", "NEEDS_KNOWLEDGE"),
+    ("Are these wings strong?", "NEEDS_OPINION"),
+    ("What jersey number is the player wearing?", "NEEDS_OCR"),
+    ("What do these giraffes have in common?", "VISUAL"),
+    ("What mountain was this taken at?", "NEEDS_KNOWLEDGE"),
+    ("Is this a small town?", "NEEDS_OPINION"),
+    ("What street name is shown?", "NEEDS_OCR"),
+    ("What color is the bus?", "VISUAL"),
+    ("Is this a famous landmark?", "NEEDS_KNOWLEDGE"),
+    ("Is the cat scared?", "NEEDS_OPINION"),
+    ("What does the sign say?", "NEEDS_OCR"),
+    ("Is the man wearing glasses?", "VISUAL"),
+    ("Which city is this skyline?", "NEEDS_KNOWLEDGE"),
+    ("Is this a low-protein meal?", "NEEDS_OPINION"),
+    ("What logo is on the shirt?", "NEEDS_OCR"),
+    ("Which animal is larger?", "VISUAL"),
+    ("Are these boats designed for racing?", "NEEDS_KNOWLEDGE"),
+    ("Do this man and woman know each other?", "NEEDS_OPINION"),
+    ("What sport are they playing?", "VISUAL"),
+    ("Does this refrigerator have digital features?", "NEEDS_KNOWLEDGE"),
+    ("How big is the sandwich?", "NEEDS_OPINION"),
+    ("Is this a tennis racket?", "VISUAL"),
+    ("Is this an official photograph?", "NEEDS_KNOWLEDGE"),
+    ("Is this a big event?", "NEEDS_OPINION"),
+    ("Is the woman smiling?", "VISUAL"),
+    ("Are these giraffes free range?", "NEEDS_KNOWLEDGE"),
+    ("Is the frisbee in good shape?", "NEEDS_OPINION"),
+    ("Is the traffic light red?", "VISUAL"),
+    ("Are the people on the elephants tourists?", "NEEDS_KNOWLEDGE"),
+    ("What sort of condiments does the man like?", "NEEDS_OPINION"),
+    ("What fruit is on the table?", "VISUAL"),
+    ("Does this train work?", "NEEDS_KNOWLEDGE"),
+    ("Does this person look tired?", "NEEDS_OPINION"),
+    ("Are these zebras striped?", "VISUAL"),
+    ("Is the pizza sauce organic?", "NEEDS_KNOWLEDGE"),
+    ("Is this expensive?", "NEEDS_OPINION"),
+    ("Which side has more people?", "VISUAL"),
+    ("Is this mushroom poisonous?", "NEEDS_KNOWLEDGE"),
+    ("Is this house luxurious?", "NEEDS_OPINION"),
+    ("Is the airplane taking off?", "VISUAL"),
+    ("Is this food vegan?", "NEEDS_KNOWLEDGE"),
+    ("Is this meal healthy?", "NEEDS_OPINION"),
+    ("Is the dog lying down?", "VISUAL"),
+    ("Is this outfit fashionable?", "NEEDS_OPINION"),
+    ("Could this be a wedding?", "VISUAL"),
+    ("What type of vehicle is shown?", "VISUAL"),
+    ("Is there snow on the mountain?", "VISUAL"),
+]
 
 
-def _build_batch_user_prompt(questions: Sequence[str]) -> str:
-    """Pack numbered questions into one user prompt (JSON-array labels)."""
-    lines: List[str] = [
-        "Confirm whether each VQA question needs OCR, external knowledge, "
-        "or personal opinion beyond looking at the image.",
-        "Return ONLY a JSON array of label strings: NEEDS_OCR, "
-        "NEEDS_KNOWLEDGE, NEEDS_OPINION, or VISUAL.",
-        "Prefer VISUAL whenever the answer is visible in the pixels "
-        "(actions, counting, clothing/eyewear, sport, room, contents of a "
-        "glass, kind of animal vs breed, same size vs how big, apparent sex).",
-        "Do NOT invent labels such as NEEDS_COUNTING — use VISUAL for counts.",
-        "",
-        _FEW_SHOT_BLOCK,
-        "",
-        "Now classify the questions below.",
-        "Return ONLY a JSON array of label strings "
-        f"(length {len(questions)}, same order, no keys, no extra text):",
-        "",
+def _build_messages(question: str) -> List[Dict[str, str]]:
+    """System + chat-turn few-shots + the question to classify."""
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
     ]
-    for i, q in enumerate(questions, start=1):
-        lines.append(f"{i}. Q: {q}")
-    lines.append("")
-    lines.append("JSON array:")
-    return "\n".join(lines)
+    for shot_q, shot_label in _FEW_SHOT_PAIRS:
+        messages.append({"role": "user", "content": f"Q: {shot_q}"})
+        messages.append({"role": "assistant", "content": shot_label})
+    messages.append({"role": "user", "content": f"Q: {question}"})
+    return messages
 
 
 # Fast checker: high-precision auto-NDV. Match → NOT_DIRECTLY_VISUAL with no LLM.
@@ -429,6 +382,15 @@ def confirm_to_binary(confirm: str) -> Tuple[str, Optional[str]]:
 _VISUAL_RESCUE_RE = re.compile(
     r"""
     \bwhat\s+(?:is|are)\s+.+\bdoing\b |
+    \bwhat\s+is\s+(?:the\s+)?\w+\s+using\b |
+    \bdemonstrating\b |
+    \bsmiling\b |
+    \bmade\s+of\b |
+    \bweather\s+like\b |
+    \bdo\s+you\s+see\b |
+    \bin\s+front\s+of\b |
+    \bhave\s+in\s+common\b |
+    \b(?:is|are)\s+.+\beating\b |
     \bare\s+(?:the\s+|these\s+|both\s+(?:of\s+)?(?:the\s+|these\s+)?)?
         (?:animals?|people|they|kids?|children|birds?|dogs?|cats?)\s+
         (?:eating|playing|holding|running|sitting|standing|sleeping)\b |
@@ -496,53 +458,6 @@ def parse_classifier_label(raw: str) -> Optional[str]:
     return None
 
 
-def parse_classifier_label_list(
-    raw: str, expected: int
-) -> Tuple[Optional[List[str]], str]:
-    """Parse a JSON array of confirm/binary labels (or one bare label).
-
-    Returns:
-        (labels, detail) — labels is None on failure. Each label is a confirm
-        or legacy binary token suitable for :func:`confirm_to_binary`.
-    """
-    text = (raw or "").strip()
-    text = re.sub(r"^```(?:\w+)?\s*|\s*```$", "", text, flags=re.S).strip()
-    start = text.find("[")
-    end = text.rfind("]")
-
-    if start >= 0 and end > start:
-        arr_text = text[start : end + 1]
-        try:
-            data = json.loads(arr_text)
-        except json.JSONDecodeError as exc:
-            if expected != 1:
-                return None, f"parse_json_error:{exc}"
-            data = None
-        if isinstance(data, list):
-            if len(data) != expected:
-                return (
-                    None,
-                    f"parse_length_mismatch:expected {expected} got {len(data)}",
-                )
-            out: List[str] = []
-            for i, item in enumerate(data):
-                label = parse_classifier_label(str(item))
-                if label is None:
-                    return None, f"parse_item_fail:index {i} value={item!r}"
-                out.append(label)
-            return out, "ok"
-        if expected != 1:
-            return None, f"parse_not_a_list:{type(data).__name__}"
-
-    if expected == 1:
-        label = parse_classifier_label(text)
-        if label is not None:
-            return [label], "ok"
-        return None, f"parse_fail:{raw!r}"
-
-    return None, f"parse_no_json_array:{raw!r}"
-
-
 class QuestionClassifier:
     """Ollama-backed blacklist-confirm question classifier."""
 
@@ -550,26 +465,25 @@ class QuestionClassifier:
         self,
         host: str = "http://localhost:11434",
         model: str = "qwen2.5:3b-instruct-q4_K_M",
-        timeout_s: float = 60.0,
+        timeout_s: float = 180.0,
         temperature: float = 0.0,
         num_ctx: int = 4096,
+        parallel: int = 4,
     ) -> None:
         self.host = host.rstrip("/")
         self.model = model
         self.timeout_s = timeout_s
         self.temperature = temperature
         self.num_ctx = num_ctx
+        self.parallel = max(1, int(parallel))
 
     def _chat(
-        self, user_content: str, *, num_predict: int
+        self, messages: Sequence[Dict[str, str]], *, num_predict: int
     ) -> Tuple[Optional[str], str]:
         """POST one /api/chat turn. Returns (content_or_None, detail)."""
         payload = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
+            "messages": list(messages),
             "stream": False,
             "options": {
                 "temperature": self.temperature,
@@ -605,13 +519,13 @@ class QuestionClassifier:
     def classify_one(
         self, question: str
     ) -> Tuple[Optional[str], str, Optional[str]]:
-        """Classify one question.
+        """Classify one question with chat-turn few-shots.
 
         Returns:
             (binary_label_or_None, detail, non_visual_reason_or_None)
         """
         content, detail = self._chat(
-            _USER_PROMPT_TEMPLATE.format(question=question),
+            _build_messages(question),
             num_predict=24,
         )
         if content is None:
@@ -628,49 +542,42 @@ class QuestionClassifier:
 
     def classify_batch(
         self, questions: Sequence[str]
-    ) -> Tuple[Optional[List[Tuple[str, Optional[str]]]], str]:
-        """Classify a packed batch.
+    ) -> Tuple[List[Tuple[Optional[str], Optional[str]]], str]:
+        """Classify questions via parallel per-question Ollama calls.
+
+        Each question gets its own request (system + chat-turn few-shots + Q).
+        Results are returned in input order. A failed item is
+        ``(None, None)`` so the caller can keep it as DIRECTLY_VISUAL.
 
         Returns:
-            (results_or_None, detail) where each result is
-            ``(binary_label, non_visual_reason)``. On parse/HTTP failure
-            returns ``(None, detail)`` so the caller can salvage with
-            :meth:`classify_one`.
+            (results, detail) where each result is
+            ``(binary_label_or_None, non_visual_reason)``.
         """
         if not questions:
             return [], "ok"
-        if len(questions) == 1:
-            label, detail, reason = self.classify_one(questions[0])
-            if label is None:
-                return None, detail
-            return [(label, reason)], detail
 
-        content, detail = self._chat(
-            _build_batch_user_prompt(questions),
-            num_predict=max(24, len(questions) * 8 + 16),
-        )
-        if content is None:
-            return None, detail
-        confirms, parse_detail = parse_classifier_label_list(
-            content, expected=len(questions)
-        )
-        if confirms is None:
-            return None, parse_detail
-        out: List[Tuple[str, Optional[str]]] = []
-        for q, confirm in zip(questions, confirms):
-            try:
-                label, reason = confirm_to_binary(confirm)
-            except ValueError:
-                return None, f"parse_item_fail:value={confirm!r}"
-            out.append(maybe_rescue_visual(q, label, reason))
+        def _one(
+            q: str,
+        ) -> Tuple[Optional[str], Optional[str]]:
+            label, _detail, reason = self.classify_one(q)
+            return label, reason
+
+        workers = min(self.parallel, len(questions))
+        if workers <= 1 or len(questions) == 1:
+            out = [_one(q) for q in questions]
+            return out, "ok"
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            out = list(pool.map(_one, questions))
         return out, "ok"
 
-    def metadata(self) -> Dict[str, str]:
+    def metadata(self) -> Dict[str, Any]:
         """Reproducibility fields for output JSON info."""
         return {
             "model": self.model,
             "host": self.host,
             "prompt_version": CLASSIFIER_PROMPT_VERSION,
+            "parallel": self.parallel,
         }
 
 
@@ -819,9 +726,9 @@ def filter_non_visual_questions(
             dropped as NOT_DIRECTLY_VISUAL without LLM. When False
             (``--no-blacklist-drop`` / ``--no-fast-path``), every question is
             UNKNOWN and goes to the batched LLM.
-        batch_size: pack this many UNKNOWN questions into one Ollama call
-            (JSON array of labels); salvage with :meth:`classify_one` on
-            batch parse failure.
+        batch_size: flush this many UNKNOWN questions at once to
+            :meth:`QuestionClassifier.classify_batch` (parallel per-question
+            Ollama calls; failed items kept as DIRECTLY_VISUAL).
 
     Returns:
         (kept_rows, dropped_rows, label_counts)
@@ -909,7 +816,7 @@ def filter_non_visual_questions(
             out.update(
                 {
                     k: classifier_meta[k]
-                    for k in ("model", "host")
+                    for k in ("model", "host", "parallel")
                     if k in classifier_meta
                 }
             )
@@ -941,10 +848,10 @@ def filter_non_visual_questions(
         n_unknown = n_total - n_blacklist
         print(
             f"Question classifier: {n_total} questions "
-            f"(blacklist->NDV | UNKNOWN->batched LLM), "
+            f"(blacklist->NDV | UNKNOWN->parallel LLM), "
             f"{n_blacklist} blacklist NDV (no LLM), "
             f"{n_unknown} UNKNOWN to confirm with the LLM "
-            f"(batch-size={batch_n})"
+            f"(batch-size={batch_n}, parallel={classifier.parallel})"
             + ("" if blacklist_drop else " (--no-blacklist-drop)")
             + "...",
             flush=True,
@@ -965,7 +872,7 @@ def filter_non_visual_questions(
     done = 0
     llm_calls = 0
     newly_classified = 0
-    # Buffer of (row, qid, question) awaiting a packed LLM call.
+    # Buffer of (row, qid, question) awaiting a parallel LLM flush.
     llm_buffer: List[Tuple[Dict, Optional[int], str]] = []
 
     def _apply_llm_label(
@@ -1007,19 +914,16 @@ def filter_non_visual_questions(
         if not llm_buffer or classifier is None:
             return
         questions = [q for _, _, q in llm_buffer]
-        llm_calls += 1
+        llm_calls += len(questions)
         results, detail = classifier.classify_batch(questions)
-        if results is None:
-            # Salvage: one classify_one call per buffered question.
-            for row, qid, q in llm_buffer:
-                llm_calls += 1
-                label, one_detail, reason = classifier.classify_one(q)
-                _apply_llm_label(
-                    row, qid, label, one_detail or detail, reason
-                )
-        else:
-            for (row, qid, _), (label, reason) in zip(llm_buffer, results):
-                _apply_llm_label(row, qid, label, detail, reason)
+        for (row, qid, _), (label, reason) in zip(llm_buffer, results):
+            _apply_llm_label(
+                row,
+                qid,
+                label,
+                detail if label is not None else "parse_fail_keep",
+                reason,
+            )
         llm_buffer.clear()
         _maybe_save_checkpoint("in_progress")
 

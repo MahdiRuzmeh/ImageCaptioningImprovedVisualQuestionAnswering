@@ -1,12 +1,12 @@
 """Score GoldAuditor classifier labels with the production question classifier.
 
-Uses the same blacklist→NDV | UNKNOWN→batched LLM cascade as ``generate.py``
+Uses the same blacklist→NDV | UNKNOWN→parallel LLM cascade as ``generate.py``
 (``filter_non_visual_questions`` / ``QuestionClassifier``).
 
 Usage (from QuestionDependentCaptionGenerator/):
 
     python audit/classify_questions.py
-    python audit/classify_questions.py --batch-size 10
+    python audit/classify_questions.py --batch-size 10 --llm-parallel 4
     python audit/classify_questions.py audit/GoldAuditor/classifier_audit_manual.json --in-place
 """
 
@@ -32,6 +32,7 @@ from question_classifier import (  # noqa: E402
 DEFAULT_MODEL = "qwen2.5:3b-instruct-q4_K_M"
 DEFAULT_HOST = "http://localhost:11434"
 DEFAULT_BATCH_SIZE = 10
+DEFAULT_LLM_PARALLEL = 4
 AUDIT_DIR = Path(__file__).resolve().parent
 DEFAULT_GOLD = AUDIT_DIR / "GoldAuditor" / "classifier_audit_manual.json"
 
@@ -83,9 +84,12 @@ def classify_gold_records(
     model: str = DEFAULT_MODEL,
     batch_size: int = DEFAULT_BATCH_SIZE,
     fast_path: bool = True,
+    llm_parallel: int = DEFAULT_LLM_PARALLEL,
 ) -> List[Dict[str, Any]]:
     """Score gold records with the production classifier cascade."""
-    classifier = QuestionClassifier(host=host, model=model)
+    classifier = QuestionClassifier(
+        host=host, model=model, parallel=llm_parallel
+    )
     batch_n = max(1, int(batch_size))
     blacklist_drop = bool(fast_path)
     scored: List[Dict[str, Any]] = [
@@ -100,7 +104,8 @@ def classify_gold_records(
     print(
         f"  gates done: {len(scored)} rows, "
         f"{len(scored) - len(llm_indices)} blacklist NDV, "
-        f"{len(llm_indices)} UNKNOWN->llm (batch_size={batch_n})",
+        f"{len(llm_indices)} UNKNOWN->llm "
+        f"(batch_size={batch_n}, parallel={classifier.parallel})",
         flush=True,
     )
 
@@ -114,29 +119,18 @@ def classify_gold_records(
             flush=True,
         )
         results, detail = classifier.classify_batch(questions)
-        if results is None:
-            for i, q in zip(chunk_idxs, questions):
-                label, one_detail, reason = classifier.classify_one(q)
-                if label is None:
-                    scored[i]["classifier_label"] = "DIRECTLY_VISUAL"
-                    scored[i]["detail"] = one_detail or detail or "parse_fail_keep"
+        for i, (label, reason) in zip(chunk_idxs, results):
+            if label is None:
+                scored[i]["classifier_label"] = "DIRECTLY_VISUAL"
+                scored[i]["detail"] = detail or "parse_fail_keep"
+                scored[i].pop("non_visual_reason", None)
+            else:
+                scored[i]["classifier_label"] = label
+                scored[i]["detail"] = detail
+                if reason:
+                    scored[i]["non_visual_reason"] = reason
                 else:
-                    scored[i]["classifier_label"] = label
-                    scored[i]["detail"] = one_detail or detail
-                    if reason:
-                        scored[i]["non_visual_reason"] = reason
-        else:
-            for i, (label, reason) in zip(chunk_idxs, results):
-                if label is None:
-                    scored[i]["classifier_label"] = "DIRECTLY_VISUAL"
-                    scored[i]["detail"] = detail or "parse_fail_keep"
-                else:
-                    scored[i]["classifier_label"] = label
-                    scored[i]["detail"] = detail
-                    if reason:
-                        scored[i]["non_visual_reason"] = reason
-                    else:
-                        scored[i].pop("non_visual_reason", None)
+                    scored[i].pop("non_visual_reason", None)
 
     return scored
 
@@ -203,7 +197,20 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--batch-size",
         type=int,
         default=DEFAULT_BATCH_SIZE,
-        help=f"UNKNOWN items per Ollama call (default {DEFAULT_BATCH_SIZE})",
+        help=(
+            f"UNKNOWN items flushed together to parallel classify_batch "
+            f"(default {DEFAULT_BATCH_SIZE})"
+        ),
+    )
+    parser.add_argument(
+        "--llm-parallel",
+        type=int,
+        default=DEFAULT_LLM_PARALLEL,
+        help=(
+            f"Max concurrent classifier Ollama requests "
+            f"(default {DEFAULT_LLM_PARALLEL}; set OLLAMA_NUM_PARALLEL "
+            f">= this on the server)"
+        ),
     )
     parser.add_argument(
         "--no-blacklist-drop",
@@ -226,6 +233,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.batch_size < 1:
         print("--batch-size must be >= 1", file=sys.stderr)
         return 1
+    if args.llm_parallel < 1:
+        print("--llm-parallel must be >= 1", file=sys.stderr)
+        return 1
 
     info, records = load_gold(gold_path)
     info.pop("classifier_scoring", None)
@@ -234,7 +244,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     blacklist_drop = not args.no_blacklist_drop
     print(
         f"Gold classifier audit: {gold_path.name} n={len(records)} "
-        f"llm={True} blacklist_drop={blacklist_drop}",
+        f"llm={True} blacklist_drop={blacklist_drop} "
+        f"llm_parallel={args.llm_parallel}",
         flush=True,
     )
     scored = classify_gold_records(
@@ -243,6 +254,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         model=args.model,
         batch_size=args.batch_size,
         fast_path=blacklist_drop,
+        llm_parallel=args.llm_parallel,
     )
     disagreement_count = annotate_agreement(scored)
     print(
