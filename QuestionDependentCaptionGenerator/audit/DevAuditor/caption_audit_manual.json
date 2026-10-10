@@ -1,6 +1,6 @@
 {
   "info": {
-    "description": "DevAuditor caption set (n=721; PASS=511, FAILED=210; natural=205, synthetic=516).",
+    "description": "DevAuditor caption set (n=721; PASS=517, FAILED=204; natural=250, synthetic=471).",
     "seed": 43,
     "sample_size": 721,
     "num_records": 721,
@@ -22,12 +22,12 @@
       "hard_negatives": "synthesized polarity/echo/contradiction fills"
     },
     "manual_label_counts": {
-      "FAILED": 210,
-      "PASS": 511
+      "FAILED": 204,
+      "PASS": 517
     },
     "source_counts": {
-      "natural": 205,
-      "synthetic": 516
+      "natural": 250,
+      "synthetic": 471
     }
   },
   "records": [
@@ -59,17 +59,17 @@
       "question": "Are there giraffes in a large cage?",
       "question_id": 3224002,
       "answer": "no",
-      "caption": "There are no giraffes in the large cage.",
+      "caption": "There are no giraffes in a large cage.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Are the people standing straight up?",
       "question_id": 2402005,
       "answer": "yes",
-      "caption": "The people are standing straight up.",
+      "caption": "People are standing straight up.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Are the people in the wilderness?",
@@ -83,9 +83,9 @@
       "question": "What sport is this?",
       "question_id": 1911000,
       "answer": "dog sledding",
-      "caption": "This is dog sledding.",
+      "caption": "This is a dog sledding race.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Is the tv on?",
@@ -187,9 +187,9 @@
       "question": "Is the picture black and white?",
       "question_id": 1562000,
       "answer": "yes",
-      "caption": "The picture is black and white.",
+      "caption": "A picture is black and white.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Is the tennis net purple?",
@@ -755,9 +755,9 @@
       "question": "How many lights line the street?",
       "question_id": 4903005,
       "answer": "2",
-      "caption": "There are two lights lining the street.",
+      "caption": "There are two lights line the street.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Does the baby elephant have a little hair on its head?",
@@ -811,9 +811,9 @@
       "question": "How many cars are parked in the background?",
       "question_id": 656002,
       "answer": "1",
-      "caption": "One car is parked in the background.",
+      "caption": "A car is parked in the background.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Is the refrigerator door closed?",
@@ -891,9 +891,9 @@
       "question": "What kind of food is this?",
       "question_id": 2886002,
       "answer": "dinner",
-      "caption": "This is dinner.",
+      "caption": "This is a dinner.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What is the man on the ground riding?",
@@ -987,9 +987,9 @@
       "question": "Is the field full of grass?",
       "question_id": 2445001,
       "answer": "yes",
-      "caption": "[The field is full of grass.].",
-      "manual_label": "FAILED",
-      "source": "synthetic"
+      "caption": "The field is full of grass.",
+      "manual_label": "PASS",
+      "source": "natural"
     },
     {
       "question": "What is the food?",
@@ -1347,9 +1347,9 @@
       "question": "How many entrances to the train are visible?",
       "question_id": 1090002,
       "answer": "1",
-      "caption": "One entrance to the train is visible.",
+      "caption": "Only one entrance to the train is visible.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Are the surfers wearing identical wetsuits?",
@@ -1587,9 +1587,9 @@
       "question": "How many feet are touching the ground?",
       "question_id": 3770001,
       "answer": "1",
-      "caption": "Only one foot is touching the ground.",
+      "caption": "One foot is touching the ground.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Does this house look organized?",
@@ -1635,9 +1635,9 @@
       "question": "Is the person moving?",
       "question_id": 5073001,
       "answer": "yes",
-      "caption": "The person is moving.",
+      "caption": "A person is moving.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Are there clouds in the sky?",
@@ -1683,9 +1683,9 @@
       "question": "What is this man eating?",
       "question_id": 436011,
       "answer": "donut",
-      "caption": "This man is eating a donut.",
+      "caption": "The man is eating a donut.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What color are the carrots?",
@@ -1811,9 +1811,9 @@
       "question": "Are the two luggage pieces the same design?",
       "question_id": 1999002,
       "answer": "yes",
-      "caption": "[The luggage pieces are the same design.].",
-      "manual_label": "FAILED",
-      "source": "synthetic"
+      "caption": "The luggage pieces are the same design.",
+      "manual_label": "PASS",
+      "source": "natural"
     },
     {
       "question": "Is the flower fully grown?",
@@ -1891,9 +1891,9 @@
       "question": "What is this cat sitting in?",
       "question_id": 5142002,
       "answer": "suitcase",
-      "caption": "This cat is sitting in a suitcase.",
+      "caption": "The cat is sitting in the suitcase.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What is the weather?",
@@ -1987,9 +1987,9 @@
       "question": "Did she just hit a tennis ball?",
       "question_id": 1375000,
       "answer": "yes",
-      "caption": "She just hit a tennis ball.",
+      "caption": "She just hit the tennis ball.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What is the building made of?",
@@ -2323,9 +2323,9 @@
       "question": "What is the man holding up in his hand?",
       "question_id": 1204002,
       "answer": "bat",
-      "caption": "The man is holding a bat in his hand.",
+      "caption": "The man is holding up a bat in his hand.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Is the fruit ripe?",
@@ -2347,9 +2347,9 @@
       "question": "What sport are the people playing?",
       "question_id": 2498001,
       "answer": "frisbee",
-      "caption": "The people are playing frisbee.",
+      "caption": "People are playing frisbee.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What is on the ground besides the plane?",
@@ -2523,17 +2523,17 @@
       "question": "What is the cat on?",
       "question_id": 5142004,
       "answer": "suitcase",
-      "caption": "The cat is on a suitcase.",
+      "caption": "A cat is on a suitcase.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Is that a woman on the left?",
       "question_id": 4984006,
       "answer": "yes",
-      "caption": "Yes, a woman is on the left.",
+      "caption": "A woman is on the left.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What color is the Frisbee?",
@@ -2723,9 +2723,9 @@
       "question": "Are the toys behind a window?",
       "question_id": 3899012,
       "answer": "no",
-      "caption": "The toys are not behind the window.",
+      "caption": "Toys are not behind a window.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Is this a recent photo?",
@@ -2787,9 +2787,9 @@
       "question": "What is the laptop sitting on?",
       "question_id": 2244002,
       "answer": "desk",
-      "caption": "[The laptop is sitting on a desk.].",
-      "manual_label": "FAILED",
-      "source": "synthetic"
+      "caption": "The laptop is sitting on a desk.",
+      "manual_label": "PASS",
+      "source": "natural"
     },
     {
       "question": "Is this a cloudy day?",
@@ -2979,9 +2979,9 @@
       "question": "What surface is the tennis player playing on?",
       "question_id": 1183010,
       "answer": "dirt",
-      "caption": "The tennis player is playing on a dirt surface.",
+      "caption": "The tennis player is playing on dirt.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What animal is laying next to the dog?",
@@ -3123,9 +3123,9 @@
       "question": "Are the ducks walking?",
       "question_id": 813000,
       "answer": "yes",
-      "caption": "The ducks are walking.",
+      "caption": "Ducks are walking.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Is this the best place for the cat to sleep?",
@@ -3179,9 +3179,9 @@
       "question": "What is the cat lying on?",
       "question_id": 2606005,
       "answer": "windowsill",
-      "caption": "The cat is lying on the windowsill.",
+      "caption": "A cat is lying on the windowsill.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Are the bikers are in a race?",
@@ -3195,9 +3195,9 @@
       "question": "What animals are in front of the vehicle?",
       "question_id": 1381000,
       "answer": "sheep",
-      "caption": "Sheep are in front of the vehicle.",
+      "caption": "A sheep is in front of the vehicle.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Is there a sink pictured?",
@@ -3299,9 +3299,9 @@
       "question": "What color jacket are the majority of the people wearing?",
       "question_id": 2402006,
       "answer": "black",
-      "caption": "A majority of people are wearing black jackets.",
+      "caption": "Most people are wearing black jackets.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Are these teenagers?",
@@ -3387,9 +3387,9 @@
       "question": "Are these women in a restaurant?",
       "question_id": 4065011,
       "answer": "yes",
-      "caption": "These women are in a restaurant.",
+      "caption": "Both women are in a restaurant.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What is in the jars?",
@@ -3443,9 +3443,9 @@
       "question": "Is this black and white?",
       "question_id": 4971002,
       "answer": "yes",
-      "caption": "The image is black and white.",
+      "caption": "This image is black and white.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Is there a microwave?",
@@ -3556,7 +3556,7 @@
       "question_id": 5505006,
       "answer": "coat",
       "caption": "She is not wearing a coat.",
-      "manual_label": "FAILED",
+      "manual_label": "PASS",
       "source": "natural"
     },
     {
@@ -3659,9 +3659,9 @@
       "question": "What type of buses are these?",
       "question_id": 4032000,
       "answer": "school",
-      "caption": "These are school buses.",
+      "caption": "These buses are school buses.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Are the zebras running?",
@@ -3707,9 +3707,9 @@
       "question": "What is the woman eating with her hands?",
       "question_id": 436016,
       "answer": "cake",
-      "caption": "The woman is eating cake with her hands.",
+      "caption": "The woman is eating a cake with her hands.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What facial feature is on the vase?",
@@ -4083,9 +4083,9 @@
       "question": "How many different sections/portions of food?",
       "question_id": 332000,
       "answer": "5",
-      "caption": "There are five different sections of food.",
+      "caption": "There are 5 different sections of food.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Is there any living thing in this image?",
@@ -4155,9 +4155,9 @@
       "question": "Is there a person in this picture?",
       "question_id": 3325000,
       "answer": "yes",
-      "caption": "A person is in this picture.",
+      "caption": "A person is in the picture.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Is there an exposed outlet in the room?",
@@ -4171,9 +4171,9 @@
       "question": "What are the men riding?",
       "question_id": 4549002,
       "answer": "surfboards",
-      "caption": "The men are riding surfboards.",
+      "caption": "Men are riding surfboards.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Is he sitting down?",
@@ -4427,9 +4427,9 @@
       "question": "Are both men wearing the same color hat?",
       "question_id": 1014003,
       "answer": "yes",
-      "caption": "[Both men are wearing the same color hat.].",
+      "caption": "Both men are wearing the same colored hat.",
       "manual_label": "FAILED",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What kind of celebration is this?",
@@ -4595,9 +4595,9 @@
       "question": "Is the giraffe in the shade?",
       "question_id": 25013,
       "answer": "no",
-      "caption": "The right giraffe is not in the shade.",
+      "caption": "The giraffe is not in the shade.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Could both pizzas be vegetarian?",
@@ -4763,9 +4763,9 @@
       "question": "How many people are not in a vehicle?",
       "question_id": 5505030,
       "answer": "many",
-      "caption": "Many people are not in a vehicle.",
+      "caption": "Many people are not in vehicles.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Are they all dressed in red?",
@@ -4803,9 +4803,9 @@
       "question": "Where is the cat?",
       "question_id": 5142010,
       "answer": "in suitcase",
-      "caption": "The cat is inside a suitcase.",
+      "caption": "The cat is in the suitcase.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What Number of books are on the shelf?",
@@ -4843,9 +4843,9 @@
       "question": "Is the kite high in the air?",
       "question_id": 149000,
       "answer": "yes",
-      "caption": "The kite is high in the air.",
+      "caption": "A kite is high in the air.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What emblem is on the cake?",
@@ -4867,9 +4867,9 @@
       "question": "Are there any pens on the table?",
       "question_id": 113006,
       "answer": "no",
-      "caption": "[There are no pens on the table.].",
-      "manual_label": "FAILED",
-      "source": "synthetic"
+      "caption": "There are no pens on the table.",
+      "manual_label": "PASS",
+      "source": "natural"
     },
     {
       "question": "What is the dog seeing?",
@@ -4899,9 +4899,9 @@
       "question": "What are the ducks standing behind?",
       "question_id": 813002,
       "answer": "fence",
-      "caption": "The ducks are standing behind a fence.",
+      "caption": "Ducks are standing behind a fence.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What are the colors of the train?",
@@ -4923,9 +4923,9 @@
       "question": "Where is the cat?",
       "question_id": 3474004,
       "answer": "on suitcase",
-      "caption": "The cat is on the suitcase.",
+      "caption": "The cat is on a suitcase.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "Where was the photo taken of the man sitting behind a desk?",
@@ -4947,9 +4947,9 @@
       "question": "What are the people watching?",
       "question_id": 2693002,
       "answer": "video game",
-      "caption": "People are watching a video game.",
+      "caption": "The people are watching a video game.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What vehicle is this?",
@@ -5235,9 +5235,9 @@
       "question": "Are any of the players touching each other?",
       "question_id": 2907001,
       "answer": "yes",
-      "caption": "[Players are touching each other.].",
+      "caption": "Some of the players are touching each other.",
       "manual_label": "FAILED",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What is the orange food?",
@@ -5435,9 +5435,9 @@
       "question": "Is there a man's shadow?",
       "question_id": 490007,
       "answer": "yes",
-      "caption": "[There is a man's shadow.].",
-      "manual_label": "FAILED",
-      "source": "synthetic"
+      "caption": "There is a man's shadow.",
+      "manual_label": "PASS",
+      "source": "natural"
     },
     {
       "question": "What is the worker sorting?",
@@ -5595,9 +5595,9 @@
       "question": "How many wheels does this vehicle have?",
       "question_id": 1523003,
       "answer": "8",
-      "caption": "This vehicle has 8 wheels.",
+      "caption": "This vehicle has eight wheels.",
       "manual_label": "PASS",
-      "source": "synthetic"
+      "source": "natural"
     },
     {
       "question": "What sort of material is holding up the boy's pants?",
