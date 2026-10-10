@@ -1,4 +1,4 @@
-"""Score GoldAuditor caption labels with the production caption validator.
+"""Score DevAuditor caption labels with the production caption validator.
 
 Uses the same ``score_rows_keep_all`` / fast+LLM path as ``generate.py``
 (``validate_rows`` logic) so gold tuning matches production behavior.
@@ -7,7 +7,7 @@ Usage (from QuestionDependentCaptionGenerator/):
 
     python audit/audit_captions.py
     python audit/audit_captions.py --llm --batch-size 10
-    python audit/audit_captions.py audit/GoldAuditor/caption_audit_manual.json --in-place
+    python audit/audit_captions.py audit/DevAuditor/caption_audit_manual.json --in-place
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ DEFAULT_MODEL = "qwen2.5:3b-instruct-q4_K_M"
 DEFAULT_HOST = "http://localhost:11434"
 DEFAULT_BATCH_SIZE = 10
 AUDIT_DIR = Path(__file__).resolve().parent
-DEFAULT_GOLD = AUDIT_DIR / "GoldAuditor" / "caption_audit_manual.json"
+DEFAULT_GOLD = AUDIT_DIR / "DevAuditor" / "caption_audit_manual.json"
 
 
 def load_gold(path: Path) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
@@ -85,7 +85,7 @@ def annotate_agreement(records: Sequence[Dict[str, Any]]) -> int:
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Score GoldAuditor caption_audit_manual.json with the production "
+            "Score DevAuditor caption_audit_manual.json with the production "
             "fast+LLM caption validator."
         ),
     )

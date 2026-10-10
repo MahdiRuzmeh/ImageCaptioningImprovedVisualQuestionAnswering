@@ -49,13 +49,13 @@ flowchart TB
   end
   subgraph qc [QC]
     AUDIT[audit_captions.py]
-    CLFGOLD[classify_questions.py]
+    CLFAUD[classify_questions.py]
     TESTS[tests/]
   end
   subgraph data [Data]
     VQA[(VQA JSON)]
     OUT[(outputs/*.json)]
-    GOLD[(GoldAuditor/*.json)]
+    DEVAUD[(DevAuditor/*.json)]
   end
   VQA --> GEN
   GEN --> RULES
@@ -63,8 +63,8 @@ flowchart TB
   GEN --> LLM
   LLM --> PROMPT
   GEN --> OUT
-  AUDIT --> GOLD
-  CLFGOLD --> GOLD
+  AUDIT --> DEVAUD
+  CLFAUD --> DEVAUD
   TESTS --> RULES
   TESTS --> LLM
 ```
@@ -76,9 +76,9 @@ QuestionDependentCaptionGenerator/
 ├── llm_prompts.py           # packed prompt + few-shot
 ├── llm_client.py            # Ollama client + validator + retry
 ├── question_classifier.py   # filter-e binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL
-├── audit/audit_captions.py  # Gold caption scorer (fast + LLM judge labels)
-├── audit/classify_questions.py  # Gold classifier scorer
-├── audit/GoldAuditor/       # manual_label gold sets
+├── audit/audit_captions.py  # DevAuditor caption scorer (fast + LLM judge labels)
+├── audit/classify_questions.py  # DevAuditor classifier scorer
+├── audit/DevAuditor/       # manual_label tuning sets
 ├── tests/                   # unit test rooye bug-haye shenakhte-shode
 ├── architecture/            # hamin docs
 └── outputs/                 # caption JSON (+ failure log)
@@ -91,8 +91,8 @@ QuestionDependentCaptionGenerator/
 | `llm_prompts.py` | System prompt-e version-dar (`PROMPT_VERSION`) |
 | `llm_client.py` | Chat API, parse, Tier-1 lexical + Tier-2 semantic judge |
 | `question_classifier.py` | DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL — **blacklist gate** (`_NON_VISUAL_CANDIDATE_RE`: OCR / knowledge / opinion); bedoon marker → `default_visual`; ba marker → LLM confirm (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`); Fast Path faghat exemption; har row `visual_filter_source` migire |
-| `audit/audit_captions.py` | Score-e `GoldAuditor/caption_audit_manual.json` ba production validator; `fast_validator_label` / `llm_judge_label` / `caption_status` |
-| `audit/classify_questions.py` | Score-e `GoldAuditor/classifier_audit_manual.json` ba production classifier; `classifier_label` |
+| `audit/audit_captions.py` | Score-e `DevAuditor/caption_audit_manual.json` ba production validator; `fast_validator_label` / `llm_judge_label` / `caption_status` |
+| `audit/classify_questions.py` | Score-e `DevAuditor/classifier_audit_manual.json` ba production classifier; `classifier_label` |
 
 ---
 
@@ -374,7 +374,7 @@ Sidecar-ha: `{stem}_not_directly_visual.json` (ba `visual_filter_source` va opti
 | Checkpoint | Save-e atomic har N batch; Ctrl+C ham save mikone |
 | Failure log | `*.json.llm_failures.log` ba dalil-e khata |
 | Retry audit log | `{stem}_validation_audit.jsonl` — yek record baraye har item-e retry-shode |
-| Audit | `python audit/audit_captions.py --llm --batch-size 10` va `python audit/classify_questions.py --batch-size 10` rooye GoldAuditor |
+| Audit | `python audit/audit_captions.py --llm --batch-size 10` va `python audit/classify_questions.py --batch-size 10` rooye DevAuditor |
 
 ### Pilot-e pishnahadi ghabl az kol-e train (~443 hezar)
 

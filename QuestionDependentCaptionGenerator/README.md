@@ -25,8 +25,8 @@ Pipeline:
 | `llm_client.py` | Ollama HTTP client + concurrent workers |
 | `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v10_soft_answer_negation_judge_shots`) |
 | `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (blacklist → NDV; UNKNOWN → parallel chat-turn LLM) |
-| `audit/audit_captions.py` | Gold caption scorer — fills `fast_validator_label` / `llm_judge_label` / `caption_status` ([audit/README.md](audit/README.md)) |
-| `audit/classify_questions.py` | Gold classifier scorer — fills `classifier_label` ([audit/README.md](audit/README.md)) |
+| `audit/audit_captions.py` | DevAuditor caption scorer — fills `fast_validator_label` / `llm_judge_label` / `caption_status` ([audit/README.md](audit/README.md)) |
+| `audit/classify_questions.py` | DevAuditor classifier scorer — fills `classifier_label` ([audit/README.md](audit/README.md)) |
 
 Progress logs (flush): VQA load, rules scan, classify `i/N`, and
 `LLM batch k/N calling Ollama...` **before** each batch (so long waits are visible).
@@ -409,9 +409,9 @@ Counts: `info.directly_visual_count`, `info.not_directly_visual_count`, `info.qu
 
 Note: `prompt_version` (`v19_chat_turn_fewshots`) avaz shode va checkpoint ba `blacklist_drop_enabled` key mikhore, pas checkpoint-e ghadimi roye resume invalid hast — pak-esh kon ya `--no-resume` bede.
 
-## Tests + gold audit
+## Tests + DevAuditor
 
-Gold scorers tune validator / classifier on `audit/GoldAuditor/*` without
+DevAuditor scorers tune validator / classifier on `audit/DevAuditor/*` without
 re-running the full corpus. Details: [audit/README.md](audit/README.md).
 
 ```bash

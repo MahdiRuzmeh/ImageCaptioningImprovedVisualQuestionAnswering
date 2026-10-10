@@ -1,4 +1,4 @@
-"""Score GoldAuditor classifier labels with the production question classifier.
+"""Score DevAuditor classifier labels with the production question classifier.
 
 Uses the same blacklist→NDV | UNKNOWN→parallel LLM cascade as ``generate.py``
 (``filter_non_visual_questions`` / ``QuestionClassifier``).
@@ -7,7 +7,7 @@ Usage (from QuestionDependentCaptionGenerator/):
 
     python audit/classify_questions.py
     python audit/classify_questions.py --batch-size 10 --llm-parallel 4
-    python audit/classify_questions.py audit/GoldAuditor/classifier_audit_manual.json --in-place
+    python audit/classify_questions.py audit/DevAuditor/classifier_audit_manual.json --in-place
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ DEFAULT_HOST = "http://localhost:11434"
 DEFAULT_BATCH_SIZE = 10
 DEFAULT_LLM_PARALLEL = 4
 AUDIT_DIR = Path(__file__).resolve().parent
-DEFAULT_GOLD = AUDIT_DIR / "GoldAuditor" / "classifier_audit_manual.json"
+DEFAULT_GOLD = AUDIT_DIR / "DevAuditor" / "classifier_audit_manual.json"
 
 _VALID_LABELS = frozenset({"DIRECTLY_VISUAL", "NOT_DIRECTLY_VISUAL"})
 
@@ -161,7 +161,7 @@ def annotate_agreement(records: Sequence[Dict[str, Any]]) -> int:
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Score GoldAuditor classifier_audit_manual.json with the "
+            "Score DevAuditor classifier_audit_manual.json with the "
             "production question classifier."
         ),
     )
