@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import List, Sequence, Tuple
 
 # Version string baraye metadata toye output JSON
-PROMPT_VERSION = "v9_both_neither_quantifiers"
+PROMPT_VERSION = "v10_no_giraffe_attractors"
 
 SYSTEM_PROMPT = """\
 You generate image captions from visual question-answer pairs.
@@ -91,14 +91,14 @@ Good:
 Spatial relation:
 Keep the asked relation. The answer fills the asked slot; do not swap the two sides.
 
-Q: What is in front of the giraffes?
-A: tree
+Q: What is in front of the building?
+A: bus
 
 Good:
-"A tree is in front of the giraffes."
+"A bus is in front of the building."
 
 Bad:
-"Giraffes are in front of the tree."
+"The building is in front of the bus."
 (Reversed in-front-of)
 
 Color:
@@ -174,18 +174,18 @@ Good:
 "Not all the flowers are white."
 
 Example:
-Q: Are both giraffes standing?
+Q: Are both dogs standing?
 A: yes
 
 Good:
-"Both giraffes are standing."
+"Both dogs are standing."
 
 Example:
-Q: Are both giraffes standing?
+Q: Are both dogs standing?
 A: no
 
 Good:
-"Not both giraffes are standing."
+"Not both dogs are standing."
 
 Example:
 Q: Is either person wearing a hat?
@@ -300,14 +300,9 @@ _FEW_SHOT: List[Tuple[str, str, str]] = [
         "Two cookies can be seen.",
     ),
     (
-        "Are both giraffes standing?",
+        "Are both dogs standing?",
         "yes",
-        "Both giraffes are standing.",
-    ),
-    (
-        "Are both giraffes standing?",
-        "no",
-        "Not both giraffes are standing.",
+        "Both dogs are standing.",
     ),
     (
         "Are all the flowers white?",
@@ -315,9 +310,9 @@ _FEW_SHOT: List[Tuple[str, str, str]] = [
         "Not all the flowers are white.",
     ),
     (
-        "What is in front of the giraffes?",
-        "tree",
-        "A tree is in front of the giraffes.",
+        "What is in front of the building?",
+        "bus",
+        "A bus is in front of the building.",
     ),
 ]
 
@@ -361,6 +356,10 @@ def build_user_prompt(pairs: Sequence[Tuple[str, str]]) -> str:
         "text inside the caption. Never write \"the answer is\" or \"the "
         "answer\". Do not use brackets, labels, explanations, or quotation "
         "marks. Preserve the meaning of both the question and the answer."
+    )
+    lines.append(
+        "Do not copy an example caption; write a new sentence from that "
+        "item's question and answer only."
     )
     lines.append("")
     lines.append("JSON array:")
