@@ -7,7 +7,7 @@ Har sample: `(soal, javab)` → caption mesl `"The car is red."`
 Pipeline:
 
 1. VQA questions + annotations ro load mikone (`input_count`)
-2. OCR-dependent Q/A pair ha (`is_ocr_question`) — soal hayi ke javab-eshun faghat az ru-ye reading-e text/adad-e ru-ye tasvir mishe fahmid (sign, logo, brand, plate, jersey number, clock) — kollan hazf mishan, chon `SimpleImageCaptioner` OCR nadare va nemitune in target ha ro yad begire; count-esh dar `info.ocr_excluded_count` save mishe
+2. OCR-dependent Q/A pair ha (`is_ocr_question`) — soal hayi ke javab-eshun faghat az ru-ye reading-e text/adad-e ru-ye tasvir mishe fahmid (sign, logo, brand, plate, jersey number, clock) — kollan hazf mishan, chon `QuestionDependentImageCaptioner` OCR nadare va nemitune in target ha ro yad begire; count-esh dar `info.ocr_excluded_count` save mishe
 3. Duplicate `(image_id, question, answer)` rows drop mishan (`info.duplicate_count`)
 4. Binary classifier (hamishe): `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. Cascade: high-precision **blacklist** → hard `NOT_DIRECTLY_VISUAL` (`visual_filter_source=blacklist`); else **UNKNOWN** → parallel per-question Qwen confirm with **chat-turn few-shots** (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, prompt `v19_chat_turn_fewshots`) → binary label (`visual_filter_source=llm_classifier`). Only the LLM asserts `DIRECTLY_VISUAL`. Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad). Ollama baraye in marhale lazem ast hata bedoon `--llm`.
 5. Rule engine try mikone (`caption_rules.py`) — faghat pattern haye daghigh va motmaen
@@ -42,7 +42,7 @@ Progress logs (flush): VQA load, rules scan, classify `i/N`, and
 
 ### OCR filter (`is_ocr_question`)
 
-Ghabl az rule engine, har Q/A pair check mishe ke aya javab-esh faghat az reading-e text/adad-e ru-ye tasvir be dast miyad (sign says, brand, logo, license plate, jersey/bus number, clock/watch time). `SimpleImageCaptioner` (Stage 1) yek Faster R-CNN region-feature + LSTM captioner-e bedoon OCR hast — faghat pooled visual features mibine, glyph nemikhoone. Pas caption-e sahih baraye in soal ha (mesal: `"The sign says 3M."`) ye target-e yad-nagereftani baraye un mishe, va in pipeline hazfeshun mikone ta signal-e training kasif nashe.
+Ghabl az rule engine, har Q/A pair check mishe ke aya javab-esh faghat az reading-e text/adad-e ru-ye tasvir be dast miyad (sign says, brand, logo, license plate, jersey/bus number, clock/watch time). `QuestionDependentImageCaptioner` (Stage 1) yek Faster R-CNN region-feature + LSTM captioner-e bedoon OCR hast — faghat pooled visual features mibine, glyph nemikhoone. Pas caption-e sahih baraye in soal ha (mesal: `"The sign says 3M."`) ye target-e yad-nagereftani baraye un mishe, va in pipeline hazfeshun mikone ta signal-e training kasif nashe.
 
 In ye **heuristic** hast, na ground truth (VQA v2 field-e explicit-e "requires OCR" nadare) — do signal combine mishe:
 

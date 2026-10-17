@@ -20,9 +20,10 @@ use_captioner: true
 #                trainable encode mishan → ma'na-ye vaghei-e caption tazrigh mishe.
 #                Baraye test-e inke aya caption komak mikone "text" ro emtehan kon.
 caption_repr: hidden
-captioner_project_root: ../SimpleImageCaptioner
-captioner_ckpt: ../SimpleImageCaptioner/outputs/smoke/best.pt
-captioner_class: SimpleImageCaptioner
+captioner_project_root: ../QuestionDependentImageCaptioner
+captioner_ckpt: ../QuestionDependentImageCaptioner/outputs/smoke/best.pt
+captioner_class: QuestionDependentImageCaptioner
+captioner_fuse_mode: concat
 captioner_finetune_q: false
 num_workers: 0
 batch_size: 8

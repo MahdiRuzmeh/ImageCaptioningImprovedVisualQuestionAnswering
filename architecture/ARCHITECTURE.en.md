@@ -1,32 +1,36 @@
-# Architecture — SimpleImageCaptioner & SimpleVQA
+# Architecture — QuestionDependentImageCaptioner & SimpleVQA
 
 <!--
   This document describes the architecture of both models.
   Reference: Sharma & Jalal (2021) — Image captioning improved visual question answering.
-  Stage 1 = captioner | Stage 2 = VQA with loaded captioner.
+  Stage 1 = QD captioner | Stage 2 = VQA with loaded captioner.
 -->
 
 ## Overview
 
 <!--
-  Two-stage pipeline: first train the captioner, then VQA with it.
-  Stage 1 trains on MSCOCO captions (no questions).
+  Two-stage pipeline: first train the QD captioner, then VQA with it.
+  Stage 1 trains on vqa_v2_question_dependent_captions_*.json.
   Stage 2 trains on VQA v2 and loads the captioner checkpoint.
 -->
 
 | Stage | Project | Data | Output |
 |-------|---------|------|--------|
-| **1** | `SimpleImageCaptioner/` | QD captions `(image, question, caption)` — or legacy MSCOCO | Question-dependent caption |
+| **1** | `QuestionDependentImageCaptioner/` | QD captions `(image, question, caption)` | Question-dependent caption |
 | **2** | `SimpleVQA/` | VQA v2 (question + answer) | Answer for (image, question) |
 
 ```mermaid
 flowchart LR
-    subgraph S1["Stage 1 — SimpleImageCaptioner QD"]
+    subgraph S1["Stage 1 — QuestionDependentImageCaptioner"]
         I1[Image] --> RCNN1[Faster R-CNN]
-        RCNN1 --> GNN1[RelationGNN]
         Q1[Question] --> QGRU1[q_emb + q_gru]
-        GNN1 --> DEC[LSTM Decoder]
-        QGRU1 --> DEC
+        RCNN1 --> QATT[Question attention once]
+        QGRU1 --> QATT
+        QATT --> FUSE1[concat fusion]
+        QGRU1 --> FUSE1
+        FUSE1 --> DEC[LSTM Decoder]
+        RCNN1 --> SATT[per-step attention]
+        SATT --> DEC
         DEC --> CAP[QD Caption tokens]
     end
 
@@ -53,19 +57,20 @@ flowchart LR
 
 ---
 
-## Stage 1 — SimpleImageCaptioner
+## Stage 1 — QuestionDependentImageCaptioner
 
 <!--
-  Main model: SimpleImageCaptioner in captioner_v1.py
-  Training: SimpleImageCaptioner/train.py
-  QD mode: dataset_mode=qd → (image, question, caption) from VQA rule-based JSON.
+  Main model: QuestionDependentImageCaptioner in captioner_v1.py
+  Training: QuestionDependentImageCaptioner/train.py
+  Data: vqa_v2_question_dependent_captions_*.json (image, question, caption).
+  No RelationGNN in Stage 1. Question is required.
 -->
 
 ### Goal
 
-Stage 1 (QD, default path): learn **(image, question) → question-dependent caption**.
+Stage 1: learn **(image, question) → question-dependent caption**.
 
-Legacy MSCOCO path (`dataset_mode: coco`) still supported with `qctx=0`.
+MSCOCO-only (no question) path is removed.
 
 ### Pipeline (QD)
 
@@ -74,24 +79,27 @@ flowchart TB
     IMG["Image (3×448×448)"]
     FRCNN["Faster R-CNN (frozen)\n→ 32 regions × 1024"]
     ROI["roi_to_region (trainable)\n→ 32 × 2048"]
-    GNN["RelationGNN (optional)\nregions + gnn_delta"]
-    INIT["LSTM init\nh,c = tanh(W · concat(mean_r, qctx))"]
     Q["question_ids"]
     QEMB["q_emb"]
     QGRU["q_gru (PAD-aware)"]
     QCTX["qctx: hidden_dim"]
+    QATT["question_attention(regions, qctx)\n→ attended 512"]
+    FUSE["FeatureFusion concat\nfused = Linear([qctx; attended])"]
+    INIT["LSTM init\nh,c = tanh(W · fused)"]
     LOOP["Decode loop t=1..T"]
 
-    IMG --> FRCNN --> ROI --> GNN --> INIT --> LOOP
-    Q --> QEMB --> QGRU --> QCTX --> INIT
-    QCTX --> LOOP
+    IMG --> FRCNN --> ROI
+    Q --> QEMB --> QGRU --> QCTX
+    ROI --> QATT
+    QCTX --> QATT --> FUSE
+    QCTX --> FUSE --> INIT --> LOOP
 
     subgraph LOOP_DETAIL["Each step t"]
-        ATT["attention(regions, proj(concat(h, qctx)))\n→ context 512-D"]
+        SATT["step_attention(regions, h)\n→ z_t 512-D"]
         WE["word_emb(token_{t-1})"]
-        LSTM["LSTMCell(concat(word, attended, qctx))"]
-        OUT["classifier(h + ctx)\n→ logits"]
-        ATT --> LSTM
+        LSTM["LSTMCell(concat(word, fused, z_t))"]
+        OUT["classifier(h + ctx_to_logit(z_t))\n→ logits"]
+        SATT --> LSTM
         WE --> LSTM
         LSTM --> OUT
     end
@@ -104,13 +112,13 @@ flowchart TB
 | Layer | File | Trainable? | Input → Output |
 |-------|------|------------|----------------|
 | `RegionEncoder` | `captioner_v1.py` | `roi_to_region` only | Image → `(N, 32, 2048)` |
-| `RelationGNN` | `relation_gnn.py` | Yes | `(N,32,2048)` → `(N,32,2048)` residual |
-| `RegionAttention` | `captioner_v1.py` | Yes | regions + `proj([h;qctx])` → context 512 |
-| `attn_query_proj` | `captioner_v1.py` | Yes | `[h; qctx]` 1024 → query 512 |
-| `region_init_h/c` | `captioner_v1.py` | Yes | `concat(mean_r, qctx)` → `h0,c0` 512 |
+| `question_attention` | `captioner_v1.py` | Yes | regions + `qctx` → attended 512 (once) |
+| `FeatureFusion` | `captioner_v1.py` | Yes | `concat(qctx, attended)` → fused 512 |
+| `init_h` / `init_c` | `captioner_v1.py` | Yes | fused → `h0,c0` 512 |
+| `step_attention` | `captioner_v1.py` | Yes | regions + `h` → `z_t` 512 |
 | `word_emb` | `captioner_v1.py` | Yes | caption token id → 512 |
-| `q_emb` + `q_gru` | `captioner_v1.py` | Yes (QD) | question ids → `qctx` 512 |
-| `LSTMCell` | `captioner_v1.py` | Yes | `[word; attended; qctx]` → `h_t` 512 |
+| `q_emb` + `q_gru` | `captioner_v1.py` | Yes | question ids → `qctx` 512 |
+| `LSTMCell` | `captioner_v1.py` | Yes | `[word; fused; z_t]` → `h_t` 512 |
 | `classifier` | `captioner_v1.py` | Yes | hidden → vocab logits |
 
 ### Decode (inference)
@@ -139,7 +147,8 @@ Input:  (image, question_ids, caption_ids GT)
 Loss:   CrossEntropy on caption_ids[:, 1:]
 Mode:   Teacher forcing (+ optional scheduled sampling)
 Config: configs/default.yaml
-Output: outputs/qd_*/best.pt  (model + vocab + q_vocab)
+Data:   vqa_v2_question_dependent_captions_{train,val}2014.json
+Output: outputs/*/best.pt  (model + vocab + q_vocab)
 ```
 
 **Special tokens:** PAD=0, BOS=1, EOS=2
@@ -227,7 +236,7 @@ flowchart TB
 
 ### Caption integration
 
-Captioner is loaded from `SimpleImageCaptioner/outputs/qd_*/best.pt`:
+Captioner is loaded from `QuestionDependentImageCaptioner/outputs/*/best.pt`:
 
 | Captioner part | Stage 2 status (default) |
 |----------------|--------------------------|
@@ -237,10 +246,12 @@ Captioner is loaded from `SimpleImageCaptioner/outputs/qd_*/best.pt`:
 **Question conditioning in captioner (QD Stage 1):**
 
 ```
-qctx = q_gru(q_emb(q_cap))   # PAD-aware last state
-h0, c0 = tanh(W · concat(mean(regions), qctx))   # QD LSTM init
-attention_query = attn_query_proj([h_{t-1}; qctx])   # concat then Linear 1024→512
-LSTM input = [word; attended; qctx]
+qctx = q_gru(q_emb(q_cap))                    # PAD-aware last state
+attended = question_attention(regions, qctx)  # one-shot
+fused = Linear(concat(qctx, attended))        # FeatureFusion concat
+h0, c0 = tanh(W · fused)
+z_t = step_attention(regions, h_{t-1})        # per-step refocus
+LSTM input = [word; fused; z_t]
 ```
 
 ### v_cap — two modes (`caption_repr`)
@@ -335,17 +346,16 @@ src/
 ├── architecture/
 │   ├── ARCHITECTURE.en.md       English (this file)
 │   └── ARCHITECTURE.fa.md       Finglish / Persian-English
-├── SimpleImageCaptioner/
+├── QuestionDependentImageCaptioner/
 │   ├── train.py                 Stage 1 training
 │   ├── eval.py                  Caption inference / demo
 │   ├── models/
-│   │   ├── captioner_v1.py      SimpleImageCaptioner (main)
-│   │   ├── relation_gnn.py      GNN for captioner
+│   │   ├── captioner_v1.py      QuestionDependentImageCaptioner
 │   │   └── base_captioner.py    Interface
 │   └── configs/smoke.yaml, default.yaml
 │
 └── SimpleVQA/
-    ├── train.py                 Stage 2 training + VQAModel
+    ├── train.py                 Stage 2 training + VQAModel (+ own RelationGNN)
     ├── eval.py                  VQA inference (q_cap, greedy acc, samples)
     └── configs/smoke.yaml       → captioner outputs/smoke/best.pt
 ```
@@ -356,7 +366,7 @@ src/
 
 ```bash
 # 1) Stage 1 — QD captioner
-cd SimpleImageCaptioner
+cd QuestionDependentImageCaptioner
 python train.py --config configs/smoke.yaml
 
 # 2) Stage 2 (captioner_ckpt → outputs/smoke/best.pt in smoke.yaml)
@@ -367,7 +377,7 @@ python train.py --config configs/smoke.yaml
 python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --split train --samples 20
 
 # 4) Eval QD caption
-cd ../SimpleImageCaptioner
+cd ../QuestionDependentImageCaptioner
 python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt \
   --image-id 25 --split train --question "How many animals are in this photo?"
 ```
@@ -383,7 +393,7 @@ python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt \
 
 | Cache | Project | Path pattern | Content |
 |-------|---------|--------------|---------|
-| Region (captioner) | SimpleImageCaptioner | `{image_id}.pt` | raw ROI 1024-D |
+| Region (captioner) | QuestionDependentImageCaptioner | `{image_id}.pt` | raw ROI 1024-D |
 | Region (VQA) | SimpleVQA | `{image_id}_k32_raw1024.pt` | raw ROI 1024-D |
 | Global (VQA) | SimpleVQA | `{image_id}.pt` | ResNet 2048-D |
 

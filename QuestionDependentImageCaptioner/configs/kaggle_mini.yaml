@@ -1,0 +1,47 @@
+# Kaggle mini — QD caption sanity check.
+# torchrun --nproc_per_node=2 train.py --config configs/kaggle_mini.yaml
+seed: 42
+train_captions_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/vqa_v2_question_dependent_captions_train2014.json
+val_captions_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/vqa_v2_question_dependent_captions_val2014.json
+train_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014
+val_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/val2014
+train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
+save_dir: outputs/kaggle_mini
+save_model_type: epoch
+save_every_samples: 5000
+num_workers: 2
+batch_size: 32
+epochs: 10
+eval_every: 1
+learning_rate: 0.0005
+dropout: 0.3
+lr_decay_factor: 0.6
+lr_decay_interval: 4
+use_amp: true
+grad_accum_steps: 1
+max_caption_len: 20
+max_question_len: 14
+vocab_min_freq: 2
+max_regions: 32
+cache_regions: true
+train_region_cache_dir: /kaggle/working/region_cache/captioner/train
+val_region_cache_dir: /kaggle/working/region_cache/captioner/val
+image_size: 448
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+word_dim: 512
+hidden_dim: 512
+embed_dim: 512
+region_dim: 2048
+question_dim: 1280
+fuse_mode: concat
+device: cuda
+ddp: true
+ddp_backend: nccl
+max_train_images: 20000
+max_val_images: 500
+scheduled_sampling_max_prob: 0.24
+scheduled_sampling_interval: 4
+scheduled_sampling_increment: 0.06

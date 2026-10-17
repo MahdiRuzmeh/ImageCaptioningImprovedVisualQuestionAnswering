@@ -1,5 +1,5 @@
 # Kaggle mini — fast VQA sanity check before full training.
-# Run AFTER SimpleImageCaptioner kaggle_mini (or point captioner_ckpt at your checkpoint).
+# Run AFTER QuestionDependentImageCaptioner kaggle_mini (or point captioner_ckpt).
 #
 # Run (notebook, from SimpleVQA/):
 #   # Kaggle 2xT4 (ddp: true):
@@ -32,9 +32,10 @@ use_captioner: true
 #                trainable encode mishan → ma'na-ye vaghei-e caption tazrigh mishe.
 #                Baraye test-e inke aya caption komak mikone "text" ro emtehan kon.
 caption_repr: hidden
-captioner_project_root: /kaggle/working/ImageCaptioningImprovedVisualQuestionAnswering/SimpleImageCaptioner
+captioner_project_root: /kaggle/working/ImageCaptioningImprovedVisualQuestionAnswering/QuestionDependentImageCaptioner
 captioner_ckpt: /kaggle/input/notebooks/mahdirouzmeh/vqa-firstbasepaper/outputs/kaggle_mini/best.pt
-captioner_class: SimpleImageCaptioner
+captioner_class: QuestionDependentImageCaptioner
+captioner_fuse_mode: concat
 num_workers: 2
 prefetch_factor: 2
 pin_memory: true

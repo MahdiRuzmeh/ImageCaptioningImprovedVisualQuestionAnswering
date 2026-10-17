@@ -20,7 +20,7 @@ This document describes the architecture of the **QuestionDependentCaptionGenera
 flowchart LR
   VQA[VQA v2 Q+A] --> Gen[QuestionDependentCaptionGenerator]
   Gen --> Caps[Caption JSON]
-  Caps --> CapTrain[SimpleImageCaptioner training]
+  Caps --> CapTrain[QuestionDependentImageCaptioner training]
   CapTrain --> Downstream[Improved VQA / experiments]
 ```
 

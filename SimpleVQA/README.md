@@ -17,7 +17,7 @@ dual LSTM → answer (greedy at eval)
 ## Prerequisites
 
 ```bash
-cd ../SimpleImageCaptioner
+cd ../QuestionDependentImageCaptioner
 python train.py --config configs/smoke.yaml    # or default.yaml
 ```
 
@@ -58,7 +58,7 @@ Paths relative to `SimpleVQA/`.
 | Key | Meaning |
 |-----|---------|
 | `use_captioner` | Fuse captioner `v_cap` with `v_att`; `false` = `v_att` only |
-| `captioner_project_root` | Path to `SimpleImageCaptioner` code |
+| `captioner_project_root` | Path to `QuestionDependentImageCaptioner` code |
 | `captioner_ckpt` | Stage-1 captioner checkpoint (`best.pt`) |
 | `captioner_class` | Captioner class name in `captioner_v1.py` |
 | `captioner_finetune_q` | Unfreeze captioner `q_emb` / `q_gru` during VQA train |

@@ -3,10 +3,10 @@
 Paper §3.3–§3.4: caption module bayad betune caption generate kone va
 be vector (v_cap) tabdil kone ta ba visual attention dar VQA fuse beshe.
 
-Taghirat VQA (do vocabulary + fine-tune soal):
-    - ``word_emb`` baraye caption, ``q_emb`` baraye soal VQA (joda)
-    - ``get_caption_embedding(..., differentiable=True)`` baraye train VQA
-      ke grad be ``q_emb`` beresad (bedoon caption ground-truth)
+QD Stage 1 (QuestionDependentImageCaptioner):
+    - word_emb baraye caption, q_emb + q_gru baraye soal
+    - soal lazeme; get_caption_embedding(..., differentiable=True) baraye
+      train VQA ta grad be q_emb beresad
 """
 
 from abc import ABC, abstractmethod
@@ -30,7 +30,7 @@ class BaseImageCaptioner(nn.Module, ABC):
         question_ids: Optional[torch.Tensor] = None,
         max_len: int = 20,
     ) -> torch.Tensor:
-        """Greedy caption generation az BOS token."""
+        """Caption generation az BOS — soal lazeme dar QD model."""
 
     @abstractmethod
     def encode_caption(self, caption_ids: torch.Tensor) -> torch.Tensor:
@@ -46,8 +46,8 @@ class BaseImageCaptioner(nn.Module, ABC):
         """Generate caption + pool → (v_cap, token_ids) baraye VQA fusion.
 
         Args:
-            differentiable: age ``True`` (train VQA), v_cap bayad grad dashte bashe ta
-                ``q_emb`` / ``q_proj`` az answer loss update beshan. Implementation
-                dar ``SimpleImageCaptioner`` az LSTM hidden pool estefade mikone
-                chon argmax gradient ro cut mikone va caption GT nadarim.
+            differentiable: age True (train VQA), v_cap bayad grad dashte bashe
+                ta q_emb az answer loss update beshe. Implementation dar
+                QuestionDependentImageCaptioner az LSTM hidden pool estefade
+                mikone chon argmax gradient ro cut mikone.
         """

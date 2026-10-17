@@ -1,19 +1,15 @@
-"""Train a minimal region-attention LSTM image captioner (one file).
+"""Train QuestionDependentImageCaptioner roye QD caption JSON.
 
-Paper reference (*Image captioning improved visual question answering*, §3.3)
----------------------------------------------------------------------------
-1. Encoder: K region vectors ``v_i`` from Faster R-CNN (frozen).
-2. Decoder: at each step ``t``, attention weights ``α_{ti} ∝ exp(f_att(v_i, h_{t-1}))``,
-   context ``z_t = Σ_i α_{ti} v_i``, then LSTM predicts the next word from
-   ``[word_embedding ; z_t]``.
+Architecture (Stage 1):
+1. Faster R-CNN (freeze) → region features.
+2. q_emb + GRU → qctx.
+3. Yek bar question attention → attended visual.
+4. concat fusion(qctx, attended) → fused.
+5. LSTM: init az fused; har step attention ba h + concat(word, fused, z_t).
 
-Paper sizes (§3.1, §5, Table 2): regions ``v_i ∈ ℝ^{2048}``, LSTM / word / attention
-working dim **512**, **32** regions. Project ``h_{t-1}`` and each ``v_i`` to 512 for scores,
-sum weighted **2048-D** regions, then project context to 512 for the LSTM.
+Run az ``QuestionDependentImageCaptioner/`` (paths relative be oon folder)::
 
-Run from ``SimpleImageCaptioner/`` (paths in YAML are relative to that folder)::
-
-    cd SimpleImageCaptioner
+    cd QuestionDependentImageCaptioner
     python train.py --config configs/default.yaml
     python train.py --config configs/default.yaml --continue
 """
@@ -46,7 +42,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from models.captioner_v1 import SimpleImageCaptioner
+from models.captioner_v1 import QuestionDependentImageCaptioner
 
 """
 Finglish note (Resource optimization)
@@ -401,36 +397,6 @@ class Vocab:
         return self.stoi[self.PAD]
 
 
-# in function karesh ine file caption MSCOCO ro be ye dictionary tabdil kone.
-# {image_id1 => [caption1,caption2, ...], ...}
-def load_caps_json(path: str) -> Dict[int, List[str]]:
-    """MSCOCO captions JSON -> ``{image_id: [caption, ...]}``."""
-    with Path(path).open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    out: Dict[int, List[str]] = {}
-    for ann in data["annotations"]:
-        out.setdefault(int(ann["image_id"]), []).append(ann["caption"])
-    return out
-
-# in function karesh ine chand caption/hame caption haro dar miyare. [c1,c2,c3, ...]
-# badan miyad ye object az class Vocab misaze va caption haro behesh pass mide.
-
-
-def build_vocab(captions_json: str, min_freq: int, max_images: Optional[int]) -> Vocab:
-    """Collect tokens from training captions (optionally capped image count)."""
-    caps = load_caps_json(captions_json)
-    ids = sorted(caps.keys())
-    if max_images and max_images > 0:
-        ids = ids[:max_images]
-
-    # in words dar higigat listi az caption ha ast. yani: [c1, c2,c3, ...]
-    words: List[str] = []
-    for i in ids:
-        for c in caps[i]:
-            words.extend(tok(c))
-    return Vocab(words, min_freq=min_freq)
-
-
 # ---------------------------------------------------------------------------
 # Question-dependent (QD) captions — az VQA Q+A rule-based JSON
 # ---------------------------------------------------------------------------
@@ -439,7 +405,7 @@ def build_vocab(captions_json: str, min_freq: int, max_images: Optional[int]) ->
 def load_qd_json(path: str) -> List[Dict[str, Any]]:
     """QD JSON ro load kon → list sample: image_id, question, caption.
 
-    Format (QuestionDependentCaptions/generate.py):
+    Format (QuestionDependentCaptionGenerator):
         {"annotations": [{"image_id", "question", "caption", ...}, ...]}
     """
     with Path(path).open("r", encoding="utf-8") as f:
@@ -455,7 +421,7 @@ def build_qd_vocabs(
     """Az train QD JSON do vocab besaz: caption + question (train-only, no leak).
 
     Args:
-        qd_json: path be v2_question_dependent_captions_*.json
+        qd_json: path be vqa_v2_question_dependent_captions_*.json
         min_freq: min token frequency baraye har do vocab
         max_images: age set, faghat sample haye N image_id aval
 
@@ -478,78 +444,10 @@ def build_qd_vocabs(
 # ---------------------------------------------------------------------------
 # Dataset
 # ---------------------------------------------------------------------------
-class CocoCaptionDataset(Dataset):
-    """One row per (image, caption sentence) with 448×448 ImageNet normalization."""
-
-    def __init__(
-        self,
-        images_dir: str,
-        captions_json: str,
-        vocab: Vocab,
-        # max lenght caption
-        max_len: int,
-        filename_template: str,
-        image_ids: Optional[List[int]] = None,
-        image_size: int = 448,
-    ) -> None:
-        self.images_dir = Path(images_dir)
-        self.vocab = vocab
-        self.max_len = max_len
-        self.filename_template = filename_template
-        self.samples: List[Tuple[int, str]] = []
-
-        # listi az dictionary has:
-        # [[image_id_1,[c1,c2,c3]],[image_id_2,[c4,c5,c6]], ...]
-        caps = load_caps_json(captions_json)
-
-        ids = sorted(image_ids) if image_ids else sorted(caps.keys())
-        for i in ids:
-            for c in caps.get(i, []):
-                # toye samples miyaym caps ro flatten mikonim. engar har be ezaye har image va caption ye item inja misazim.
-                # yani [[image_id1,caption1],[image_id1,caption2],[image_id1,caption3], ..., [image_id2,caption6]]
-                self.samples.append((i, c))
-
-        # TODO:: in chiye?
-        # engar image haro be size (448,448) tabdil mikone. bagiyasho nemidonam.
-        self.transform = transforms.Compose(
-            [
-                transforms.Resize((int(image_size), int(image_size))),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [
-                                     0.229, 0.224, 0.225]),
-            ]
-        )
-
-    def __len__(self) -> int:
-        return len(self.samples)
-
-    # in function image id migire va ye dictionary barmigardone: {image, caption_ids}
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
-        image_id, caption = self.samples[idx]
-        path = self.images_dir / \
-            self.filename_template.format(image_id=image_id)
-
-        # size image ro be chizi ke mikhaym tabdil mikonim
-        image = self.transform(Image.open(path).convert("RGB"))
-
-        # tok(caption)[: self.max_len - 2]:
-        #  ما متن را توکنایز می‌کنیم و طول آن را محدود می‌کنیم. چرا -2؟
-        # چون قرار است دو توکن ویژه به ابتدا و انتهای آن اضافه کنیم (<bos> و <eos>).
-        tokens = self.vocab.encode(tok(caption)[: self.max_len - 2])
-
-        # [1]=> BOS, [2]=> EOS
-        caption_ids = [1] + tokens + [2]
-        return {
-            "image": image,
-            "caption_ids": torch.tensor(caption_ids, dtype=torch.long),
-            "image_id": int(image_id),
-        }
-
-
 class VqaQdCaptionDataset(Dataset):
     """Yek sample = (image, question, QD caption) baraye question-dependent train.
 
-    JSON az ``QuestionDependentCaptions/generate.py``:
+    JSON az ``QuestionDependentCaptionGenerator``:
         annotations[] → image_id, question, caption
     """
 
@@ -654,13 +552,12 @@ def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         "image_ids": image_ids,
     }
 
-    # QD batches: question_ids ham pad mishe
-    if "question_ids" in batch[0]:
-        max_q = max(len(b["question_ids"]) for b in batch)
-        questions = torch.zeros((len(batch), max_q), dtype=torch.long)
-        for i, b in enumerate(batch):
-            questions[i, : len(b["question_ids"])] = b["question_ids"]
-        out["questions"] = questions
+    # QD: question_ids hamishe pad mishe
+    max_q = max(len(b["question_ids"]) for b in batch)
+    questions = torch.zeros((len(batch), max_q), dtype=torch.long)
+    for i, b in enumerate(batch):
+        questions[i, : len(b["question_ids"])] = b["question_ids"]
+    out["questions"] = questions
 
     return out
 
@@ -804,7 +701,7 @@ def build_lr_scheduler(
 
 
 def train_epoch(
-    model: SimpleImageCaptioner,
+    model: QuestionDependentImageCaptioner,
     loader: DataLoader,
     optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
@@ -826,7 +723,7 @@ def train_epoch(
 
     When ``save_model_type=item``, saves ``last.pt`` every ``save_every_samples``
     global training samples (see ``maybe_save_by_samples``).
-    QD mode: batch["questions"] → ``forward_train(..., question_ids=...)``.
+    batch["questions"] → ``forward_train(..., question_ids=...)``.
     """
     model.train()
     total_loss = 0.0
@@ -836,18 +733,15 @@ def train_epoch(
     ss_p = scheduled_sampling_prob(epoch, cfg)
     optimizer.zero_grad(set_to_none=True)
 
-    # ba class tqdm progress bar baraye training neshon midim
     pbar = tqdm(loader, desc="train", leave=False)
 
     for i, batch in enumerate(pbar):
         images = batch["images"].to(device, non_blocking=device.type == "cuda")
         caps = batch["captions"].to(device, non_blocking=device.type == "cuda")
         image_ids = batch["image_ids"].to(device, non_blocking=device.type == "cuda")
-        question_ids = None
-        if "questions" in batch:
-            question_ids = batch["questions"].to(
-                device, non_blocking=device.type == "cuda"
-            )
+        question_ids = batch["questions"].to(
+            device, non_blocking=device.type == "cuda"
+        )
 
         # dar pytorch gradient ha accumulative hastan(yani besorat default baham jaam mishan)
         # vali ma niyaz nadarim jameshon konim pas toye ebtedaye har batch gradient gabli ro none mikonim.
@@ -934,17 +828,14 @@ def train_epoch(
 
 @torch.no_grad()
 def eval_epoch(
-    model: SimpleImageCaptioner,
+    model: QuestionDependentImageCaptioner,
     loader: DataLoader,
     criterion: nn.Module,
     device: torch.device,
     cfg: Dict[str, Any],
     split: str = "val",
 ) -> Tuple[float, float]:
-    """Validation loss and token accuracy (pure teacher forcing).
-
-    QD: age batch soal dashte bashe, question_ids be forward_train miravad.
-    """
+    """Validation loss and token accuracy (pure teacher forcing + soal)."""
     model.eval()
     total_loss = 0.0
     total_acc = 0.0
@@ -954,11 +845,9 @@ def eval_epoch(
         images = batch["images"].to(device, non_blocking=device.type == "cuda")
         caps = batch["captions"].to(device, non_blocking=device.type == "cuda")
         image_ids = batch["image_ids"].to(device, non_blocking=device.type == "cuda")
-        question_ids = None
-        if "questions" in batch:
-            question_ids = batch["questions"].to(
-                device, non_blocking=device.type == "cuda"
-            )
+        question_ids = batch["questions"].to(
+            device, non_blocking=device.type == "cuda"
+        )
 
         # inja serfan feed forward anjam midim(backward nadarim)
         logits = unwrap_model(model).forward_train(
@@ -1012,11 +901,11 @@ def eval_epoch(
 
 def parse_args() -> argparse.Namespace:
     """CLI: path to YAML config (all hyperparameters live in the config file)."""
-    p = argparse.ArgumentParser(description="Train SimpleImageCaptioner")
+    p = argparse.ArgumentParser(description="Train QuestionDependentImageCaptioner")
     p.add_argument(
         "--config",
         default="configs/default.yaml",
-        help="YAML config (relative to SimpleImageCaptioner/ unless absolute)",
+        help="YAML config (relative to project folder unless absolute)",
     )
     p.add_argument("--resume", default=None, help="Path to checkpoint (.pt)")
     p.add_argument(
@@ -1084,9 +973,9 @@ def load_checkpoint(
     Steps:
     1) load config az YAML
     2) build vocabulary az captions
-    3) sakhte CocoCaptionDataset
+    3) sakhte VqaQdCaptionDataset
     4) sakhte DataLoader baraye train/val
-    5) initialize SimpleImageCaptioner
+    5) initialize QuestionDependentImageCaptioner
     6) run train_epoch va eval_epoch
     7) save last.pt va best.pt checkpoints
 
@@ -1107,12 +996,7 @@ def load_checkpoint(
 
 
 def main() -> None:
-    """Load config from CLI, then build data, model, and run train/val loops.
-
-    ``dataset_mode``:
-        - ``coco`` (default): MSCOCO (image, caption) — question_ids=None
-        - ``qd``: question-dependent JSON (image, question, caption) + q_emb/q_gru
-    """
+    """Load config, build QD data + QuestionDependentImageCaptioner, train/val."""
     cli = parse_args()
     config_path = Path(cli.config)
     if not config_path.is_absolute():
@@ -1137,7 +1021,6 @@ def main() -> None:
     # Finglish: baraye DDP, seed ro ham per-rank shift midim ta shuffle yeksan nabashe.
     set_seed(int(cfg["seed"]) + int(rank))
 
-    # Full config dump before dataset/model build — compare ablations from logs.
     print_run_config(
         cfg,
         config_path=str(config_path),
@@ -1154,90 +1037,52 @@ def main() -> None:
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = True
 
-    dataset_mode = str(cfg.get("dataset_mode", "qd")).lower()
     max_train = image_cap(cfg.get("max_train_images"))
     max_val = image_cap(cfg.get("max_val_images"))
     max_train_samples = image_cap(cfg.get("max_train_samples"))
     max_val_samples = image_cap(cfg.get("max_val_samples"))
 
-    q_vocab: Optional[Vocab] = None
+    # Finglish — QD: do vocab (caption + question) az train JSON
+    vocab, q_vocab = build_qd_vocabs(
+        cfg["train_captions_json"],
+        int(cfg["vocab_min_freq"]),
+        max_train,
+    )
+    train_ids = None
+    val_ids = None
+    if max_train is not None:
+        train_ids = sorted(
+            {int(r["image_id"]) for r in load_qd_json(cfg["train_captions_json"])}
+        )[:max_train]
+    if max_val is not None:
+        val_ids = sorted(
+            {int(r["image_id"]) for r in load_qd_json(cfg["val_captions_json"])}
+        )[:max_val]
 
-    if dataset_mode == "qd":
-        # Finglish — QD from-scratch: do vocab (caption + question) az train JSON
-        vocab, q_vocab = build_qd_vocabs(
-            cfg["train_captions_json"],
-            int(cfg["vocab_min_freq"]),
-            max_train,
-        )
-        train_ids = None
-        val_ids = None
-        if max_train is not None:
-            train_ids = sorted(
-                {int(r["image_id"]) for r in load_qd_json(cfg["train_captions_json"])}
-            )[:max_train]
-        if max_val is not None:
-            val_ids = sorted(
-                {int(r["image_id"]) for r in load_qd_json(cfg["val_captions_json"])}
-            )[:max_val]
-
-        train_ds = VqaQdCaptionDataset(
-            cfg["train_images_dir"],
-            cfg["train_captions_json"],
-            vocab,
-            q_vocab,
-            int(cfg["max_caption_len"]),
-            int(cfg.get("max_question_len", 14)),
-            cfg["train_image_filename_template"],
-            image_ids=train_ids,
-            image_size=int(cfg.get("image_size", 448)),
-            max_samples=max_train_samples,
-        )
-        val_ds = VqaQdCaptionDataset(
-            cfg["val_images_dir"],
-            cfg["val_captions_json"],
-            vocab,
-            q_vocab,
-            int(cfg["max_caption_len"]),
-            int(cfg.get("max_question_len", 14)),
-            cfg["val_image_filename_template"],
-            image_ids=val_ids,
-            image_size=int(cfg.get("image_size", 448)),
-            max_samples=max_val_samples,
-        )
-    else:
-        train_ids = None
-        val_ids = None
-        if max_train is not None:
-            train_ids = sorted(load_caps_json(
-                cfg["train_captions_json"]).keys())[:max_train]
-        if max_val is not None:
-            val_ids = sorted(load_caps_json(
-                cfg["val_captions_json"]).keys())[:max_val]
-
-        vocab = build_vocab(
-            cfg["train_captions_json"],
-            int(cfg["vocab_min_freq"]),
-            max_train,
-        )
-
-        train_ds = CocoCaptionDataset(
-            cfg["train_images_dir"],
-            cfg["train_captions_json"],
-            vocab,
-            int(cfg["max_caption_len"]),
-            cfg["train_image_filename_template"],
-            image_ids=train_ids,
-            image_size=int(cfg.get("image_size", 448)),
-        )
-        val_ds = CocoCaptionDataset(
-            cfg["val_images_dir"],
-            cfg["val_captions_json"],
-            vocab,
-            int(cfg["max_caption_len"]),
-            cfg["val_image_filename_template"],
-            image_ids=val_ids,
-            image_size=int(cfg.get("image_size", 448)),
-        )
+    train_ds = VqaQdCaptionDataset(
+        cfg["train_images_dir"],
+        cfg["train_captions_json"],
+        vocab,
+        q_vocab,
+        int(cfg["max_caption_len"]),
+        int(cfg.get("max_question_len", 14)),
+        cfg["train_image_filename_template"],
+        image_ids=train_ids,
+        image_size=int(cfg.get("image_size", 448)),
+        max_samples=max_train_samples,
+    )
+    val_ds = VqaQdCaptionDataset(
+        cfg["val_images_dir"],
+        cfg["val_captions_json"],
+        vocab,
+        q_vocab,
+        int(cfg["max_caption_len"]),
+        int(cfg.get("max_question_len", 14)),
+        cfg["val_image_filename_template"],
+        image_ids=val_ids,
+        image_size=int(cfg.get("image_size", 448)),
+        max_samples=max_val_samples,
+    )
 
     device_is_cuda = device.type == "cuda"
     loader_kw = {
@@ -1275,14 +1120,12 @@ def main() -> None:
         "embed_dim": int(cfg.get("embed_dim", hidden_dim)),
         "region_dim": int(cfg["region_dim"]),
         "dropout": float(cfg.get("dropout", 0.5)),
-        "use_gnn": bool(cfg.get("use_gnn", True)),
-        "gnn_dim": int(cfg["gnn_dim"]) if cfg.get("gnn_dim") is not None else None,
+        "question_vocab_size": len(q_vocab.itos),
+        "question_pad_id": q_vocab.pad_id,
+        "fuse_mode": str(cfg.get("fuse_mode", "concat")),
     }
-    if q_vocab is not None:
-        model_kw["question_vocab_size"] = len(q_vocab.itos)
-        model_kw["question_pad_id"] = q_vocab.pad_id
 
-    model = SimpleImageCaptioner(**model_kw).to(device)
+    model = QuestionDependentImageCaptioner(**model_kw).to(device)
     if ddp_on:
         # Finglish: DDP baraye 2xT4 Kaggle. torchrun required.
         from torch.nn.parallel import DistributedDataParallel as DDP
@@ -1336,11 +1179,11 @@ def main() -> None:
 
     if rank == 0:
         print(f"config={config_path}")
-        q_msg = f" q_vocab={len(q_vocab.itos)}" if q_vocab is not None else ""
         print(
-            f"device={device} ddp={ddp_on} world={world} dataset_mode={dataset_mode} "
+            f"device={device} ddp={ddp_on} world={world} dataset=qd "
             f"train_rows={len(train_ds)} val_rows={len(val_ds)} "
-            f"vocab={len(vocab.itos)}{q_msg} save_model_type={save_type}"
+            f"vocab={len(vocab.itos)} q_vocab={len(q_vocab.itos)} "
+            f"save_model_type={save_type}"
         )
         if save_type == "item":
             print(f"save_every_samples={save_every_samples(cfg)}")

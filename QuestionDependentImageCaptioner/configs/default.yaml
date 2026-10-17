@@ -1,9 +1,9 @@
 # Full QD caption training.
-# Run from SimpleImageCaptioner/:
+# Run from QuestionDependentImageCaptioner/:
 #   python train.py --config configs/default.yaml
 seed: 42
-train_captions_json: ../dataset/v2_question_dependent_captions_train2014.json
-val_captions_json: ../dataset/v2_question_dependent_captions_val2014.json
+train_captions_json: ../dataset/vqa_v2_question_dependent_captions_train2014.json
+val_captions_json: ../dataset/vqa_v2_question_dependent_captions_val2014.json
 train_images_dir: ../dataset/train2014
 val_images_dir: ../dataset/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
@@ -36,9 +36,8 @@ word_dim: 512
 hidden_dim: 512
 embed_dim: 512
 region_dim: 2048
-use_gnn: true
-gnn_dim: 512
 question_dim: 1280
+fuse_mode: concat
 device: cuda
 ddp: false
 ddp_backend: nccl

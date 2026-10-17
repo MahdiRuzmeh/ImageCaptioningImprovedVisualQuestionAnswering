@@ -2,7 +2,7 @@
 
 Paper / thesis (do marhale)
 ----------------------------
-1. Aval captioner ro roye MSCOCO train kon (``SimpleImageCaptioner/train.py``).
+1. Aval captioner ro roye QD JSON train kon (``QuestionDependentImageCaptioner/train.py``).
 2. Bad captioner ro freeze kon va dakhele ``VQAModel`` estefade kon.
 
 Model flow (kholase)
@@ -375,7 +375,7 @@ def maybe_save_by_samples(
 # Tokenizer & Vocab
 # ---------------------------------------------------------------------------
 def tok(text: str) -> List[str]:
-    """Matn ro lowercase token kon (hamoon convention SimpleImageCaptioner)."""
+    """Matn ro lowercase token kon (hamoon convention QuestionDependentImageCaptioner)."""
     return TOKEN_RE.findall(text.lower())
 
 
@@ -728,7 +728,9 @@ def load_captioner(
     except Exception as e:
         raise ImportError(f"Cannot import captioner module {module_name}: {e}")
 
-    cls = getattr(mod, cfg.get("captioner_class", "SimpleImageCaptioner"))
+    cls = getattr(
+        mod, cfg.get("captioner_class", "QuestionDependentImageCaptioner")
+    )
 
     ckpt_path = Path(cfg["captioner_ckpt"])
     if ckpt_path.exists():
@@ -754,8 +756,7 @@ def load_captioner(
         question_pad_id=pad_id,
         embed_dim=int(cfg.get("embed_dim", cfg["hidden_dim"])),
         region_dim=int(cfg.get("region_dim", 2048)),
-        use_gnn=bool(cfg.get("use_gnn", True)),
-        gnn_dim=int(cfg["gnn_dim"]) if cfg.get("gnn_dim") is not None else None,
+        fuse_mode=str(cfg.get("captioner_fuse_mode", "concat")),
     )
 
     if ckpt_path.exists():

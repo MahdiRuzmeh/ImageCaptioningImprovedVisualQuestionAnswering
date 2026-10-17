@@ -1,13 +1,15 @@
-# SimpleImageCaptioner
+# QuestionDependentImageCaptioner
 
 Question-dependent image captioning — Stage 1 of the thesis pipeline (*Image captioning improved visual question answering*, Sharma & Jalal, 2021).
 
-Each training sample is `(image, question, caption)` from `v2_question_dependent_captions_*.json`. The decoder conditions on `qctx` (PAD-aware `q_gru`) for LSTM init `concat(mean_r, qctx)`, attention query `attn_query_proj([h; qctx])`, and LSTM input.
+Each training sample is `(image, question, caption)` from `vqa_v2_question_dependent_captions_*.json`.
+
+**Pipeline:** Faster R-CNN regions → `q_emb`+GRU → one-shot question attention → concat fusion → LSTM (per-step attention over regions with `h` only). No RelationGNN in Stage 1.
 
 ## Train
 
 ```bash
-cd SimpleImageCaptioner
+cd QuestionDependentImageCaptioner
 python train.py --config configs/default.yaml   # full run
 python train.py --config configs/smoke.yaml   # quick test
 ```
@@ -24,14 +26,14 @@ Checkpoint keys: `vocab` (caption words), `q_vocab` (question words for VQA `q_c
 
 ## Config reference (`configs/default.yaml` / `smoke.yaml`)
 
-All paths are relative to `SimpleImageCaptioner/` unless absolute.
+All paths are relative to `QuestionDependentImageCaptioner/` unless absolute.
 
 ### Data
 
 | Key | Meaning |
 |-----|---------|
-| `train_captions_json` | Question-dependent caption JSON (train split) |
-| `val_captions_json` | Question-dependent caption JSON (val split) |
+| `train_captions_json` | QD caption JSON (train) — `vqa_v2_question_dependent_captions_train2014.json` |
+| `val_captions_json` | QD caption JSON (val) |
 | `train_images_dir` | COCO train image folder |
 | `val_images_dir` | COCO val image folder |
 | `train_image_filename_template` | Train image filename pattern (`{image_id}`) |
@@ -72,13 +74,12 @@ All paths are relative to `SimpleImageCaptioner/` unless absolute.
 | Key | Meaning |
 |-----|---------|
 | `word_dim` | Caption word embedding size |
-| `hidden_dim` | LSTM hidden size (`lstm_hidden` alias) |
+| `hidden_dim` | LSTM / qctx / fused size |
 | `embed_dim` | Attention working dimension |
 | `region_dim` | Region feature dim after `roi_to_region` |
-| `question_dim` | `q_gru` hidden size |
+| `question_dim` | reserved (YAML parity with VQA) |
 | `max_regions` | Faster R-CNN regions kept per image |
-| `use_gnn` | Enable RelationGNN on regions |
-| `gnn_dim` | GNN hidden dimension |
+| `fuse_mode` | Feature fusion mode (`concat` only for now) |
 
 ### Image / cache / loader
 
@@ -119,16 +120,18 @@ All paths are relative to `SimpleImageCaptioner/` unless absolute.
 | `eval.py` | `--split` | `train` or `val` |
 | `eval.py` | `--samples N` | Print N random pred vs GT |
 | `eval.py` | `--image-id` | Single-image demo |
-| `eval.py` | `--question` | Question text (required for QD single-image) |
+| `eval.py` | `--question` | Question text (auto from JSON if omitted) |
 
 ## VQA integration (Stage 2)
 
 ```yaml
-captioner_ckpt: ../SimpleImageCaptioner/outputs/smoke/best.pt
+captioner_project_root: ../QuestionDependentImageCaptioner
+captioner_ckpt: ../QuestionDependentImageCaptioner/outputs/smoke/best.pt
+captioner_class: QuestionDependentImageCaptioner
 ```
 
 VQA uses `q_vocab` from this checkpoint as `q_cap` (separate from VQA’s own question vocab).
 
 ## Outputs
 
-`save_dir`: `last.pt` (latest epoch), `best.pt` (best val token accuracy).
+`save_dir`: `last.pt` (latest epoch), `best.pt` (best val loss).

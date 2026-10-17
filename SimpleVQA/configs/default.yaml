@@ -8,11 +8,12 @@ train_images_dir: ../dataset/train2014
 val_images_dir: ../dataset/val2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
-# Captioner freeze shode az SimpleImageCaptioner load mishe (marhale 2 paper).
+# Captioner freeze shode az QuestionDependentImageCaptioner load mishe (marhale 2).
 use_captioner: true
-captioner_project_root: ../SimpleImageCaptioner
-captioner_ckpt: ../SimpleImageCaptioner/outputs/default/best.pt
-captioner_class: SimpleImageCaptioner
+captioner_project_root: ../QuestionDependentImageCaptioner
+captioner_ckpt: ../QuestionDependentImageCaptioner/outputs/default/best.pt
+captioner_class: QuestionDependentImageCaptioner
+captioner_fuse_mode: concat
 # false = freeze hame captioner (QD Stage-1 q_emb/q_gru ghablan train shode)
 # true  = q_emb + q_gru az answer loss fine-tune mishavan
 captioner_finetune_q: false

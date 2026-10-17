@@ -4,8 +4,8 @@ Implementation of the two-stage pipeline from *Image captioning improved visual 
 
 | Project | Role |
 |---------|------|
-| [`SimpleImageCaptioner/`](SimpleImageCaptioner/) | **Stage 1** — question-dependent (QD) captioner: `(image, question) → caption` |
-| [`QuestionDependentCaptions/`](QuestionDependentCaptions/) | Rule engine to build QD training JSON from VQA v2 Q+A |
+| [`QuestionDependentImageCaptioner/`](QuestionDependentImageCaptioner/) | **Stage 1** — question-dependent (QD) captioner: `(image, question) → caption` |
+| [`QuestionDependentCaptionGenerator/`](QuestionDependentCaptionGenerator/) | Rule engine to build QD training JSON from VQA v2 Q+A |
 | [`SimpleVQA/`](SimpleVQA/) | **Stage 2** — VQA v2 with frozen QD captioner + trainable VQA head |
 
 Each project has `train.py`, `eval.py`, and YAML configs. See the README in each folder for details.
@@ -14,8 +14,8 @@ Each project has `train.py`, `eval.py`, and YAML configs. See the README in each
 
 ```
 src/
-  QuestionDependentCaptions/   # optional: generate QD caption JSON from VQA
-  SimpleImageCaptioner/        # stage 1 (QD captioner)
+  QuestionDependentCaptionGenerator/   # optional: generate QD caption JSON from VQA
+  QuestionDependentImageCaptioner/      # stage 1 (QD captioner)
   SimpleVQA/                   # stage 2 (VQA)
   dataset/                     # MSCOCO 2014 + VQA v2 JSON (you provide)
   architecture/                # ARCHITECTURE.en.md / ARCHITECTURE.fa.md
@@ -28,7 +28,7 @@ Place under `src/dataset/`:
 
 | Path | Used by |
 |------|---------|
-| `v2_question_dependent_captions_{train,val}2014.json` | Captioner (generate with `QuestionDependentCaptions/`) |
+| `vqa_v2_question_dependent_captions_{train,val}2014.json` | Captioner (generate with `QuestionDependentCaptionGenerator/`) |
 | `train2014/`, `val2014/` | Both stages |
 | `v2_OpenEnded_mscoco_*_questions.json` | VQA |
 | `v2_mscoco_*_annotations.json` | VQA |
@@ -43,7 +43,7 @@ From `src/`:
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r SimpleImageCaptioner/requirements.txt -r SimpleVQA/requirements.txt
+pip install -r QuestionDependentImageCaptioner/requirements.txt -r SimpleVQA/requirements.txt
 ```
 
 Requirements are the same for both projects: `torch`, `torchvision`, `pillow`, `tqdm`, `pyyaml`. Install [PyTorch](https://pytorch.org/) with CUDA if you use a GPU (`device: cuda` in configs).
@@ -53,18 +53,18 @@ Requirements are the same for both projects: `torch`, `torchvision`, `pillow`, `
 **Stage 0 (optional) — generate QD captions**
 
 ```powershell
-cd QuestionDependentCaptions
+cd QuestionDependentCaptionGenerator
 python generate.py --help
 ```
 
 **Stage 1 — QD captioner**
 
 ```powershell
-cd SimpleImageCaptioner
+cd QuestionDependentImageCaptioner
 python train.py --config configs/default.yaml
 ```
 
-Checkpoint: `SimpleImageCaptioner/outputs/default/best.pt` (includes `vocab`, `q_vocab`, model).
+Checkpoint: `QuestionDependentImageCaptioner/outputs/default/best.pt` (includes `vocab`, `q_vocab`, model).
 
 **Stage 2 — VQA**
 
@@ -92,21 +92,21 @@ python train.py --config configs/default.yaml --eval --ckpt outputs/default/best
 Verifies the pipeline on 100 train + 100 val questions before a long run.
 
 ```powershell
-cd SimpleImageCaptioner
+cd QuestionDependentImageCaptioner
 python train.py --config configs/smoke.yaml
 
 cd ../SimpleVQA
 python train.py --config configs/smoke.yaml
 ```
 
-Smoke VQA expects `SimpleImageCaptioner/outputs/smoke/best.pt` (set in `SimpleVQA/configs/smoke.yaml`).
+Smoke VQA expects `QuestionDependentImageCaptioner/outputs/smoke/best.pt` (set in `SimpleVQA/configs/smoke.yaml`).
 
 ## Kaggle 2×GPU (DDP)
 
 Set `ddp: true` in the Kaggle YAML config, then launch with **`torchrun`** (not plain `python`):
 
 ```powershell
-# Captioner (from SimpleImageCaptioner/)
+# Captioner (from QuestionDependentImageCaptioner/)
 torchrun --nproc_per_node=2 train.py --config configs/kaggle_mini.yaml
 
 # VQA (from SimpleVQA/)
@@ -121,10 +121,10 @@ Log should show `ddp=True world=2` when both GPUs are active.
 
 Use `eval.py` in each project to print predictions next to ground truth.
 
-### SimpleImageCaptioner — caption quality
+### QuestionDependentImageCaptioner — caption quality
 
 ```powershell
-cd SimpleImageCaptioner
+cd QuestionDependentImageCaptioner
 
 # QD val: token_acc + BLEU/CIDEr + samples
 python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --split val --samples 10
@@ -191,5 +191,5 @@ python train.py --config configs/default.yaml --resume outputs/default/last.pt
 ## Further reading
 
 - [architecture/ARCHITECTURE.en.md](architecture/ARCHITECTURE.en.md) — full pipeline, vocabularies, diagrams
-- [SimpleImageCaptioner/README.md](SimpleImageCaptioner/README.md) — QD captioner, `q_gru`, eval
+- [QuestionDependentImageCaptioner/README.md](QuestionDependentImageCaptioner/README.md) — QD captioner, `q_gru`, eval
 - [SimpleVQA/README.md](SimpleVQA/README.md) — VQA model, `q_cap` vs `q`, `eval.py`, troubleshooting

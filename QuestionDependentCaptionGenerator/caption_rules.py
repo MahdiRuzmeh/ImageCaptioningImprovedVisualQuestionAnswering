@@ -187,7 +187,7 @@ def answer_mode_stats(answers: List[str]) -> Tuple[str, int, float]:
 # Some VQA v2 questions can only be answered by reading rendered text/digits
 # in the image — a sign, a logo, a jersey number, a license plate, a clock
 # face, a scoreboard ("What does the sign say?" -> "3M"). The downstream
-# SimpleImageCaptioner (Stage 1) is a Faster R-CNN region-feature + LSTM
+# QuestionDependentImageCaptioner (Stage 1) is a Faster R-CNN region-feature + LSTM
 # captioner with no OCR/text-recognition component: it only ever sees pooled
 # visual region features, so it cannot genuinely read glyphs. Training it on
 # these targets ("The sign says 3M.") gives it an unlearnable label — the
@@ -282,7 +282,7 @@ def is_ocr_question(question: str, question_type: str = "") -> bool:
     """True if answering ``question`` requires reading rendered text/digits.
 
     Heuristic only — see the module comment above ``_OCR_QUESTION_RE`` for
-    the rationale (SimpleImageCaptioner has no OCR capability) and for what
+    the rationale (QuestionDependentImageCaptioner has no OCR capability) and for what
     counts as OCR here (signs/logos/brands/plates/jersey numbers/clock
     reading), plus why some ambiguous phrasing is deliberately excluded.
 
