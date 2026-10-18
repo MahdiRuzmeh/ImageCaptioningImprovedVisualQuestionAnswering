@@ -1523,7 +1523,7 @@ def main() -> None:
                 "single_retries": 1,
                 "salvage_retry_rounds": 1,
                 "salvage_single_retries": 1,
-                "tier": "fast_three_class+batch_llm_judge",
+                "tier": "fast_fail_unknown+batch_llm_judge",
                 "validator_version": VALIDATOR_VERSION,
                 "overlap_fail_threshold": validation_config.overlap_fail_threshold,
                 "overlap_pass_threshold": validation_config.overlap_pass_threshold,
