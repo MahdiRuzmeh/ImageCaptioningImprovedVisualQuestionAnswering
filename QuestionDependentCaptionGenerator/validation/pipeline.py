@@ -21,14 +21,14 @@ class ValidationStats:
     """Counters for one validation run."""
 
     fast_fail_count: int = 0
-    fast_unknown_count: int = 0
+    fast_no_hard_error_found_count: int = 0
     llm_pass_count: int = 0
     llm_suspicious_count: int = 0
 
     def to_dict(self) -> Dict[str, int]:
         return {
             "fast_fail_count": self.fast_fail_count,
-            "fast_unknown_count": self.fast_unknown_count,
+            "fast_no_hard_error_found_count": self.fast_no_hard_error_found_count,
             "llm_pass_count": self.llm_pass_count,
             "llm_suspicious_count": self.llm_suspicious_count,
         }
@@ -108,7 +108,8 @@ def validate_single_row(
         trace.final_verdict = "FAIL"
         return RowValidationOutcome(kept=False, trace=trace, flags=fast.flags)
 
-    # UNKNOWN → LLM judge (PASS keep / SUSPICIOUS keep+flag; never hard-drop)
+    # NO_HARD_ERROR_FOUND → LLM judge (PASS keep / SUSPICIOUS keep+flag;
+    # never hard-drop)
     if use_llm and client is not None:
         judge_results = llm_validate_batch(
             client,
@@ -157,13 +158,13 @@ def validate_rows(
     use_llm: bool = True,
     log_writer: Optional[ValidationLogWriter] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], ValidationStats]:
-    """Run validation on all rows; batch LLM judge for UNKNOWN items.
+    """Run validation on all rows; batch LLM judge for NO_HARD_ERROR_FOUND.
 
     Args:
         rows: Annotation dicts with question, answer, caption, rule, ids.
         config: Validation thresholds.
         client: Ollama client for LLM judge (required when ``use_llm``).
-        use_llm: When False, UNKNOWN rows are kept as SUSPICIOUS.
+        use_llm: When False, NO_HARD_ERROR_FOUND rows are kept as SUSPICIOUS.
         log_writer: Optional JSONL writer; one record per row.
 
     Returns:
@@ -189,7 +190,7 @@ def validate_rows(
         if fast.verdict == FastVerdict.FAIL:
             stats.fast_fail_count += 1
         else:
-            stats.fast_unknown_count += 1
+            stats.fast_no_hard_error_found_count += 1
             unknown_indices.append(i)
 
     llm_pass: Dict[int, bool] = {}
@@ -286,7 +287,7 @@ def score_rows_keep_all(
     Unlike :func:`validate_rows`, failed rows are **kept** in the output list
     (for gold-audit scoring). Each output dict preserves input fields and adds:
 
-    - ``fast_validator_label``: FAIL | UNKNOWN
+    - ``fast_validator_label``: FAIL | NO_HARD_ERROR_FOUND
     - ``llm_judge_label``: PASS | SUSPICIOUS when LLM ran; omitted otherwise
     - ``caption_status``: Ready / Manual when final is PASS or SUSPICIOUS
     """
@@ -306,7 +307,7 @@ def score_rows_keep_all(
         if fast.verdict == FastVerdict.FAIL:
             stats.fast_fail_count += 1
         else:
-            stats.fast_unknown_count += 1
+            stats.fast_no_hard_error_found_count += 1
             unknown_indices.append(i)
 
     llm_verdicts: Dict[int, LlmVerdict] = {}

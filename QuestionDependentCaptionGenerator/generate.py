@@ -45,8 +45,9 @@ from question_classifier import (
 from validation import (
     CAPTION_STATUS_MANUAL,
     CAPTION_STATUS_READY,
+    FAST_VALIDATOR_VERSION,
     FLAG_SUSPICIOUS,
-    VALIDATOR_VERSION,
+    LLM_VALIDATOR_VERSION,
     ValidationConfig,
     ValidationLogWriter,
     _VALIDATION_FAIL_REASONS,
@@ -1044,6 +1045,12 @@ def write_output_json(
         "process_duration_seconds": duration_seconds(started_at, ended_at),
         "rule_counts": dict(rule_counts),
     }
+    info["versions"] = {
+        "classifier_prompt": CLASSIFIER_PROMPT_VERSION,
+        "generation_prompt": PROMPT_VERSION,
+        "llm_validator": LLM_VALIDATOR_VERSION,
+        "fast_validator": FAST_VALIDATOR_VERSION,
+    }
     if classifier_meta:
         info["question_classifier"] = classifier_meta
     if llm_meta:
@@ -1523,8 +1530,9 @@ def main() -> None:
                 "single_retries": 1,
                 "salvage_retry_rounds": 1,
                 "salvage_single_retries": 1,
-                "tier": "fast_fail_unknown+batch_llm_judge",
-                "validator_version": VALIDATOR_VERSION,
+                "tier": "fast_fail_no_hard_error_found+batch_llm_judge",
+                "fast_validator_version": FAST_VALIDATOR_VERSION,
+                "llm_validator_version": LLM_VALIDATOR_VERSION,
                 "overlap_fail_threshold": validation_config.overlap_fail_threshold,
                 "overlap_pass_threshold": validation_config.overlap_pass_threshold,
                 "min_words": validation_config.min_words,
@@ -1660,7 +1668,8 @@ def main() -> None:
         print(f"Validation suspicious sidecar -> {suspicious_sidecar}")
 
     validation_meta = {
-        "validator_version": VALIDATOR_VERSION,
+        "fast_validator_version": FAST_VALIDATOR_VERSION,
+        "llm_validator_version": LLM_VALIDATOR_VERSION,
         **validation_config.__dict__,
         **val_stats.to_dict(),
         "validation_log": str(val_log_path.resolve()),

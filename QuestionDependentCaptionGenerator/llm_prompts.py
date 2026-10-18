@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import List, Sequence, Tuple
 
-# Version string baraye metadata toye output JSON
-PROMPT_VERSION = "v10_no_giraffe_attractors"
+# Bare version written to caption JSON ``info.versions.generation_prompt``.
+# v10: no giraffe attractors in few-shots (prompt text unchanged this bump).
+PROMPT_VERSION = "v10"
 
 SYSTEM_PROMPT = """\
 You generate image captions from visual question-answer pairs.

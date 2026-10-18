@@ -2,8 +2,9 @@
 
 Two-layer validator for question-dependent captions produced by
 [`generate.py`](../generate.py). The **fast layer** assigns each caption
-`FAIL` or `UNKNOWN` without calling an LLM (it never auto-accepts). The
-**LLM layer** judges every `UNKNOWN` item in batches (`PASS` / `SUSPICIOUS`).
+`FAIL` or `NO_HARD_ERROR_FOUND` without calling an LLM (it never auto-accepts).
+The **LLM layer** judges every `NO_HARD_ERROR_FOUND` item in batches
+(`PASS` / `SUSPICIOUS`).
 
 The fast validator does **not** decide semantic correctness — only whether we
 have enough confidence to hard-reject without an LLM.
@@ -15,8 +16,8 @@ flowchart TD
   Rows[Caption rows] --> Fast[FastValidator]
   Fast -->|FAIL| Retry[Batched regenerate once]
   Retry -->|FAIL again| Sidecar[validation_failed.json]
-  Retry -->|UNKNOWN| LLM
-  Fast -->|UNKNOWN| LLM[Batched LLM judge]
+  Retry -->|NO_HARD_ERROR_FOUND| LLM
+  Fast -->|NO_HARD_ERROR_FOUND| LLM[Batched LLM judge]
   LLM -->|PASS| Keep[Kept Ready to Use]
   LLM -->|SUSPICIOUS| KeepSus[Kept Need Manual validate]
   Fast --> Log[validation_log.jsonl]
@@ -48,9 +49,9 @@ Uses light stemming and wh-category exclusion (see `overlap.py`).
 
 | Band | Condition | Fast verdict |
 |------|-----------|--------------|
-| Low | `ratio < overlap_fail_threshold` (0.30) | **UNKNOWN** + flag `overlap_too_low` |
-| Borderline | between fail and pass thresholds | **UNKNOWN** + flag `overlap_borderline` |
-| High | `ratio >= overlap_pass_threshold` (0.50) | **UNKNOWN** (no overlap soft flag) |
+| Low | `ratio < overlap_fail_threshold` (0.30) | **NO_HARD_ERROR_FOUND** + flag `overlap_too_low` |
+| Borderline | between fail and pass thresholds | **NO_HARD_ERROR_FOUND** + flag `overlap_borderline` |
+| High | `ratio >= overlap_pass_threshold` (0.50) | **NO_HARD_ERROR_FOUND** (no overlap soft flag) |
 
 Low overlap is **never** a hard FAIL — the LLM judge decides.
 
@@ -58,13 +59,13 @@ Hard rejects only: format issues, `echoes_question`, `polarity_mismatch`,
 `quantifier_mismatch`, `batch_contamination`.
 
 (`spurious_negation` and `answer_mismatch` are **not** hard rejects — they
-escalate as UNKNOWN for the LLM judge.)
+escalate as `NO_HARD_ERROR_FOUND` for the LLM judge.)
 
 Number grounding: digit↔word for **0–99** (e.g. `40` ↔ `forty`); answer `1`
 also matches `one` / `a` / `an`.
 
 Quantifiers: clear contradiction on `all` / `both` / `any` → **FAIL**.
-Missing quantity cue on `all` / `both` / … → soft flag + **UNKNOWN**.
+Missing quantity cue on `all` / `both` / … → soft flag + **NO_HARD_ERROR_FOUND**.
 Bare existential `any` (“Are there any flowers…?”) does **not** require a
 quantity word in the caption.
 
@@ -73,13 +74,13 @@ quantity word in the caption.
 | Verdict | Meaning |
 |---------|---------|
 | `FAIL` | High confidence reject without LLM → batched regenerate once, then drop |
-| `UNKNOWN` | Escalate to batched LLM judge (every non-FAIL caption) |
+| `NO_HARD_ERROR_FOUND` | Escalate to batched LLM judge (every non-FAIL caption) |
 
 There is **no** fast `PASS`.
 
 ## LLM judge
 
-- Input: items with `fast_verdict == UNKNOWN`
+- Input: items with `fast_verdict == NO_HARD_ERROR_FOUND`
 - Prompt: aligned with caption-generation rules + few-shots in
   `llm_validator.py` (`_JUDGE_RULES_AND_FEW_SHOTS`)
 - PASS when the caption is grammatical, expresses the answer, and adds no
@@ -103,7 +104,12 @@ There is **no** fast `PASS`.
 | `overlap_pass_threshold` | 0.50 | Borderline vs high-overlap soft flags |
 | `llm_batch_size` | 10 | Ollama throughput / retry pack size |
 
-`validator_version`: `v10_soft_answer_negation_judge_shots`
+Version constants (bare numbers, also in caption JSON `info.versions`):
+
+| Constant | Current | Bumped when |
+|----------|---------|-------------|
+| `FAST_VALIDATOR_VERSION` | `v11` | Fast-layer rules / verdict labels change |
+| `LLM_VALIDATOR_VERSION` | `v10` | LLM judge prompt / rules change |
 
 ## Caption status on kept rows
 
@@ -118,7 +124,7 @@ Fast FAIL rows go to the failed sidecar and do not receive `caption_status`.
 
 1. Fast **FAIL** → collect failed items → **batched** regenerate once
 2. Still FAIL → drop + retry audit log
-3. UNKNOWN / SUSPICIOUS → **no** regenerate
+3. NO_HARD_ERROR_FOUND / SUSPICIOUS → **no** regenerate
 
 ## Sidecars / logs
 
@@ -138,10 +144,10 @@ python -m validation.cli path/to/captions.json --llm
 
 | File | Role |
 |------|------|
-| `fast_validator.py` | `fast_validate()` → FAIL / UNKNOWN |
+| `fast_validator.py` | `fast_validate()` → FAIL / NO_HARD_ERROR_FOUND |
 | `llm_validator.py` | Batched LLM judge |
 | `pipeline.py` | Row orchestration + stats |
 | `batch_integration.py` | Hook for `llm_client.captions_with_retry` |
 | `checks.py` | Hard rejects + soft flags |
-| `config.py` | `ValidationConfig`, `VALIDATOR_VERSION` |
+| `config.py` | `ValidationConfig`, `FAST_VALIDATOR_VERSION`, `LLM_VALIDATOR_VERSION` |
 | `cli.py` | Standalone re-validation CLI |

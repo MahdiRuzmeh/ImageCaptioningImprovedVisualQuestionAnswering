@@ -44,7 +44,7 @@ python audit/audit_captions.py audit/DevAuditor/caption_audit_manual.json --in-p
 | Arg | Meaning |
 |-----|---------|
 | `gold_json` | Optional path (default: `audit/DevAuditor/caption_audit_manual.json`) |
-| `--llm` | Run batched LLM judge on UNKNOWN (requires Ollama) |
+| `--llm` | Run batched LLM judge on NO_HARD_ERROR_FOUND (requires Ollama) |
 | `--batch-size` | LLM batch size (default `10`) |
 | `--model` / `--ollama-host` | Ollama settings (same defaults as `generate.py`) |
 | `--output` | Explicit output path |
@@ -56,13 +56,13 @@ python audit/audit_captions.py audit/DevAuditor/caption_audit_manual.json --in-p
 |-------|--------|
 | `manual_label` | Preserved (`PASS` / `FAILED`) |
 | `source` | Preserved (`natural` / `synthetic`) |
-| `fast_validator_label` | `FAIL` / `UNKNOWN` |
+| `fast_validator_label` | `FAIL` / `NO_HARD_ERROR_FOUND` |
 | `llm_judge_label` | `PASS` / `SUSPICIOUS` when LLM ran; omitted otherwise |
 | `caption_status` | `Ready to Use` (LLM PASS) / `Need to Manual validate` (SUSPICIOUS) |
 | `agreement` | `true` / `false` — manual vs validator prediction |
 
 Console prints how many items disagree: ``manual_label`` vs validator
-prediction (good = UNKNOWN + ``llm_judge_label`` PASS; FAIL is not-good).
+prediction (good = NO_HARD_ERROR_FOUND + ``llm_judge_label`` PASS; FAIL is not-good).
 Output ``info`` stores only ``disagreement_count`` (plus the original gold
 metadata). Filter disagreements in the scored JSON with ``"agreement": false``.
 
@@ -72,7 +72,7 @@ metadata). Filter disagreements in the scored JSON with ``"agreement": false``.
 
 Runs the same blacklist→NDV | UNKNOWN→parallel chat-turn LLM cascade as
 [`question_classifier.py`](../question_classifier.py) / `generate.py`
-(`v19_chat_turn_fewshots`).
+(`v20`).
 
 **Does not drop** rows — every gold record is scored in place.
 

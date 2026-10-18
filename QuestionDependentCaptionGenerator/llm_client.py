@@ -16,7 +16,8 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 from llm_prompts import chat_messages
 from validation import (
-    VALIDATOR_VERSION,
+    FAST_VALIDATOR_VERSION,
+    LLM_VALIDATOR_VERSION,
     ValidationConfig,
     _VALIDATION_FAIL_REASONS,
     caption_hard_reject_reason,
@@ -30,7 +31,8 @@ from validation.batch_integration import CaptionValidation
 RELATION_MIN_RATIO = 0.5
 
 __all__ = [
-    "VALIDATOR_VERSION",
+    "FAST_VALIDATOR_VERSION",
+    "LLM_VALIDATOR_VERSION",
     "RELATION_MIN_RATIO",
     "OllamaClient",
     "ItemOutcome",

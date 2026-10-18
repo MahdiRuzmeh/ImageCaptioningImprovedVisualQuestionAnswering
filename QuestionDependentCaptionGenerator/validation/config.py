@@ -8,8 +8,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# Bumped whenever fast/LLM validator rules or defaults change.
-VALIDATOR_VERSION = "v10_soft_answer_negation_judge_shots"
+# Bare per-component version numbers written into caption JSON ``info.versions``.
+# Bump when the corresponding layer's rules or prompt change; keep the reason
+# in a comment here (not in the stored string).
+# v11: renamed non-fail fast verdict UNKNOWN → NO_HARD_ERROR_FOUND.
+FAST_VALIDATOR_VERSION = "v11"
+# v10: soft answer_mismatch / spurious_negation + judge few-shots (unchanged).
+LLM_VALIDATOR_VERSION = "v10"
 
 
 @dataclass(frozen=True)

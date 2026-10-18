@@ -1,4 +1,4 @@
-"""Fast (lexical) validator: FAIL or UNKNOWN without calling an LLM.
+"""Fast (lexical) validator: FAIL or NO_HARD_ERROR_FOUND without calling an LLM.
 
 The fast layer never decides semantic correctness. It only hard-rejects
 captions when confidence is very high; everything else goes to the LLM judge.
@@ -24,7 +24,7 @@ class FastVerdict(str, Enum):
     """Two-class fast validator outcome (no PASS — meaning is LLM-only)."""
 
     FAIL = "FAIL"
-    UNKNOWN = "UNKNOWN"
+    NO_HARD_ERROR_FOUND = "NO_HARD_ERROR_FOUND"
 
 
 @dataclass
@@ -47,7 +47,7 @@ class FastResult:
 
     @property
     def needs_llm(self) -> bool:
-        return self.verdict == FastVerdict.UNKNOWN
+        return self.verdict == FastVerdict.NO_HARD_ERROR_FOUND
 
 
 def fast_validate(
@@ -64,8 +64,8 @@ def fast_validate(
 
     Decision tree:
       1. Format + hard rejects → FAIL
-      2. Otherwise → UNKNOWN (escalate to LLM judge), with soft flags
-         including low/borderline overlap for the judge / audit trail.
+      2. Otherwise → NO_HARD_ERROR_FOUND (escalate to LLM judge), with soft
+         flags including low/borderline overlap for the judge / audit trail.
 
     Args:
         question: VQA question text.
@@ -109,7 +109,7 @@ def fast_validate(
             flags = list(flags) + [FLAG_OVERLAP_BORDERLINE]
 
     return FastResult(
-        verdict=FastVerdict.UNKNOWN,
+        verdict=FastVerdict.NO_HARD_ERROR_FOUND,
         reasons=sorted(set(flags)),
         flags=flags,
         overlap_ratio=ratio,

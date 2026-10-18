@@ -326,24 +326,35 @@ flowchart LR
     "validation_flagged_count": 60,
     "rule_validation_reject_count": 12,
     "rule_counts": { "...": "..." },
+    "versions": {
+      "classifier_prompt": "v20",
+      "generation_prompt": "v10",
+      "llm_validator": "v10",
+      "fast_validator": "v11"
+    },
     "llm": {
       "model": "...",
       "batch_size": 10,
-      "prompt_version": "v8_kind_type_and_is_are_llm",
+      "prompt_version": "v10",
       "validation": {
         "single_retries": 1,
         "salvage_single_retries": 1,
-        "tier": "lexical+semantic_judge",
-        "validator_version": "v5_judge_rules_few_shot",
+        "tier": "fast_fail_no_hard_error_found+batch_llm_judge",
+        "fast_validator_version": "v11",
+        "llm_validator_version": "v10",
         "relation_min_ratio": 0.5
       },
       "retry_audit_log": "..."
     },
     "question_classifier": {
-      "prompt_version": "v12_expanded_blacklist_2",
-      "fast_path_enabled": true,
+      "prompt_version": "v20",
+      "blacklist_drop_enabled": true,
       "batch_size": 10,
-      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 1390, "DEFAULT_VISUAL": 2000 }
+      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "BLACKLIST_NDV": 200 }
+    },
+    "validation": {
+      "fast_validator_version": "v11",
+      "llm_validator_version": "v10"
     }
   },
   "annotations": [

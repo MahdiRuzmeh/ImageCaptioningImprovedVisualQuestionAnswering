@@ -320,15 +320,22 @@ flowchart LR
     "validation_flagged_count": 60,
     "rule_validation_reject_count": 12,
     "rule_counts": { "what_color": 181, "llm_fallback": 900 },
+    "versions": {
+      "classifier_prompt": "v20",
+      "generation_prompt": "v10",
+      "llm_validator": "v10",
+      "fast_validator": "v11"
+    },
     "llm": {
       "model": "qwen2.5:3b-instruct-q4_K_M",
       "batch_size": 10,
-      "prompt_version": "v8_kind_type_and_is_are_llm",
+      "prompt_version": "v10",
       "validation": {
         "single_retries": 1,
         "salvage_single_retries": 1,
-        "tier": "lexical+semantic_judge",
-        "validator_version": "v5_judge_rules_few_shot",
+        "tier": "fast_fail_no_hard_error_found+batch_llm_judge",
+        "fast_validator_version": "v11",
+        "llm_validator_version": "v10",
         "relation_min_ratio": 0.5
       },
       "failure_log": "...",
@@ -336,10 +343,14 @@ flowchart LR
     },
     "question_classifier": {
       "model": "...",
-      "prompt_version": "v12_expanded_blacklist_2",
-      "fast_path_enabled": true,
+      "prompt_version": "v20",
+      "blacklist_drop_enabled": true,
       "batch_size": 10,
-      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "FAST_PATH_VISUAL": 1390, "DEFAULT_VISUAL": 2000 }
+      "label_counts": { "DIRECTLY_VISUAL": 3500, "NOT_DIRECTLY_VISUAL": 200, "BLACKLIST_NDV": 200 }
+    },
+    "validation": {
+      "fast_validator_version": "v11",
+      "llm_validator_version": "v10"
     }
   },
   "annotations": [
@@ -373,7 +384,7 @@ Sidecars: `{stem}_not_directly_visual.json` (classifier drops, each with `visual
 | Checkpoint | Atomic JSON write every N batches; Ctrl+C saves then exits |
 | Failure log | `*.json.llm_failures.log` with reason codes |
 | Retry audit log | `{stem}_validation_audit.jsonl`, one record per retried item (validator and generation retries) |
-| Reproducibility | Store model, host, `prompt_version`, batch size, classifier metadata |
+| Reproducibility | Store model, host, `info.versions` (classifier / generation / llm_validator / fast_validator), batch size, classifier metadata |
 | QC audit | `python audit/audit_captions.py --llm --batch-size 10` and `python audit/classify_questions.py --batch-size 10` on DevAuditor sets |
 | Eval hygiene | DIRECTLY_VISUAL filter applies only to captioner supervision, not raw VQA2 eval |
 
