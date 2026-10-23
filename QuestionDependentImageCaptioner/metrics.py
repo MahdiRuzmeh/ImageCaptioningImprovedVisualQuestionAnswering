@@ -152,10 +152,96 @@ def cider_d(
     return float(np.mean(scores)) if scores else 0.0
 
 
+# ---------------------------------------------------------------------------
+# ROUGE-L (LCS-based F-measure, beta=1.2 mesl coco-caption)
+# ---------------------------------------------------------------------------
+def _lcs(a: Sequence[str], b: Sequence[str]) -> int:
+    """Finglish: tool longest common subsequence (DP, O(len(a)*len(b)))."""
+    if not a or not b:
+        return 0
+    prev = [0] * (len(b) + 1)
+    for x in a:
+        cur = [0] * (len(b) + 1)
+        for j, y in enumerate(b, start=1):
+            cur[j] = prev[j - 1] + 1 if x == y else max(prev[j], cur[j - 1])
+        prev = cur
+    return prev[-1]
+
+
+def rouge_l(
+    hyps: List[List[str]], refs: List[List[List[str]]], beta: float = 1.2
+) -> float:
+    """Finglish — ROUGE-L: har candidate ba behtarin ref (max P/R) → F_beta; miangin."""
+    scores = []
+    for hyp, ref_list in zip(hyps, refs):
+        precs, recs = [], []
+        for r in ref_list:
+            lcs = _lcs(hyp, r)
+            precs.append(lcs / len(hyp) if hyp else 0.0)
+            recs.append(lcs / len(r) if r else 0.0)
+        p, rec = max(precs, default=0.0), max(recs, default=0.0)
+        if p > 0 and rec > 0:
+            scores.append(((1 + beta**2) * p * rec) / (rec + beta**2 * p))
+        else:
+            scores.append(0.0)
+    return float(np.mean(scores)) if scores else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Answer-Hit — aya caption generate shode javab (VQA answer) ro dare?
+# ---------------------------------------------------------------------------
+_NUM_WORDS = [
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+    "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+    "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
+]
+_WORD_TO_NUM = {w: str(i) for i, w in enumerate(_NUM_WORDS)}
+# Finglish: "0" toye caption mamoolan "no people" / "none" mishe
+_ZERO_ALIASES = {"0", "no", "none", "zero"}
+# Finglish: yes/no javab toye caption nemiad ("The man is ...") → az Answer-Hit kharej
+NON_LEXICAL_ANSWERS = {"yes", "no"}
+
+
+def _norm_num(w: str) -> str:
+    return _WORD_TO_NUM.get(w, w)
+
+
+def answer_in_caption(answer_tokens: List[str], caption_tokens: List[str]) -> bool:
+    """Finglish: hame token haye answer (normalize adad) bayad toye caption bashan."""
+    cap = {_norm_num(w) for w in caption_tokens}
+    if not answer_tokens:
+        return False
+    for w in answer_tokens:
+        w = _norm_num(w)
+        if w == "0":
+            if not (cap & _ZERO_ALIASES):
+                return False
+        elif w not in cap:
+            return False
+    return True
+
+
+def answer_hit(
+    hyps: List[List[str]], answers: List[List[str]]
+) -> Dict[str, float]:
+    """Finglish — Answer-Hit roye sample haye lexical (yes/no kharej).
+
+    Returns: {"AnswerHit": ratio, "AnswerHit_n": tedad sample lexical}
+    """
+    hits, n = 0, 0
+    for hyp, ans in zip(hyps, answers):
+        if not ans or " ".join(ans) in NON_LEXICAL_ANSWERS:
+            continue
+        n += 1
+        hits += int(answer_in_caption(ans, hyp))
+    return {"AnswerHit": hits / n if n else 0.0, "AnswerHit_n": float(n)}
+
+
 def compute_caption_metrics(
     hyps: List[List[str]], refs: List[List[List[str]]]
 ) -> Dict[str, float]:
-    """Finglish: BLEU-1..4 + CIDEr ro yekja hesab mikone va dict barmigardune."""
+    """Finglish: BLEU-1..4 + CIDEr + ROUGE-L ro yekja hesab mikone va dict barmigardune."""
     out = corpus_bleu(hyps, refs, max_n=4)
     out["CIDEr"] = cider_d(hyps, refs, n=4)
+    out["ROUGE-L"] = rouge_l(hyps, refs)
     return out

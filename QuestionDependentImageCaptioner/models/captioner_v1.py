@@ -56,6 +56,8 @@ class RegionEncoder(nn.Module):
         self.detector.transform.image_std = [1.0, 1.0, 1.0]
 
         self.roi_to_region = nn.Linear(self.ROI_FEAT_DIM, region_dim)
+        # Finglish: RAM cache (CPU tensor) ta har epoch file dobare az disk load nashe
+        self._mem_cache: dict = {}
 
     def train(self, mode: bool = True) -> "RegionEncoder":
         """Detector hamishe eval mimune (BN freeze)."""
@@ -72,6 +74,10 @@ class RegionEncoder(nn.Module):
         """Finglish — cache raw ROI (1024D); roi_to_region bad az load train mishe."""
         try:
             p = self._cache_path(cache_dir, image_id)
+            if p in self._mem_cache:
+                return self._mem_cache[p].to(
+                    device, non_blocking=(device.type == "cuda")
+                )
             if not Path(p).exists():
                 return None
             t = torch.load(p, map_location="cpu")
@@ -83,6 +89,7 @@ class RegionEncoder(nn.Module):
                 or t.shape[1] != self.ROI_FEAT_DIM
             ):
                 return None
+            self._mem_cache[p] = t.float()
             return t.float().to(device, non_blocking=(device.type == "cuda"))
         except Exception:
             return None
@@ -122,6 +129,12 @@ class RegionEncoder(nn.Module):
                 raw = torch.stack([t for t in cached if t is not None], dim=0)
                 return self.roi_to_region(raw)
 
+        if images.size(-1) < 32 or images.size(-2) < 32:
+            # Finglish: placeholder image (images_from_cache) + cache miss → detector
+            # roye 1x1 zero feature ashghal mide; behtare error bedim.
+            raise RuntimeError(
+                "Region cache miss for placeholder images; run scripts/cache_regions.py"
+            )
         with torch.no_grad():
             img_list = list(images)
             transformed, _ = self.detector.transform(img_list, None)

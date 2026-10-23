@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import re
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -31,8 +33,8 @@ import yaml
 from PIL import Image
 from torch import nn
 from torch.cuda.amp import GradScaler, autocast
-from torch.optim import Adamax
-from torch.optim.lr_scheduler import StepLR
+from torch.optim import AdamW, Adamax
+from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms
@@ -42,6 +44,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from decoding import generate_split_captions
+from metrics import answer_hit, compute_caption_metrics
+from models import build_captioner
 from models.captioner_v1 import QuestionDependentImageCaptioner
 
 """
@@ -187,8 +192,62 @@ def region_cache_dir_for_split(cfg: Dict[str, Any], split: str) -> Optional[str]
     """
     if not bool(cfg.get("cache_regions", False)):
         return None
+    if split == "test":
+        # Finglish: test cache joda nadare → fallback be val cache
+        return cfg.get("test_region_cache_dir") or cfg.get("val_region_cache_dir")
     key = "train_region_cache_dir" if split == "train" else "val_region_cache_dir"
     return cfg.get(key)
+
+
+def snap_row_range(
+    rows: List[Dict[str, Any]], row_range: Optional[List[int]]
+) -> Optional[Tuple[int, int]]:
+    """Finglish — [start, end) ro be marz image_id snap kon (image-disjoint split).
+
+    Rows bayad sorted by image_id bashan (JSON QD hamintore). Har marz jolo mire
+    ta yek image beyn do split nashkane; chon train.end va val.start hamoon adad
+    hastan, snap yeksan mishe → split ha disjoint.
+    """
+    if not row_range:
+        return None
+    start, end = int(row_range[0]), int(row_range[1])
+
+    def _snap(i: int) -> int:
+        i = max(0, min(i, len(rows)))
+        while 0 < i < len(rows) and int(rows[i]["image_id"]) == int(
+            rows[i - 1]["image_id"]
+        ):
+            i += 1
+        return i
+
+    return _snap(start), _snap(end)
+
+
+def split_rows(cfg: Dict[str, Any], split: str, qd_json: str) -> List[Dict[str, Any]]:
+    """Finglish: rows yek split az ``<split>_row_range`` (age nabashe hame rows)."""
+    rows = load_qd_json(qd_json)
+    rng = snap_row_range(rows, cfg.get(f"{split}_row_range"))
+    if rng is not None:
+        rows = rows[rng[0] : rng[1]]
+    return rows
+
+
+def assert_disjoint_splits(cfg: Dict[str, Any]) -> None:
+    """Finglish — leakage check: image_id haye train/val/test nabayad overlap dashte bashan."""
+    if not cfg.get("train_row_range"):
+        return
+    ids = {}
+    for split in ("train", "val", "test"):
+        if cfg.get(f"{split}_row_range"):
+            rows = split_rows(cfg, split, cfg["train_captions_json"])
+            ids[split] = {int(r["image_id"]) for r in rows}
+            print(f"split={split} rows={len(rows)} images={len(ids[split])}")
+    names = list(ids)
+    for i, a in enumerate(names):
+        for b in names[i + 1 :]:
+            inter = ids[a] & ids[b]
+            if inter:
+                raise ValueError(f"Image leakage {a}/{b}: {len(inter)} shared images")
 
 
 def should_run_eval(epoch: int, total_epochs: int, cfg: Dict[str, Any]) -> bool:
@@ -269,7 +328,7 @@ def build_captioner_checkpoint_state(
     q_vocab: Optional["Vocab"] = None,
     best_val: float = float("inf"),
     optimizer: Optional[torch.optim.Optimizer] = None,
-    scheduler: Optional[StepLR] = None,
+    scheduler: Optional[LambdaLR] = None,
     scaler: Optional[GradScaler] = None,
 ) -> Dict[str, Any]:
     """Build the ``.pt`` dict written to ``last.pt`` / ``best.pt``.
@@ -282,7 +341,7 @@ def build_captioner_checkpoint_state(
         "epoch": epoch,
         "best": best_val,
         "samples_seen": samples_seen,
-        "model": unwrap_model(model).state_dict(),
+        "model": model_state_for_save(model, cfg),
         "vocab": vocab.itos,
         "config": cfg,
     }
@@ -295,6 +354,29 @@ def build_captioner_checkpoint_state(
     if scaler is not None:
         state["scaler"] = scaler.state_dict()
     return state
+
+
+DETECTOR_PREFIX = "region_encoder.detector."
+
+
+def model_state_for_save(model: nn.Module, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Finglish — ``save_detector_weights: false`` → Faster R-CNN freeze (pretrained)
+    save nemishe (~160MB kamtar); load ba strict=False dobare az torchvision miad.
+    """
+    sd = unwrap_model(model).state_dict()
+    if bool(cfg.get("save_detector_weights", True)):
+        return sd
+    return {k: v for k, v in sd.items() if not k.startswith(DETECTOR_PREFIX)}
+
+
+def load_model_state(model: nn.Module, sd: Dict[str, Any]) -> None:
+    """Finglish: state load; faghat missing key haye detector (freeze) ghabel tahamol."""
+    missing, unexpected = unwrap_model(model).load_state_dict(sd, strict=False)
+    bad = [k for k in missing if not k.startswith(DETECTOR_PREFIX)]
+    if bad or unexpected:
+        raise RuntimeError(
+            f"State mismatch: missing={bad[:5]} unexpected={list(unexpected)[:5]}"
+        )
 
 
 def write_captioner_checkpoint(
@@ -322,7 +404,7 @@ def maybe_save_by_samples(
     q_vocab: Optional["Vocab"] = None,
     best_val: float = float("inf"),
     optimizer: Optional[torch.optim.Optimizer] = None,
-    scheduler: Optional[StepLR] = None,
+    scheduler: Optional[LambdaLR] = None,
     scaler: Optional[GradScaler] = None,
 ) -> Tuple[int, int]:
     """Update sample counter; save ``last.pt`` when item threshold is crossed.
@@ -417,6 +499,8 @@ def build_qd_vocabs(
     qd_json: str,
     min_freq: int,
     max_images: Optional[int] = None,
+    rows: Optional[List[Dict[str, Any]]] = None,
+    include_question_in_cap: bool = False,
 ) -> Tuple[Vocab, Vocab]:
     """Az train QD JSON do vocab besaz: caption + question (train-only, no leak).
 
@@ -424,11 +508,15 @@ def build_qd_vocabs(
         qd_json: path be vqa_v2_question_dependent_captions_*.json
         min_freq: min token frequency baraye har do vocab
         max_images: age set, faghat sample haye N image_id aval
+        rows: age set (train split rows), JSON dobare load nemishe
+        include_question_in_cap: caption vocab = caption ∪ question words
+            (copy model ha bayad har kalame soal ro betoonan copy konan)
 
     Returns:
         (cap_vocab, q_vocab)
     """
-    rows = load_qd_json(qd_json)
+    if rows is None:
+        rows = load_qd_json(qd_json)
     if max_images is not None and max_images > 0:
         keep_ids = set(sorted({int(r["image_id"]) for r in rows})[:max_images])
         rows = [r for r in rows if int(r["image_id"]) in keep_ids]
@@ -438,6 +526,8 @@ def build_qd_vocabs(
     for r in rows:
         cap_words.extend(tok(str(r["caption"])))
         q_words.extend(tok(str(r["question"])))
+    if include_question_in_cap:
+        cap_words = cap_words + q_words
     return Vocab(cap_words, min_freq=min_freq), Vocab(q_words, min_freq=min_freq)
 
 
@@ -463,8 +553,17 @@ class VqaQdCaptionDataset(Dataset):
         image_ids: Optional[List[int]] = None,
         image_size: int = 448,
         max_samples: Optional[int] = None,
+        rows: Optional[List[Dict[str, Any]]] = None,
+        images_from_cache: bool = False,
+        region_cache_dir: Optional[str] = None,
     ) -> None:
-        """QD rows ro load kon; optional filter ba image_ids / max_samples."""
+        """QD rows ro load kon; optional filter ba image_ids / max_samples.
+
+        Finglish — images_from_cache: age region feature har image toye
+        ``region_cache_dir`` hast, JPEG load nemishe (placeholder tensor) chon
+        RegionEncoder faghat az cache mikhoone. Hame image ha bayad cache shode bashan
+        (``scripts/cache_regions.py``), vagarna error.
+        """
         self.images_dir = Path(images_dir)
         self.cap_vocab = cap_vocab
         self.q_vocab = q_vocab
@@ -472,7 +571,8 @@ class VqaQdCaptionDataset(Dataset):
         self.max_question_len = max_question_len
         self.filename_template = filename_template
 
-        rows = load_qd_json(qd_json)
+        if rows is None:
+            rows = load_qd_json(qd_json)
         if image_ids is not None:
             keep = set(int(i) for i in image_ids)
             rows = [r for r in rows if int(r["image_id"]) in keep]
@@ -484,9 +584,28 @@ class VqaQdCaptionDataset(Dataset):
                 "image_id": int(r["image_id"]),
                 "question": str(r["question"]),
                 "caption": str(r["caption"]),
+                "answer": str(r.get("answer", "")),
+                "rule": str(r.get("rule", "")),
             }
             for r in rows
         ]
+
+        self.images_from_cache = bool(images_from_cache)
+        if self.images_from_cache:
+            if not region_cache_dir:
+                raise ValueError("images_from_cache needs a region cache dir")
+            missing = sorted(
+                {
+                    s["image_id"]
+                    for s in self.samples
+                    if not (Path(region_cache_dir) / f"{s['image_id']}.pt").exists()
+                }
+            )
+            if missing:
+                raise FileNotFoundError(
+                    f"{len(missing)} images not in region cache {region_cache_dir} "
+                    f"(e.g. {missing[:5]}); run scripts/cache_regions.py first"
+                )
 
         self.transform = transforms.Compose(
             [
@@ -503,8 +622,12 @@ class VqaQdCaptionDataset(Dataset):
         """Image + caption_ids (BOS/EOS) + question_ids (BOS/EOS) bargardoon."""
         s = self.samples[idx]
         image_id = s["image_id"]
-        path = self.images_dir / self.filename_template.format(image_id=image_id)
-        image = self.transform(Image.open(path).convert("RGB"))
+        if self.images_from_cache:
+            # Finglish: placeholder — RegionEncoder az cache mikhoone, pixel lazem nist
+            image = torch.zeros(3, 1, 1)
+        else:
+            path = self.images_dir / self.filename_template.format(image_id=image_id)
+            image = self.transform(Image.open(path).convert("RGB"))
 
         cap_tok = self.cap_vocab.encode(
             tok(s["caption"])[: self.max_caption_len - 2]
@@ -659,18 +782,43 @@ def scheduled_sampling_prob(epoch: int, cfg: Dict[str, Any]) -> float:
 
 
 def build_lr_scheduler(
-    optimizer: torch.optim.Optimizer, cfg: Dict[str, Any]
-) -> StepLR:
-    """Finglish — LR decay (paper §5, Table 2):
+    optimizer: torch.optim.Optimizer, cfg: Dict[str, Any], steps_per_epoch: int
+) -> LambdaLR:
+    """Finglish — LR decay (paper §5, Table 2) + optional linear warmup:
         Har ``lr_decay_interval`` epoch LR × ``lr_decay_factor`` (mesal 0.6).
         Mesal LR=0.0005: epoch4→0.0003, epoch8→0.00018, epoch12→0.000108.
-        ``scheduler.step()`` ro payan har epoch seda kon.
+        ``warmup_steps`` > 0 → LR az 0 ta base ba khat (Transformer lazem dare).
+        ``scheduler.step()`` ro ba'd az har optimizer step seda kon (per-step).
     """
-    return StepLR(
-        optimizer,
-        step_size=max(1, int(cfg.get("lr_decay_interval", 4))),
-        gamma=float(cfg.get("lr_decay_factor", 0.6)),
-    )
+    interval = max(1, int(cfg.get("lr_decay_interval", 4)))
+    gamma = float(cfg.get("lr_decay_factor", 0.6))
+    warmup = max(0, int(cfg.get("warmup_steps", 0)))
+    spe = max(1, int(steps_per_epoch))
+
+    def factor(step: int) -> float:
+        # Finglish: epoch 0-index az step; decay mesl StepLR(step_size=interval)
+        decay = gamma ** ((step // spe) // interval)
+        warm = min(1.0, (step + 1) / warmup) if warmup > 0 else 1.0
+        return decay * warm
+
+    return LambdaLR(optimizer, lr_lambda=factor)
+
+
+def build_optimizer(model: nn.Module, cfg: Dict[str, Any]) -> torch.optim.Optimizer:
+    """Finglish: ``optimizer: adamax`` (default, paper) ya ``adamw`` (Transformer)."""
+    params = [p for p in model.parameters() if p.requires_grad]
+    lr = float(cfg["learning_rate"])
+    kind = str(cfg.get("optimizer", "adamax")).lower()
+    if kind == "adamw":
+        return AdamW(
+            params,
+            lr=lr,
+            betas=(0.9, 0.98),
+            weight_decay=float(cfg.get("weight_decay", 0.01)),
+        )
+    if kind == "adamax":
+        return Adamax(params, lr=lr)
+    raise ValueError(f"optimizer must be adamax or adamw, got {kind!r}")
 
 
 """
@@ -717,7 +865,7 @@ def train_epoch(
     next_save_at: int = 0,
     q_vocab: Optional["Vocab"] = None,
     best_val: float = float("inf"),
-    scheduler: Optional[StepLR] = None,
+    scheduler: Optional[LambdaLR] = None,
 ) -> Tuple[float, float, int, int]:
     """One training pass; returns mean loss, acc, and sample-checkpoint counters.
 
@@ -767,9 +915,15 @@ def train_epoch(
 
         scaler.scale(loss / accum).backward()
         if (i + 1) % accum == 0:
+            clip = float(cfg.get("grad_clip", 0.0))
+            if clip > 0:
+                scaler.unscale_(optimizer)
+                nn.utils.clip_grad_norm_(model.parameters(), clip)
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
+            if scheduler is not None:
+                scheduler.step()
 
         targets = caps[:, 1:]
         total_loss += float(loss.item())
@@ -908,6 +1062,8 @@ def parse_args() -> argparse.Namespace:
         help="YAML config (relative to project folder unless absolute)",
     )
     p.add_argument("--resume", default=None, help="Path to checkpoint (.pt)")
+    p.add_argument("--seed", type=int, default=None, help="Override cfg seed")
+    p.add_argument("--save-dir", default=None, help="Override cfg save_dir")
     p.add_argument(
         "--continue",
         dest="do_continue",
@@ -926,7 +1082,7 @@ def load_checkpoint(
     path: Path,
     model: nn.Module,
     optimizer: Optional[torch.optim.Optimizer],
-    scheduler: Optional[StepLR],
+    scheduler: Optional[LambdaLR],
     scaler: Optional[GradScaler],
     device: torch.device,
 ) -> Tuple[int, float, int]:
@@ -943,7 +1099,7 @@ def load_checkpoint(
         print(f"Invalid checkpoint format: {path}")
         return 1, float("inf"), 0
 
-    unwrap_model(model).load_state_dict(ckpt["model"])
+    load_model_state(model, ckpt["model"])
     if optimizer is not None and "optimizer" in ckpt:
         optimizer.load_state_dict(ckpt["optimizer"])
     if scheduler is not None and "scheduler" in ckpt:
@@ -995,13 +1151,111 @@ def load_checkpoint(
 #
 
 
+def build_split_dataset(
+    cfg: Dict[str, Any],
+    split: str,
+    vocab: Vocab,
+    q_vocab: Vocab,
+) -> VqaQdCaptionDataset:
+    """Finglish — dataset yek split (train/val/test).
+
+    Age ``<split>_row_range`` set bashe (benchmark): rows az ``train_captions_json``
+    ba marz image snap mishe. Vagarna raftar ghadimi (max_*_images / max_*_samples).
+    """
+    if cfg.get(f"{split}_row_range"):
+        qd_json = cfg["train_captions_json"]
+        rows = split_rows(cfg, split, qd_json)
+        image_ids, max_samples = None, None
+    else:
+        key = "train" if split == "train" else "val"
+        qd_json = cfg[f"{key}_captions_json"]
+        rows = None
+        max_images = image_cap(cfg.get(f"max_{key}_images"))
+        max_samples = image_cap(cfg.get(f"max_{key}_samples"))
+        image_ids = None
+        if max_images is not None:
+            image_ids = sorted(
+                {int(r["image_id"]) for r in load_qd_json(qd_json)}
+            )[:max_images]
+    img_key = "train" if split == "train" else "val"
+    return VqaQdCaptionDataset(
+        cfg[f"{img_key}_images_dir"],
+        qd_json,
+        vocab,
+        q_vocab,
+        int(cfg["max_caption_len"]),
+        int(cfg.get("max_question_len", 14)),
+        cfg[f"{img_key}_image_filename_template"],
+        image_ids=image_ids,
+        image_size=int(cfg.get("image_size", 448)),
+        max_samples=max_samples,
+        rows=rows,
+        images_from_cache=bool(cfg.get("images_from_cache", False)),
+        region_cache_dir=region_cache_dir_for_split(cfg, split),
+    )
+
+
+def build_vocabs_from_cfg(cfg: Dict[str, Any]) -> Tuple[Vocab, Vocab]:
+    """Finglish: vocab faghat az train split (benchmark) ya kol train JSON (ghadimi)."""
+    rows = None
+    if cfg.get("train_row_range"):
+        rows = split_rows(cfg, "train", cfg["train_captions_json"])
+    return build_qd_vocabs(
+        cfg["train_captions_json"],
+        int(cfg["vocab_min_freq"]),
+        image_cap(cfg.get("max_train_images")),
+        rows=rows,
+        include_question_in_cap=bool(cfg.get("cap_vocab_include_question", False)),
+    )
+
+
+def val_caption_scores(
+    model: nn.Module,
+    loader: DataLoader,
+    vocab: Vocab,
+    cfg: Dict[str, Any],
+    device: torch.device,
+    split: str = "val",
+) -> Dict[str, float]:
+    """Finglish — greedy (beam=1) decode roye val → CIDEr/BLEU/ROUGE + AnswerHit."""
+    hyps, _ = generate_split_captions(
+        unwrap_model(model),
+        loader,
+        vocab.itos,
+        device,
+        int(cfg["max_caption_len"]),
+        beam_size=int(cfg.get("val_beam_size", 1)),
+        region_cache_dir=region_cache_dir_for_split(cfg, split),
+    )
+    samples = loader.dataset.samples
+    refs = [[tok(s["caption"])] for s in samples]
+    scores = compute_caption_metrics(hyps, refs)
+    scores.update(answer_hit(hyps, [tok(s["answer"]) for s in samples]))
+    return scores
+
+
+def selection_value(
+    select_metric: str, va_loss: float, scores: Optional[Dict[str, float]]
+) -> float:
+    """Finglish: 'lower is better' value baraye best.pt (loss ya -CIDEr)."""
+    if select_metric == "cider":
+        assert scores is not None
+        return -float(scores["CIDEr"])
+    return float(va_loss)
+
+
 def main() -> None:
-    """Load config, build QD data + QuestionDependentImageCaptioner, train/val."""
+    """Load config, build QD data + captioner (registry), train/val."""
     cli = parse_args()
     config_path = Path(cli.config)
     if not config_path.is_absolute():
         config_path = PROJECT_ROOT / config_path
     cfg = load_config(str(config_path))
+    # Finglish: CLI override baraye multi-seed benchmark (yek YAML, chand seed)
+    if cli.seed is not None:
+        cfg["seed"] = int(cli.seed)
+    if cli.save_dir is not None:
+        cfg["save_dir"] = cli.save_dir
     resolve_path_fields(
         cfg,
         (
@@ -1012,6 +1266,7 @@ def main() -> None:
             "save_dir",
             "train_region_cache_dir",
             "val_region_cache_dir",
+            "test_region_cache_dir",
         ),
     )
     if isinstance(cfg.get("resume_from"), str) and cfg["resume_from"]:
@@ -1037,52 +1292,12 @@ def main() -> None:
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = True
 
-    max_train = image_cap(cfg.get("max_train_images"))
-    max_val = image_cap(cfg.get("max_val_images"))
-    max_train_samples = image_cap(cfg.get("max_train_samples"))
-    max_val_samples = image_cap(cfg.get("max_val_samples"))
+    assert_disjoint_splits(cfg)
 
-    # Finglish — QD: do vocab (caption + question) az train JSON
-    vocab, q_vocab = build_qd_vocabs(
-        cfg["train_captions_json"],
-        int(cfg["vocab_min_freq"]),
-        max_train,
-    )
-    train_ids = None
-    val_ids = None
-    if max_train is not None:
-        train_ids = sorted(
-            {int(r["image_id"]) for r in load_qd_json(cfg["train_captions_json"])}
-        )[:max_train]
-    if max_val is not None:
-        val_ids = sorted(
-            {int(r["image_id"]) for r in load_qd_json(cfg["val_captions_json"])}
-        )[:max_val]
-
-    train_ds = VqaQdCaptionDataset(
-        cfg["train_images_dir"],
-        cfg["train_captions_json"],
-        vocab,
-        q_vocab,
-        int(cfg["max_caption_len"]),
-        int(cfg.get("max_question_len", 14)),
-        cfg["train_image_filename_template"],
-        image_ids=train_ids,
-        image_size=int(cfg.get("image_size", 448)),
-        max_samples=max_train_samples,
-    )
-    val_ds = VqaQdCaptionDataset(
-        cfg["val_images_dir"],
-        cfg["val_captions_json"],
-        vocab,
-        q_vocab,
-        int(cfg["max_caption_len"]),
-        int(cfg.get("max_question_len", 14)),
-        cfg["val_image_filename_template"],
-        image_ids=val_ids,
-        image_size=int(cfg.get("image_size", 448)),
-        max_samples=max_val_samples,
-    )
+    # Finglish — QD: do vocab (caption + question) az train split
+    vocab, q_vocab = build_vocabs_from_cfg(cfg)
+    train_ds = build_split_dataset(cfg, "train", vocab, q_vocab)
+    val_ds = build_split_dataset(cfg, "val", vocab, q_vocab)
 
     device_is_cuda = device.type == "cuda"
     loader_kw = {
@@ -1109,23 +1324,7 @@ def main() -> None:
         **loader_kw,
     )
 
-    hidden_dim = int(cfg.get("hidden_dim", cfg.get("lstm_hidden", 512)))
-    model_kw: Dict[str, Any] = {
-        "vocab_size": len(vocab.itos),
-        "pad_id": vocab.pad_id,
-        "word_dim": int(cfg["word_dim"]),
-        "hidden_dim": hidden_dim,
-        "max_regions": int(cfg["max_regions"]),
-        "question_dim": int(cfg.get("question_dim", cfg["word_dim"])),
-        "embed_dim": int(cfg.get("embed_dim", hidden_dim)),
-        "region_dim": int(cfg["region_dim"]),
-        "dropout": float(cfg.get("dropout", 0.5)),
-        "question_vocab_size": len(q_vocab.itos),
-        "question_pad_id": q_vocab.pad_id,
-        "fuse_mode": str(cfg.get("fuse_mode", "concat")),
-    }
-
-    model = QuestionDependentImageCaptioner(**model_kw).to(device)
+    model = build_captioner(cfg, vocab, q_vocab).to(device)
     if ddp_on:
         # Finglish: DDP baraye 2xT4 Kaggle. torchrun required.
         from torch.nn.parallel import DistributedDataParallel as DDP
@@ -1136,9 +1335,17 @@ def main() -> None:
             find_unused_parameters=bool(cfg.get("ddp_find_unused_parameters", False)),
         )
 
-    optimizer = Adamax(model.parameters(), lr=float(cfg["learning_rate"]))
-    scheduler = build_lr_scheduler(optimizer, cfg)
-    criterion = nn.CrossEntropyLoss(ignore_index=0)
+    accum = max(1, int(cfg.get("grad_accum_steps", 1)))
+    optimizer = build_optimizer(model, cfg)
+    scheduler = build_lr_scheduler(
+        optimizer, cfg, steps_per_epoch=math.ceil(len(train_loader) / accum)
+    )
+    # Finglish: label smoothing (bench=0.1). Copy model ha log-prob midan;
+    # log_softmax(log p) = log p → CrossEntropy hamoon NLL mishe.
+    criterion = nn.CrossEntropyLoss(
+        ignore_index=0, label_smoothing=float(cfg.get("label_smoothing", 0.0))
+    )
+    eval_criterion = nn.CrossEntropyLoss(ignore_index=0)
     use_amp = bool(cfg.get("use_amp", False)) and device.type == "cuda"
     scaler = GradScaler(enabled=use_amp)
 
@@ -1148,6 +1355,10 @@ def main() -> None:
     start_epoch = 1
     epochs = int(cfg["epochs"])
     save_type = parse_save_model_type(cfg)
+    save_last = bool(cfg.get("save_last", True))
+    select_metric = str(cfg.get("select_metric", "loss")).lower()
+    if select_metric not in ("loss", "cider"):
+        raise ValueError(f"select_metric must be loss or cider, got {select_metric!r}")
     samples_seen = 0
 
     if cli.fresh and cli.do_continue:
@@ -1177,21 +1388,26 @@ def main() -> None:
         else 0
     )
 
+    n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     if rank == 0:
         print(f"config={config_path}")
         print(
             f"device={device} ddp={ddp_on} world={world} dataset=qd "
+            f"model_class={cfg.get('model_class', 'QuestionDependentImageCaptioner')} "
+            f"trainable_params={n_trainable:,} "
             f"train_rows={len(train_ds)} val_rows={len(val_ds)} "
             f"vocab={len(vocab.itos)} q_vocab={len(q_vocab.itos)} "
-            f"save_model_type={save_type}"
+            f"save_model_type={save_type} select_metric={select_metric}"
         )
         if save_type == "item":
             print(f"save_every_samples={save_every_samples(cfg)}")
 
+    history: List[Dict[str, Any]] = []
     for epoch in range(start_epoch, epochs + 1):
         if ddp_on and train_sampler is not None:
             train_sampler.set_epoch(epoch)
         ss_p = scheduled_sampling_prob(epoch, cfg)
+        t_epoch = time.perf_counter()
         tr_loss, tr_acc, samples_seen, next_save_at = train_epoch(
             model,
             train_loader,
@@ -1211,22 +1427,49 @@ def main() -> None:
             best_val=best_val,
             scheduler=scheduler,
         )
+        train_secs = time.perf_counter() - t_epoch
         # Finglish: eval har n epoch — na har dafe (eval_every az config).
         run_eval = should_run_eval(epoch, epochs, cfg)
+        scores: Optional[Dict[str, float]] = None
         if run_eval:
-            va_loss, va_acc = eval_epoch(model, val_loader, criterion, device, cfg)
+            va_loss, va_acc = eval_epoch(
+                model, val_loader, eval_criterion, device, cfg
+            )
+            if select_metric == "cider":
+                scores = val_caption_scores(model, val_loader, vocab, cfg, device)
         if rank == 0:
             cur_lr = optimizer.param_groups[0]["lr"]
             msg = (
                 f"epoch {epoch}/{epochs}  ss_p={ss_p:.2f}  lr={cur_lr:.2e}  "
-                f"train_loss={tr_loss:.4f} train_acc={tr_acc:.4f}"
+                f"train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} "
+                f"({train_secs:.1f}s)"
             )
             if run_eval:
                 msg += f"  val_loss={va_loss:.4f} val_acc={va_acc:.4f}"
+                if scores is not None:
+                    msg += (
+                        f" val_CIDEr={scores['CIDEr']:.4f}"
+                        f" val_BLEU-4={scores['BLEU-4']:.4f}"
+                        f" val_AnswerHit={scores['AnswerHit']:.4f}"
+                    )
             else:
                 msg += f"  val=skip (eval_every={max(1, int(cfg.get('eval_every', 1)))})"
             print(msg)
-        scheduler.step()
+            row: Dict[str, Any] = {
+                "epoch": epoch,
+                "lr": cur_lr,
+                "train_loss": tr_loss,
+                "train_acc": tr_acc,
+                "train_secs": train_secs,
+            }
+            if run_eval:
+                row.update({"val_loss": va_loss, "val_acc": va_acc})
+                if scores is not None:
+                    row.update({f"val_{k}": v for k, v in scores.items()})
+            history.append(row)
+            (save_dir / "history.json").write_text(
+                json.dumps(history, indent=1), encoding="utf-8"
+            )
 
         if rank == 0:
             state = build_captioner_checkpoint_state(
@@ -1237,16 +1480,24 @@ def main() -> None:
                 samples_seen,
                 q_vocab=q_vocab,
                 best_val=best_val,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                scaler=scaler,
+                optimizer=optimizer if save_last else None,
+                scheduler=scheduler if save_last else None,
+                scaler=scaler if save_last else None,
             )
-            if save_type == "epoch":
+            if save_type == "epoch" and save_last:
                 write_captioner_checkpoint(save_dir / "last.pt", state, rank)
-            if run_eval and va_loss < best_val:
-                best_val = va_loss
-                state["best"] = best_val
-                write_captioner_checkpoint(save_dir / "best.pt", state, rank)
+            if run_eval:
+                value = selection_value(select_metric, va_loss, scores)
+                if value < best_val:
+                    best_val = value
+                    state["best"] = best_val
+                    state["select_metric"] = select_metric
+                    state["best_epoch"] = epoch
+                    # Finglish: best.pt baraye benchmark — optimizer state lazem nist
+                    for k in ("optimizer", "scheduler", "scaler"):
+                        state.pop(k, None)
+                    write_captioner_checkpoint(save_dir / "best.pt", state, rank)
+                    print(f"  best.pt updated (epoch {epoch}, {select_metric})")
 
     if rank == 0 and save_type == "item":
         state = build_captioner_checkpoint_state(
