@@ -23,6 +23,7 @@ Branches: `feat/qd-captioner-benchmark` (shared harness), `feat/qd-captioner-upd
 ## Architectures
 
 - **v1 `QuestionDependentImageCaptioner`:** GRU question vector, one question attention, concat fusion, and an LSTM with per-step attention whose query is only `h`.
+- **v1 + question vocab (`configs/bench_v1_qvocab.yaml`):** the same v1 model, but its caption vocab is built from captions + question words, like A and B. It still can't copy. This isolates how much of A and B's gain comes from the vocab change.
 - **A `UpDownCopyCaptioner`:**
   - BiGRU per-word question states.
   - Two-layer Top-Down LSTM.
@@ -43,24 +44,28 @@ Loss is the same for all: cross-entropy with label smoothing 0.1. For the copy m
 |---|---|---|---|---|---|---|---|---|
 | v1 (smoke `best.pt`, reference) | 18.3M | 0.466 | 0.150 | 1.306 | 0.470 | 0.155 | – | 96 |
 | v1 (retrained) | 16.2M | 0.482 ± 0.008 | 0.180 ± 0.008 | 1.528 ± 0.062 | 0.486 ± 0.005 | 0.171 ± 0.015 | 7.1 | 93 |
+| v1 + question vocab | 16.3M | 0.474 ± 0.008 | 0.178 ± 0.006 | 1.489 ± 0.028 | 0.484 ± 0.002 | 0.158 ± 0.005 | 6.7 | 107 |
 | A UpDown + copy | 23.6M | **0.676 ± 0.007** | **0.427 ± 0.016** | **4.078 ± 0.128** | **0.672 ± 0.003** | 0.138 ± 0.018 | 11.7 | **440** |
 | **B Transformer + copy** | 21.1M | 0.666 ± 0.007 | 0.418 ± 0.008 | **4.073 ± 0.082** | 0.656 ± 0.010 | **0.179 ± 0.008** | **6.7** | 181 |
 
 - Answer-Hit is the share of captions that contain the gold answer. Number words count as digits ("two" = "2"), and "no"/"none" count as "0". It's measured on the 341 test items whose answer isn't yes/no (a caption doesn't state yes/no).
 - v1's decode is slow because its beam search blocks repeated trigrams in a Python loop. A and B use the vectorized version in `models/beam_utils.py`.
-- Best epochs: v1 18–30, A 16–30, B 12–18. B converges fastest.
+- Best epochs: v1 18–30, v1 + question vocab 12–30, A 16–30, B 12–18. B converges fastest.
 
 ### By question type
 
 | Model | CIDEr how_many (49) | CIDEr what_color (64) | CIDEr other (377) | Answer-Hit how_many | Answer-Hit what_color | Answer-Hit other |
 |---|---|---|---|---|---|---|
 | v1 | 0.42 | 1.73 | 1.55 | 0.143 | 0.188 | 0.164 |
+| v1 + question vocab | 0.63 | 1.43 | 1.52 | 0.143 | 0.182 | 0.148 |
 | A | 2.19 | 6.00 | 4.03 | 0.129 | 0.156 | 0.135 |
 | B | **2.44** | **6.21** | 3.93 | **0.156** | 0.182 | **0.180** |
 
 "Other" is the `llm_fallback` rule. `what_is_doing` has only 9 test items and is left out. CIDEr is computed within each group.
 
 ## What the numbers mean
+
+0. **The vocab change alone does nothing.** Giving v1 the same caption + question vocab as A and B leaves it at the same level: CIDEr-D 1.49 ± 0.03 vs 1.53 ± 0.06, and Answer-Hit 15.8% vs 17.1%. Both differences are within seed noise. Without a way to copy, v1 still drifts off the question (e.g. "Are there any people in the stands?" → "there is one ball in the background"). So the jump to about 4.07 comes from the copy mechanism, not the vocab.
 
 1. **Copying is the big win.** CIDEr-D goes from 1.53 to 4.07, and BLEU-4 from 0.18 to 0.42, for both copy models. That's more than 20 standard deviations of the seed noise. About 69% of caption tokens appear in the question, and the copy models now restate the question's subject reliably. v1 often drifts into an unrelated scene:
 
@@ -89,7 +94,7 @@ To raise Answer-Hit, which is what VQA actually needs from the caption, the next
 
 ## Caveats
 
-- v1 builds its caption vocab from captions only, while A and B also include question words (needed for copying). Part of the gain comes from that vocab change; it wasn't tested separately.
+- A and B build their caption vocab from captions + question words (needed for copying), and the main v1 row uses captions only. The "v1 + question vocab" row tests this directly: the vocab change alone gives no gain.
 - Optimizer and dropout follow each model family's usual settings (Adamax with dropout 0.3 for the LSTMs; AdamW with dropout 0.2 for the Transformer), so they aren't identical across models.
 - The test set is 499 items from 145 images, with one reference caption each. CIDEr with a single reference is noisy, which is why the tables report the spread over 3 seeds.
 
@@ -100,6 +105,7 @@ Run from `QuestionDependentImageCaptioner/`:
 ```bash
 python scripts/cache_regions.py --config configs/bench_v1.yaml
 bash scripts/run_bench.sh configs/bench_v1.yaml v1                              # on feat/qd-captioner-benchmark
+bash scripts/run_bench.sh configs/bench_v1_qvocab.yaml v1_qvocab                # on feat/qd-captioner-benchmark
 bash scripts/run_bench.sh configs/bench_updown_copy.yaml updown_copy            # on feat/qd-captioner-updown-copy
 bash scripts/run_bench.sh configs/bench_transformer_copy.yaml transformer_copy  # on feat/qd-captioner-transformer-copy
 python scripts/bench_compare.py --root outputs/bench --out outputs/bench/summary.md
