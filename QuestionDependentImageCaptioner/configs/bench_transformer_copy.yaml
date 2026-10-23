@@ -1,0 +1,74 @@
+# Benchmark: arch B (MMTransformerCopyCaptioner) — joint region+question Transformer + copy.
+# Hame bench_*.yaml faghat dar model/optimizer key ha farghe daran.
+#   python scripts/cache_regions.py --config configs/bench_transformer_copy.yaml
+#   python train.py --config configs/bench_transformer_copy.yaml --seed 42 --save-dir outputs/bench/transformer_copy/seed42 --fresh
+#   python benchmark.py --config configs/bench_transformer_copy.yaml --ckpt outputs/bench/transformer_copy/seed42/best.pt --name transformer_copy
+seed: 42
+model_class: MMTransformerCopyCaptioner
+train_captions_json: ../dataset/vqa_v2_question_dependent_captions_train2014.json
+val_captions_json: ../dataset/vqa_v2_question_dependent_captions_train2014.json
+train_images_dir: ../dataset/train2014
+val_images_dir: ../dataset/train2014
+train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+val_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+
+# --- image-disjoint split (rows [start, end), snapped be marz image_id) ---
+train_row_range: [0, 3000]
+val_row_range: [3000, 3500]
+test_row_range: [3500, 4000]
+
+save_dir: outputs/bench/transformer_copy/seed42
+save_model_type: epoch
+save_every_samples: 50
+save_last: false
+save_detector_weights: false
+select_metric: cider
+val_beam_size: 1
+
+num_workers: 0
+batch_size: 16
+epochs: 30
+eval_every: 2
+optimizer: adamw
+learning_rate: 0.0003
+weight_decay: 0.01
+warmup_steps: 400
+grad_clip: 2.0
+label_smoothing: 0.1
+dropout: 0.2
+lr_decay_factor: 0.3
+lr_decay_interval: 10
+use_amp: true
+grad_accum_steps: 1
+max_caption_len: 20
+max_question_len: 20
+vocab_min_freq: 0
+cap_vocab_include_question: true
+max_regions: 32
+
+# --- region cache: hame split ha az COCO train2014 → yek cache dir ---
+cache_regions: true
+images_from_cache: true
+train_region_cache_dir: outputs/region_cache/captioner/train
+val_region_cache_dir: outputs/region_cache/captioner/train
+test_region_cache_dir: outputs/region_cache/captioner/train
+
+image_size: 448
+pin_memory: true
+persistent_workers: false
+prefetch_factor: 2
+word_dim: 512
+hidden_dim: 512
+num_heads: 8
+num_layers: 3
+ff_dim: 1024
+embed_dim: 512
+region_dim: 2048
+question_dim: 1280
+fuse_mode: concat
+device: cuda
+ddp: false
+ddp_backend: nccl
+scheduled_sampling_max_prob: 0.24
+scheduled_sampling_interval: 4
+scheduled_sampling_increment: 0.06

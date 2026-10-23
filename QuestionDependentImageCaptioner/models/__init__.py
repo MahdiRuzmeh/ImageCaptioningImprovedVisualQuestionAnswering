@@ -9,6 +9,8 @@ from typing import Any, Callable, Dict
 
 from torch import nn
 
+from .beam_utils import build_copy_map
+from .captioner_mmtransformer_copy import MMTransformerCopyCaptioner
 from .captioner_v1 import QuestionDependentImageCaptioner
 
 DEFAULT_MODEL_CLASS = "QuestionDependentImageCaptioner"
@@ -32,8 +34,28 @@ def _build_v1(cfg: Dict[str, Any], vocab: Any, q_vocab: Any) -> nn.Module:
     )
 
 
+def _build_mmtransformer_copy(
+    cfg: Dict[str, Any], vocab: Any, q_vocab: Any
+) -> nn.Module:
+    return MMTransformerCopyCaptioner(
+        vocab_size=len(vocab.itos),
+        pad_id=vocab.pad_id,
+        question_vocab_size=len(q_vocab.itos),
+        copy_ids=build_copy_map(vocab, q_vocab),
+        question_pad_id=q_vocab.pad_id,
+        d_model=int(cfg.get("hidden_dim", 512)),
+        num_heads=int(cfg.get("num_heads", 8)),
+        num_layers=int(cfg.get("num_layers", 3)),
+        ff_dim=int(cfg.get("ff_dim", 1024)),
+        max_regions=int(cfg["max_regions"]),
+        region_dim=int(cfg.get("region_dim", 2048)),
+        dropout=float(cfg.get("dropout", 0.2)),
+    )
+
+
 MODEL_REGISTRY: Dict[str, Callable[[Dict[str, Any], Any, Any], nn.Module]] = {
     DEFAULT_MODEL_CLASS: _build_v1,
+    "MMTransformerCopyCaptioner": _build_mmtransformer_copy,
 }
 
 
@@ -49,6 +71,7 @@ def build_captioner(cfg: Dict[str, Any], vocab: Any, q_vocab: Any) -> nn.Module:
 
 __all__ = [
     "QuestionDependentImageCaptioner",
+    "MMTransformerCopyCaptioner",
     "MODEL_REGISTRY",
     "build_captioner",
     "DEFAULT_MODEL_CLASS",
