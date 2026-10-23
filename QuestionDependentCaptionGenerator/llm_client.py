@@ -546,11 +546,18 @@ def run_batches_concurrent(
             on_batch_start(idx, len(batch))
         return idx, client.captions_with_retry(batch, single_retries=single_retries)
 
-    with ThreadPoolExecutor(max_workers=workers) as ex:
+    # Every batch is queued up front, so on Ctrl+C the queued ones must be
+    # cancelled — a plain ``with`` block would wait for all of them to run.
+    ex = ThreadPoolExecutor(max_workers=workers)
+    try:
         futs = [ex.submit(_job, i, b) for i, b in enumerate(batches)]
         for fut in as_completed(futs):
             idx, caps = fut.result()
             out[idx] = caps
             if on_batch_done is not None:
                 on_batch_done(idx, caps)
+    except BaseException:
+        ex.shutdown(wait=False, cancel_futures=True)
+        raise
+    ex.shutdown(wait=True)
     return out

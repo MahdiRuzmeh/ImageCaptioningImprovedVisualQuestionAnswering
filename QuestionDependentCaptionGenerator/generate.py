@@ -23,6 +23,7 @@ import argparse
 import json
 import os
 import tempfile
+import time
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -740,7 +741,15 @@ def apply_llm_fallbacks(
 
     last_outcome: Dict[int, ItemOutcome] = {}
     done_batches = 0
+    done_items = 0
     total_batches = len(batches_pairs)
+    # Wall-clock for this run only (resumed captions are not counted in rates).
+    started = time.perf_counter()
+
+    def _timing() -> str:
+        elapsed = time.perf_counter() - started
+        rate = done_items / elapsed if elapsed > 0 else 0.0
+        return f"elapsed {elapsed:.1f}s, {rate:.2f} Q+A/s"
     print(
         f"Starting LLM captioning: {total_batches} batches "
         f"(first batch may take a while if Ollama is loading the model)...",
@@ -802,7 +811,8 @@ def apply_llm_fallbacks(
         )
 
     def _on_batch(batch_i: int, outcomes: List[ItemOutcome]) -> None:
-        nonlocal done_batches, validation_retry_count, validation_failure_count
+        nonlocal done_batches, done_items
+        nonlocal validation_retry_count, validation_failure_count
         ok_n = 0
         r, f = count_validation_stats(outcomes)
         validation_retry_count += r
@@ -813,11 +823,12 @@ def apply_llm_fallbacks(
             if outcome.caption is not None:
                 ok_n += 1
         done_batches += 1
+        done_items += len(outcomes)
         still = sum(1 for r in rows if r["rule"] == "needs_llm")
         print(
             f"  LLM batch {batch_i + 1}/{total_batches} done "
             f"(accepted {ok_n}/{len(outcomes)}, "
-            f"{still} needs_llm left)",
+            f"{still} needs_llm left; {_timing()})",
             flush=True,
         )
         if checkpoint_every > 0 and done_batches % checkpoint_every == 0:
@@ -831,6 +842,11 @@ def apply_llm_fallbacks(
         on_batch_done=_on_batch,
         on_batch_start=_on_batch_start,
         single_retries=single_retries,
+    )
+    print(
+        f"LLM captioning done this run: {done_items} Q+A in "
+        f"{done_batches} batches (parallel={workers}; {_timing()})",
+        flush=True,
     )
 
     leftover = [i for i, r in enumerate(rows) if r["rule"] == "needs_llm"]
@@ -1223,8 +1239,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--workers",
         type=int,
-        default=1,
-        help="Concurrent API request be hamoon Ollama (default 1, 8GB safe)",
+        default=None,
+        help=(
+            "Deprecated: override --llm-parallel for caption generation only "
+            "(default: same as --llm-parallel)"
+        ),
     )
     parser.add_argument(
         "--ollama-host",
@@ -1278,8 +1297,9 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=4,
         help=(
-            "Max concurrent classifier Ollama requests "
-            "(default 4; set OLLAMA_NUM_PARALLEL >= this on the server)"
+            "Max concurrent Ollama requests for the classifier and for LLM "
+            "caption generation (default 4; set OLLAMA_NUM_PARALLEL >= this "
+            "on the server)"
         ),
     )
     parser.add_argument(
@@ -1334,7 +1354,7 @@ def main() -> None:
             f"WARNING: --batch-size={args.batch_size} > 10 increases "
             "cross-item contamination risk; prefer <=10."
         )
-    if args.workers < 1:
+    if args.workers is not None and args.workers < 1:
         raise ValueError("--workers must be >= 1")
     if args.checkpoint_every < 1:
         raise ValueError("--checkpoint-every must be >= 1")
@@ -1346,6 +1366,17 @@ def main() -> None:
         raise ValueError("--llm-parallel must be >= 1")
     if not 0.0 <= args.min_consensus <= 1.0:
         raise ValueError("--min-consensus must be between 0.0 and 1.0")
+    # Caption generation shares --llm-parallel with the classifier;
+    # --workers is kept only as a deprecated override.
+    caption_parallel = (
+        args.workers if args.workers is not None else args.llm_parallel
+    )
+    if args.workers is not None:
+        print(
+            f"WARNING: --workers is deprecated; caption generation uses "
+            f"--workers={args.workers} instead of "
+            f"--llm-parallel={args.llm_parallel}."
+        )
 
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -1519,7 +1550,7 @@ def main() -> None:
         llm_meta = {
             "model": args.model,
             "batch_size": args.batch_size,
-            "workers": args.workers,
+            "workers": caption_parallel,
             "host": args.ollama_host,
             "prompt_version": PROMPT_VERSION,
             "num_ctx": 4096,
@@ -1557,7 +1588,7 @@ def main() -> None:
                     rows,
                     client=ollama_client,
                     batch_size=args.batch_size,
-                    workers=args.workers,
+                    workers=caption_parallel,
                     checkpoint_every=args.checkpoint_every,
                     output_path=output_path,
                     questions_json=questions_json,

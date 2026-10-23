@@ -32,6 +32,7 @@ import json
 import os
 import re
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -880,6 +881,17 @@ def filter_non_visual_questions(
     newly_classified = 0
     # Buffer of (row, qid, question) awaiting a parallel LLM flush.
     llm_buffer: List[Tuple[Dict, Optional[int], str]] = []
+    # Wall-clock for this run only (resumed items are not counted in rates).
+    started = time.perf_counter()
+
+    def _timing() -> str:
+        elapsed = time.perf_counter() - started
+        rate = newly_classified / elapsed if elapsed > 0 else 0.0
+        llm_rate = llm_calls / elapsed if elapsed > 0 else 0.0
+        return (
+            f"elapsed {elapsed:.1f}s, {rate:.2f} q/s, "
+            f"{llm_rate:.2f} LLM q/s"
+        )
 
     def _apply_llm_label(
         row: Dict,
@@ -961,7 +973,8 @@ def filter_non_visual_questions(
             if done == 1 or done % progress_every == 0 or done == n_total:
                 print(
                     f"  classify progress: {len(classified_ids)}/{n_total} "
-                    f"(LLM calls: {llm_calls}, buffered: {len(llm_buffer)})",
+                    f"(LLM calls: {llm_calls}, buffered: {len(llm_buffer)}; "
+                    f"{_timing()})",
                     flush=True,
                 )
 
@@ -998,6 +1011,13 @@ def filter_non_visual_questions(
         except KeyboardInterrupt:
             _maybe_save_checkpoint("in_progress", force=True)
             raise
+        if newly_classified:
+            print(
+                f"  classify done this run: {newly_classified} questions "
+                f"(LLM calls: {llm_calls}, parallel={classifier.parallel}; "
+                f"{_timing()})",
+                flush=True,
+            )
 
     if classifier is not None and checkpoint_path is not None:
         if newly_classified or len(classified_ids) == n_total:
