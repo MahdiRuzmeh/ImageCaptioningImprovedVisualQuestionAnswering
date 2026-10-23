@@ -22,7 +22,7 @@ Pipeline:
 | `caption_rules.py` | Rule engine + helper ha |
 | `generate.py` | CLI: rules + always-on classifier + optional LLM fallback |
 | `llm_prompts.py` | Packed prompt (chand Q+A toye yek request) |
-| `llm_client.py` | Ollama HTTP client + concurrent workers |
+| `llm_client.py` | Ollama HTTP client + parallel caption batches (`--llm-parallel`) |
 | `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`fast_validator` `v11`, `llm_validator` `v10`) |
 | `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (blacklist → NDV; UNKNOWN → parallel chat-turn LLM) |
 | `audit/audit_captions.py` | DevAuditor caption scorer — fills `fast_validator_label` / `llm_judge_label` / `caption_status` ([audit/README.md](audit/README.md)) |
@@ -134,11 +134,11 @@ python generate.py --split train --llm --batch-size 10 --max-items 200 \
   --model qwen2.5:3b-instruct-q4_K_M
 
 # full val — checkpoint har 50 batch (kamtar disk I/O)
-python generate.py --split val --llm --batch-size 10 --workers 1 \
+python generate.py --split val --llm --batch-size 10 --llm-parallel 4 \
   --model qwen2.5:3b-instruct-q4_K_M --checkpoint-every 50
 
 # checkpoint har 100 batch
-python generate.py --split train --llm --batch-size 10 --workers 1 \
+python generate.py --split train --llm --batch-size 10 --llm-parallel 4 \
   --model qwen2.5:3b-instruct-q4_K_M --checkpoint-every 100
 ```
 
@@ -149,13 +149,13 @@ python generate.py --split train --llm --batch-size 10 --workers 1 \
 | `--llm` | off | Baraye `needs_llm` rows az Ollama caption begir |
 | `--batch-size` | `10` | Chand Q+A toye **yek** LLM prompt |
 | `--model` | `mistral` | Esm model Ollama |
-| `--workers` | `1` | Concurrent API request (hamoon yek model) |
 | `--ollama-host` | `http://localhost:11434` | Base URL Ollama |
 | `--checkpoint-every` | `1` | Har N LLM batch JSON save (`1`, `50`, `100`, …) |
 | `--classifier-checkpoint-every` | `50` | Har N classified question classifier checkpoint save |
 | `--min-consensus` | `0.0` (off) | Drop Q/A pair-hayi ke `answer_consensus` kamtar az in dare |
 | `--no-blacklist-drop` / `--no-fast-path` | off | Blacklist auto-NDV ro khamoosh kon — hame soal ha UNKNOWN→parallel LLM classifier |
-| `--llm-parallel` | `4` | Max concurrent classifier Ollama requests (set `OLLAMA_NUM_PARALLEL` >= this on the server) |
+| `--llm-parallel` | `4` | Max concurrent Ollama requests — classifier **va** LLM caption batches (set `OLLAMA_NUM_PARALLEL` >= this on the server) |
+| `--workers` | = `--llm-parallel` | **Deprecated.** Faghat baraye caption generation `--llm-parallel` ro override mikone (warning chap mishe) |
 | `--no-resume` | off | Ignore classifier + LLM checkpoints (fresh start) |
 | `--output` | `outputs/...` | Override path output JSON |
 
@@ -306,8 +306,13 @@ If `--llm` finishes with any `needs_llm` left, the process exits with code `1` a
 
 - Yek model load mishe (na chand copy).
 - Asli-tarin speedup = `--batch-size` (pack).
-- `--workers 1` safe-tarine; `--workers 2` faghat age OOM nashod.
-- Age concurrent mikhay, Ollama side: `OLLAMA_NUM_PARALLEL` ba `--workers` align bashe.
+- `--llm-parallel` ham classifier ham caption batch ha ro concurrent mifreste; batch-i ke tamoom beshe, slot-esh foran be batch-e ba'di mire.
+- Ollama side: `OLLAMA_NUM_PARALLEL` >= `--llm-parallel` bashe (ghabl az `ollama serve`, too hamoon shell); vagarna request ha queue mishan (dorost, vali bedoon speedup). Age Ollama tray app baz-e, avval bebandesh.
+- `--llm-parallel 1` safe-tarine; age OOM ya `timeout` too `.llm_failures` didi, kamesh kon.
+- Progress line ha `elapsed` va `q/s` (classifier) / `Q+A/s` (captions) chap mikonan — baraye moghayese-ye setting ha.
+- Pilot (60 items, qwen2.5:3b, 8GB): parallel 1 → 4 = classifier ~3×, captions ~1.9×, kol-e run 219s → 110s. Classifier label ha yeksan budan (57/57); ~25% LLM caption ha kalamat-e motefavet dashtan (GPU batching noise, na kahesh-e quality).
+- Baraye reproducibility-e dataset-e nahayi, yek `--llm-parallel` entekhab kon va sabet negah dar (`info.llm.workers` save mishe).
+- Final validation pass (LLM judge) hanuz sequential ast.
 
 ## Output row
 
@@ -335,7 +340,7 @@ If `--llm` finishes with any `needs_llm` left, the process exits with code `1` a
 
 `answer_count` = chand ta az 10 annotator dagigan hamun mode answer ro dadan; `answer_consensus` = `answer_count / total_annotators` (rounded). In annotator agreement ast, na model confidence — ba'dan mitune baraye loss weighting estefade beshe.
 
-`info.llm` (age `--llm`): `model`, `batch_size`, `workers`, `host`, `prompt_version`, `validation`.
+`info.llm` (age `--llm`): `model`, `batch_size`, `workers` (= caption concurrency used, i.e. `--llm-parallel`), `host`, `prompt_version`, `validation`.
 
 `info.versions` (hamishe): bare per-component numbers —
 
@@ -399,7 +404,7 @@ Hazine: aksar soal ha UNKNOWN→LLM (yek request per question). Same few-shot pr
 | Flag | Chi mikone |
 |------|------------|
 | `--classifier-batch-size` | Chand UNKNOWN soal flush beshe be parallel `classify_batch` (default `10`). Har soal = yek Ollama request. |
-| `--llm-parallel` | Max concurrent classifier Ollama requests (default `4`). Set `OLLAMA_NUM_PARALLEL` >= this before `ollama serve`. |
+| `--llm-parallel` | Max concurrent Ollama requests (default `4`) — classifier va LLM caption generation ba ham share mikonan. Set `OLLAMA_NUM_PARALLEL` >= this before `ollama serve`. |
 | `--no-blacklist-drop` / `--no-fast-path` | Blacklist auto-NDV off — hame soal ha be parallel LLM miran. |
 | `--classifier-checkpoint-every` | Save classifier progress every N questions (default `50`). |
 | `--classifier-model` | Model Ollama baraye classifier; default = `--model` |
