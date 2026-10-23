@@ -60,8 +60,8 @@ Paths relative to `SimpleVQA/`.
 | `use_captioner` | Fuse captioner `v_cap` with `v_att`; `false` = `v_att` only |
 | `captioner_project_root` | Path to `QuestionDependentImageCaptioner` code |
 | `captioner_ckpt` | Stage-1 captioner checkpoint (`best.pt`) |
-| `captioner_class` | Captioner class name in `captioner_v1.py` |
-| `captioner_finetune_q` | Unfreeze captioner `q_emb` / `q_gru` during VQA train |
+| `captioner_class` | Expected captioner class (`MMTransformerCopyCaptioner` by default). Only a fallback/check: the class saved in the checkpoint (`config.model_class`) wins; old checkpoints without it load as v1 |
+| `captioner_finetune_q` | Unfreeze captioner `q_emb` / `q_gru` during VQA train (`q_emb` only for MMTransformerCopyCaptioner) |
 | `caption_repr` | How `v_cap` is built: `hidden` or `text` |
 
 ### Training loop

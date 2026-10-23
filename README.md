@@ -4,7 +4,7 @@ Implementation of the two-stage pipeline from *Image captioning improved visual 
 
 | Project | Role |
 |---------|------|
-| [`QuestionDependentImageCaptioner/`](QuestionDependentImageCaptioner/) | **Stage 1** — question-dependent (QD) captioner: `(image, question) → caption` |
+| [`QuestionDependentImageCaptioner/`](QuestionDependentImageCaptioner/) | **Stage 1** — question-dependent (QD) captioner: `(image, question) → caption`. Default model: `MMTransformerCopyCaptioner` (joint region+question Transformer + copy from question); see its [BENCHMARK.md](QuestionDependentImageCaptioner/BENCHMARK.md) |
 | [`QuestionDependentCaptionGenerator/`](QuestionDependentCaptionGenerator/) | Rule engine to build QD training JSON from VQA v2 Q+A |
 | [`SimpleVQA/`](SimpleVQA/) | **Stage 2** — VQA v2 with frozen QD captioner + trainable VQA head |
 
@@ -64,7 +64,7 @@ cd QuestionDependentImageCaptioner
 python train.py --config configs/default.yaml
 ```
 
-Checkpoint: `QuestionDependentImageCaptioner/outputs/default/best.pt` (includes `vocab`, `q_vocab`, model).
+Checkpoint: `QuestionDependentImageCaptioner/outputs/default/best.pt` (includes `vocab`, `q_vocab`, model, and `config` with `model_class`, which SimpleVQA uses to rebuild the captioner).
 
 **Stage 2 — VQA**
 
@@ -89,11 +89,13 @@ python train.py --config configs/default.yaml --eval --ckpt outputs/default/best
 
 ## Run — smoke test (quick)
 
-Verifies the pipeline on 100 train + 100 val questions before a long run.
+Verifies the pipeline before a long run. The captioner smoke config uses the benchmark protocol: 3000 train rows, plus val and test splits whose images don't appear in training.
 
 ```powershell
 cd QuestionDependentImageCaptioner
+python scripts/cache_regions.py --config configs/smoke.yaml   # once
 python train.py --config configs/smoke.yaml
+python benchmark.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --name smoke
 
 cd ../SimpleVQA
 python train.py --config configs/smoke.yaml

@@ -21,17 +21,15 @@
 
 ```mermaid
 flowchart LR
-    subgraph S1["Stage 1 — QuestionDependentImageCaptioner"]
-        I1[Image] --> RCNN1[Faster R-CNN]
-        Q1[Question] --> QGRU1[q_emb + q_gru]
-        RCNN1 --> QATT[Question attention once]
-        QGRU1 --> QATT
-        QATT --> FUSE1[concat fusion]
-        QGRU1 --> FUSE1
-        FUSE1 --> DEC[LSTM Decoder]
-        RCNN1 --> SATT[per-step attention]
-        SATT --> DEC
-        DEC --> CAP[QD Caption tokens]
+    subgraph S1["Stage 1 — MMTransformerCopyCaptioner"]
+        I1[Image] --> RCNN1[Faster R-CNN regions]
+        Q1[Question] --> QE1[q_emb + position]
+        RCNN1 --> ENC1[Joint Transformer encoder]
+        QE1 --> ENC1
+        ENC1 --> DEC[Transformer decoder]
+        DEC --> COPY[vocab + copy-from-question mix]
+        ENC1 --> COPY
+        COPY --> CAP[QD Caption tokens]
     end
 
     subgraph S2["Stage 2 — SimpleVQA"]
@@ -60,7 +58,10 @@ flowchart LR
 ## Stage 1 — QuestionDependentImageCaptioner
 
 <!--
-  Main model: QuestionDependentImageCaptioner in captioner_v1.py
+  Main model (v2): MMTransformerCopyCaptioner in models/captioner_mmtransformer_copy.py
+  Legacy model:    QuestionDependentImageCaptioner (v1) in models/captioner_v1.py
+  The class is chosen by `model_class` in the YAML (registry models.build_captioner)
+  and saved in the checkpoint config, so eval / benchmark / SimpleVQA rebuild the same class.
   Training: QuestionDependentImageCaptioner/train.py
   Data: vqa_v2_question_dependent_captions_*.json (image, question, caption).
   No RelationGNN in Stage 1. Question is required.
@@ -72,86 +73,124 @@ Stage 1: learn **(image, question) → question-dependent caption**.
 
 MSCOCO-only (no question) path is removed.
 
-### Pipeline (QD)
+### Why MMTransformerCopyCaptioner
+
+Chosen by the architecture benchmark in [`QuestionDependentImageCaptioner/BENCHMARK.md`](../QuestionDependentImageCaptioner/BENCHMARK.md). All models were trained on 3000 training rows and scored on a test split whose images don't appear in training, with 3 seeds each:
+
+| Model | CIDEr-D | BLEU-4 | Answer-Hit |
+|-------|---------|--------|------------|
+| v1 `QuestionDependentImageCaptioner` | 1.53 | 0.18 | 0.171 |
+| v1 + caption∪question vocab | 1.49 | 0.18 | 0.158 |
+| UpDown LSTM + copy | 4.08 | 0.43 | 0.138 |
+| **MMTransformerCopyCaptioner** | **4.07** | **0.42** | **0.179** |
+
+Answer-Hit is the share of generated captions that contain the gold answer (yes/no answers excluded). About 69% of caption tokens appear in the question, so **copying from the question** gives the large gain. The vocab change alone does not. B ties the UpDown LSTM on CIDEr-D, is better on Answer-Hit, and trains about 1.7× faster.
+
+### Pipeline (QD, v2)
 
 ```mermaid
 flowchart TB
     IMG["Image (3×448×448)"]
     FRCNN["Faster R-CNN (frozen)\n→ 32 regions × 1024"]
     ROI["roi_to_region (trainable)\n→ 32 × 2048"]
+    RP["region_proj: LayerNorm + Linear\n→ 32 × d"]
     Q["question_ids"]
-    QEMB["q_emb"]
-    QGRU["q_gru (PAD-aware)"]
-    QCTX["qctx: hidden_dim"]
-    QATT["question_attention(regions, qctx)\n→ attended 512"]
-    FUSE["FeatureFusion concat\nfused = Linear([qctx; attended])"]
-    INIT["LSTM init\nh,c = tanh(W · fused)"]
-    LOOP["Decode loop t=1..T"]
+    QE["q_emb·√d + q_pos"]
+    TYPE["+ type_emb (0=region, 1=question)"]
+    ENC["Joint Transformer encoder (3 layers, pre-LN)\nregions ↔ question words"]
+    MEM["memory: (32 + Lq) × d"]
 
-    IMG --> FRCNN --> ROI
-    Q --> QEMB --> QGRU --> QCTX
-    ROI --> QATT
-    QCTX --> QATT --> FUSE
-    QCTX --> FUSE --> INIT --> LOOP
+    IMG --> FRCNN --> ROI --> RP --> TYPE
+    Q --> QE --> TYPE
+    TYPE --> ENC --> MEM
 
-    subgraph LOOP_DETAIL["Each step t"]
-        SATT["step_attention(regions, h)\n→ z_t 512-D"]
-        WE["word_emb(token_{t-1})"]
-        LSTM["LSTMCell(concat(word, fused, z_t))"]
-        OUT["classifier(h + ctx_to_logit(z_t))\n→ logits"]
-        SATT --> LSTM
-        WE --> LSTM
-        LSTM --> OUT
+    subgraph DEC["Decoder (parallel in training, prefix recompute in beam)"]
+        WE["word_emb·√d + w_pos (caption prefix)"]
+        TD["Transformer decoder (3 layers)\ncausal self-attn + cross-attn to memory"]
+        H["h_t"]
+        VOC["P_vocab = softmax(h_t · word_embᵀ + b)\n(tied weights)"]
+        CP["copy attention over question part of memory\n→ copy dist + ctx"]
+        PG["p_gen = σ(W[h_t; ctx; word])"]
+        MIX["P = p_gen·P_vocab + (1−p_gen)·copy"]
+        WE --> TD --> H
+        H --> VOC --> MIX
+        H --> CP --> MIX
+        CP --> PG --> MIX
     end
 
-    LOOP --> LOOP_DETAIL
+    MEM --> TD
+    MEM --> CP
 ```
 
-### Components
+### Components (v2)
 
 | Layer | File | Trainable? | Input → Output |
 |-------|------|------------|----------------|
-| `RegionEncoder` | `captioner_v1.py` | `roi_to_region` only | Image → `(N, 32, 2048)` |
-| `question_attention` | `captioner_v1.py` | Yes | regions + `qctx` → attended 512 (once) |
-| `FeatureFusion` | `captioner_v1.py` | Yes | `concat(qctx, attended)` → fused 512 |
-| `init_h` / `init_c` | `captioner_v1.py` | Yes | fused → `h0,c0` 512 |
-| `step_attention` | `captioner_v1.py` | Yes | regions + `h` → `z_t` 512 |
-| `word_emb` | `captioner_v1.py` | Yes | caption token id → 512 |
-| `q_emb` + `q_gru` | `captioner_v1.py` | Yes | question ids → `qctx` 512 |
-| `LSTMCell` | `captioner_v1.py` | Yes | `[word; fused; z_t]` → `h_t` 512 |
-| `classifier` | `captioner_v1.py` | Yes | hidden → vocab logits |
+| `RegionEncoder` | `captioner_v1.py` (shared) | `roi_to_region` only | Image → `(N, 32, 2048)` (raw 1024-D ROI cached) |
+| `region_proj` | `captioner_mmtransformer_copy.py` | Yes | `(N, 32, 2048)` → `(N, 32, d)` |
+| `q_emb` + `q_pos` + `type_emb` | same | Yes | question ids → `(N, Lq, d)` |
+| `encoder` | same | Yes | `[regions; question]` → memory `(N, 32+Lq, d)` |
+| `word_emb` + `w_pos` | same | Yes | caption prefix → `(N, T, d)`; also the tied output matrix |
+| `decoder` | same | Yes | prefix + memory → `h` `(N, T, d)` |
+| `copy_q` / `copy_k` | same | Yes | `h` × question memory → copy attention `(N, T, Lq)` |
+| `p_gen` | same | Yes | `[h; ctx; word]` → gate in (0, 1) |
+| `copy_map` (buffer) | built from vocabs | – | question-vocab id → caption-vocab id (specials → masked) |
+
+Copying needs every question word in the caption vocab. The configs therefore set `cap_vocab_include_question: true`, so the caption vocab = caption ∪ question tokens from the train split.
 
 ### Decode (inference)
 
 | Mode | Function | Description |
 |------|----------|-------------|
-| Greedy | `_decode_caption()` | Argmax at each step |
-| Beam | `generate_caption()` | beam=5, length-norm, trigram blocking |
+| Greedy | `_decode_caption()` / `generate_caption(beam_size=1)` | Used for val CIDEr selection and SimpleVQA `caption_repr: text` |
+| Beam | `generate_caption()` | Generic `models/beam_utils.beam_search`: beam=5 (benchmark 3), length-norm 0.7, trigram blocking |
 
-### Dimensions (paper-aligned defaults)
+### Dimensions (v2 defaults)
 
-| Symbol | Size | Description |
-|--------|------|-------------|
-| K (regions) | 32 | ROIs from Faster R-CNN |
-| L (region dim) | 2048 | `v_i ∈ ℝ^2048` |
-| LSTM hidden | 512 | `h_t`, `m_t` |
-| word_dim | 512 | caption word embeddings |
-| embed_dim | 512 | attention working space |
-| max_caption_len | 20 | + BOS/EOS |
-| max_question_len | 14 | + BOS/EOS |
+| Key | Size | Description |
+|-----|------|-------------|
+| K (`max_regions`) | 32 | ROIs from Faster R-CNN |
+| `region_dim` | 2048 | after `roi_to_region` |
+| d (`hidden_dim`) | 512 | Transformer width = `word_emb` dim = `v_cap` dim |
+| `num_heads` / `num_layers` / `ff_dim` | 8 / 3 / 1024 | encoder and decoder |
+| `dropout` | 0.2 | |
+| `max_caption_len` | 20 | + BOS/EOS |
+| `max_question_len` | 14 (default) / 20 (smoke) | + BOS/EOS |
 
 ### Training (Stage 1 — QD)
 
 ```
-Input:  (image, question_ids, caption_ids GT)
-Loss:   CrossEntropy on caption_ids[:, 1:]
-Mode:   Teacher forcing (+ optional scheduled sampling)
-Config: configs/default.yaml
-Data:   vqa_v2_question_dependent_captions_{train,val}2014.json
-Output: outputs/*/best.pt  (model + vocab + q_vocab)
+Input:     (image, question_ids, caption_ids GT)
+Loss:      CrossEntropy (label_smoothing 0.1) on caption_ids[:, 1:]
+           — the copy model outputs log P, so CE = NLL of the mixed distribution
+Mode:      Teacher forcing, parallel (scheduled_sampling_* is ignored; v1 only)
+Optimizer: AdamW lr 3e-4, weight_decay 0.01, warmup_steps 400, grad_clip 2.0
+           (+ step decay lr_decay_factor / lr_decay_interval)
+best.pt:   select_metric: cider → best val CIDEr-D (greedy) ; or `loss`
+Splits:    <split>_row_range → image-disjoint train/val/test from one JSON (smoke),
+           otherwise max_*_images / max_*_samples
+Config:    configs/default.yaml (full), configs/smoke.yaml (3000-row benchmark protocol)
+Output:    outputs/*/best.pt  (model + vocab + q_vocab + config incl. model_class;
+           frozen detector weights not saved when save_detector_weights: false)
 ```
 
-**Special tokens:** PAD=0, BOS=1, EOS=2
+**Special tokens:** PAD=0, BOS=1, EOS=2, UNK=3
+
+### Legacy v1 — `QuestionDependentImageCaptioner`
+
+Still in `models/captioner_v1.py`. It's selected by `model_class: QuestionDependentImageCaptioner` and is used automatically for old checkpoints whose config has no `model_class`.
+
+```
+qctx = q_gru(q_emb(question))                 # PAD-aware last state
+attended = question_attention(regions, qctx)  # one-shot
+fused = Linear(concat(qctx, attended))        # FeatureFusion concat
+h0, c0 = tanh(W · fused)
+z_t = step_attention(regions, h_{t-1})        # per-step refocus (query = h only)
+LSTM input = [word; fused; z_t] → classifier(h + ctx_to_logit(z_t))
+Train: Adamax + scheduled sampling
+```
+
+Benchmark configs for every compared model: `configs/bench_v1.yaml`, `configs/bench_v1_qvocab.yaml`, `configs/bench_transformer_copy.yaml`. The UpDown + copy model lives on branch `feat/qd-captioner-updown-copy`.
 
 ---
 
@@ -236,34 +275,33 @@ flowchart TB
 
 ### Caption integration
 
-Captioner is loaded from `QuestionDependentImageCaptioner/outputs/*/best.pt`:
+Captioner is loaded from `QuestionDependentImageCaptioner/outputs/*/best.pt` by `load_captioner()`. It goes through the captioner registry (`models.build_captioner`), and the class and dims come from `ckpt['config']`. `captioner_class` in the VQA YAML is only a fallback/check: if it disagrees with the checkpoint, the checkpoint wins and a warning is printed. Old checkpoints without `model_class` load as v1.
 
 | Captioner part | Stage 2 status (default) |
 |----------------|--------------------------|
 | All captioner weights incl. `q_emb`, `q_gru` | **Frozen** (`captioner_finetune_q: false`) |
-| Optional fine-tune | Set `captioner_finetune_q: true` → unfreeze `q_emb`, `q_gru` |
+| Optional fine-tune | Set `captioner_finetune_q: true` → unfreeze `q_emb`, `q_gru` (v1); `q_emb` only for MMTransformerCopyCaptioner |
 
-**Question conditioning in captioner (QD Stage 1):**
+**Question conditioning in captioner (QD Stage 1, v2):**
 
 ```
-qctx = q_gru(q_emb(q_cap))                    # PAD-aware last state
-attended = question_attention(regions, qctx)  # one-shot
-fused = Linear(concat(qctx, attended))        # FeatureFusion concat
-h0, c0 = tanh(W · fused)
-z_t = step_attention(regions, h_{t-1})        # per-step refocus
-LSTM input = [word; fused; z_t]
+memory = Encoder([region_proj(regions); q_emb(q_cap) + pos] + type_emb)   # joint
+h_t    = Decoder(caption prefix, memory)                                   # causal
+P      = p_gen · softmax(h_t · word_embᵀ) + (1 − p_gen) · copy(q_cap)      # pointer-generator
 ```
+
+v1 (legacy): `qctx = q_gru(q_emb(q_cap))` → one-shot question attention → concat fusion → LSTM.
 
 ### v_cap — two modes (`caption_repr`)
 
 | Mode | Train | Eval | Gradient to q_emb? |
 |------|-------|------|---------------------|
-| `hidden` | Mean LSTM hidden (EOS-masked) | mean word_emb(tokens) | Yes (train) |
+| `hidden` | Mean decoder state (v2) / LSTM hidden (v1), EOS-masked | mean word_emb(tokens) | Yes (train) |
 | `text` | Greedy tokens → `cap_txt_gru` | same | No (caption decode no_grad) |
 
 <!--
   For question-aware caption training, caption_repr: hidden is preferred.
-  hidden mode: grad path answer_loss → v_cap → h → qctx → q_emb.
+  hidden mode: grad path answer_loss → v_cap → h → memory → q_emb (v2; v1: h → qctx → q_emb).
 -->
 
 ### Fusion (`fuse_mode`)
@@ -332,6 +370,7 @@ Output: outputs/<run>/best.pt  (VQAModel + q_vocab + a_vocab)
 |-----------------|--------------|------------------------|---------|
 | `captioner.word_emb` | Caption `vocab` in ckpt | ~163 | Caption decode |
 | `captioner.q_emb` | `q_vocab` in captioner ckpt | ~140 | `q_cap` → `v_cap` |
+| `captioner.copy_map` | `q_vocab` → caption `vocab` | = `q_vocab` | copy target ids (v2) |
 | `VQAModel.q_emb` | `q_vocab` in VQA ckpt (train QIDs) | ~28 | `v_att`, answer LSTM |
 | `VQAModel.a_emb` | `a_vocab` in VQA ckpt (train QIDs) | ~60 | Answer decode |
 
@@ -347,12 +386,20 @@ src/
 │   ├── ARCHITECTURE.en.md       English (this file)
 │   └── ARCHITECTURE.fa.md       Finglish / Persian-English
 ├── QuestionDependentImageCaptioner/
-│   ├── train.py                 Stage 1 training
-│   ├── eval.py                  Caption inference / demo
+│   ├── train.py                 Stage 1 training (registry, splits, val-CIDEr selection)
+│   ├── eval.py                  Caption inference / demo (train / val / test split)
+│   ├── benchmark.py             Test-split metrics → test_metrics.json
+│   ├── decoding.py              Batched split decoding
+│   ├── metrics.py               BLEU, CIDEr-D, ROUGE-L, Answer-Hit
+│   ├── BENCHMARK.md             Architecture comparison (why v2)
 │   ├── models/
-│   │   ├── captioner_v1.py      QuestionDependentImageCaptioner
+│   │   ├── __init__.py          Registry: build_captioner / MODEL_REGISTRY
+│   │   ├── captioner_mmtransformer_copy.py  MMTransformerCopyCaptioner (v2 default)
+│   │   ├── captioner_v1.py      QuestionDependentImageCaptioner (v1) + RegionEncoder
+│   │   ├── beam_utils.py        Generic beam search + pointer-generator mix
 │   │   └── base_captioner.py    Interface
-│   └── configs/smoke.yaml, default.yaml
+│   ├── scripts/                 cache_regions.py, run_bench.sh, bench_compare.py
+│   └── configs/                 smoke.yaml, default.yaml, kaggle*.yaml, bench_*.yaml
 │
 └── SimpleVQA/
     ├── train.py                 Stage 2 training + VQAModel (+ own RelationGNN)
@@ -365,9 +412,11 @@ src/
 ## Workflow — train to eval
 
 ```bash
-# 1) Stage 1 — QD captioner
+# 1) Stage 1 — QD captioner (MMTransformerCopyCaptioner)
 cd QuestionDependentImageCaptioner
+python scripts/cache_regions.py --config configs/smoke.yaml   # once (images_from_cache: true)
 python train.py --config configs/smoke.yaml
+python benchmark.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --name smoke
 
 # 2) Stage 2 (captioner_ckpt → outputs/smoke/best.pt in smoke.yaml)
 cd ../SimpleVQA
@@ -402,5 +451,8 @@ python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt \
 ## References
 
 - Sharma & Jalal (2021) — *Image captioning improved visual question answering*
-- Xu et al. (2015) — Show, Attend and Tell (attention + LSTM init)
+- Xu et al. (2015) — Show, Attend and Tell (attention + LSTM init, v1)
+- Vaswani et al. (2017) — Attention Is All You Need (Transformer encoder/decoder, v2)
+- See et al. (2017) — Get To The Point (pointer-generator copy, v2)
+- Anderson et al. (2018) — Bottom-Up and Top-Down Attention (benchmark arch A)
 - VQA v2 dataset — Open-ended questions + 10 annotator answers

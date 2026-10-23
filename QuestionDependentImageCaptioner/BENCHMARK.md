@@ -16,7 +16,7 @@ Comparison of the current question-dependent captioner (v1) with two new archite
 | Seeds | 42, 43, 44; tables show mean ± std |
 | Optimizer | Adamax 5e-4 for the LSTM models (as in v1); AdamW 3e-4 with 400 warmup steps for the Transformer |
 
-Branches: `feat/qd-captioner-benchmark` (shared harness), `feat/qd-captioner-updown-copy` (A), `feat/qd-captioner-transformer-copy` (B).
+Branches: `feat/qd-captioner-benchmark` (shared harness), `feat/qd-captioner-updown-copy` (A), `feat/qd-captioner-transformer-copy` (B). B and the harness are merged into `feat/question-dependent-img-captioner-v2`, where B is the default `model_class`.
 
 **The old smoke "val" set was training data.** `configs/smoke.yaml` uses val = the first 500 training rows. `outputs/smoke/best.pt` is included below only as a reference. Its test images are unseen, but it was selected on training rows.
 
@@ -104,10 +104,10 @@ Run from `QuestionDependentImageCaptioner/`:
 
 ```bash
 python scripts/cache_regions.py --config configs/bench_v1.yaml
-bash scripts/run_bench.sh configs/bench_v1.yaml v1                              # on feat/qd-captioner-benchmark
-bash scripts/run_bench.sh configs/bench_v1_qvocab.yaml v1_qvocab                # on feat/qd-captioner-benchmark
-bash scripts/run_bench.sh configs/bench_updown_copy.yaml updown_copy            # on feat/qd-captioner-updown-copy
-bash scripts/run_bench.sh configs/bench_transformer_copy.yaml transformer_copy  # on feat/qd-captioner-transformer-copy
+bash scripts/run_bench.sh configs/bench_v1.yaml v1                              # on feat/question-dependent-img-captioner-v2
+bash scripts/run_bench.sh configs/bench_v1_qvocab.yaml v1_qvocab                # on feat/question-dependent-img-captioner-v2
+bash scripts/run_bench.sh configs/bench_transformer_copy.yaml transformer_copy  # on feat/question-dependent-img-captioner-v2
+bash scripts/run_bench.sh configs/bench_updown_copy.yaml updown_copy            # only on feat/qd-captioner-updown-copy
 python scripts/bench_compare.py --root outputs/bench --out outputs/bench/summary.md
 ```
 
