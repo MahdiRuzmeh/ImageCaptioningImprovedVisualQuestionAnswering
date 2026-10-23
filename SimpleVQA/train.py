@@ -2,7 +2,8 @@
 
 Paper / thesis (do marhale)
 ----------------------------
-1. Aval captioner ro roye QD JSON train kon (``QuestionDependentImageCaptioner/train.py``).
+1. Aval captioner ro roye QD JSON train kon (``QuestionDependentImageCaptioner/train.py``;
+   v2 default = ``MMTransformerCopyCaptioner``, class az checkpoint khoonde mishe).
 2. Bad captioner ro freeze kon va dakhele ``VQAModel`` estefade kon.
 
 Model flow (kholase)
@@ -615,8 +616,9 @@ def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Captioner load — do vocabulary + fine-tune q_emb (marhale 2 VQA)
 # ---------------------------------------------------------------------------
-# Captioner roye MSCOCO caption train shode (bedoon soal).
-# VQA soal dare → ``q_emb`` joda az ``word_emb``; faghat q_emb/q_proj trainable.
+# Captioner = QD Stage 1 (image + soal → caption), az registry
+# ``QuestionDependentImageCaptioner/models`` (MMTransformerCopyCaptioner pishfarz v2).
+# ``q_emb`` (captioner q_vocab) joda az ``word_emb`` (caption vocab); default freeze.
 # ---------------------------------------------------------------------------
 
 def _load_matching_state_dict(model: nn.Module, state: Dict[str, torch.Tensor]) -> None:
@@ -697,20 +699,40 @@ def _question_vocab_size_from_checkpoint(ckpt_path: Path) -> Optional[int]:
     return None
 
 
+class _ItosVocab:
+    """Finglish: vocab sade az ``itos`` checkpoint (registry faghat itos/stoi/pad_id mikhad)."""
+
+    def __init__(self, itos: List[str]) -> None:
+        self.itos = list(itos)
+        self.stoi = {w: i for i, w in enumerate(self.itos)}
+        self.pad_id = 0
+
+
+def _placeholder_itos(size: int) -> List[str]:
+    """Finglish: age ckpt itos nadare, list jaygozin ba hamoon size (PAD/BOS/EOS/UNK aval)."""
+    itos = ["<pad>", "<bos>", "<eos>", "<unk>"] + [f"<tok_{i}>" for i in range(4, size)]
+    return itos[: max(size, 4)]
+
+
 def load_captioner(
     cfg: Dict[str, Any], q_vocab_size: int, pad_id: int, device: torch.device
 ) -> nn.Module:
     """Captioner pretrained ro load kon (marhale 2 VQA).
 
     Design:
-        - ``word_emb`` / ``classifier`` → caption vocab az checkpoint
-        - ``q_emb`` + ``q_gru`` → age QD ckpt, az Stage-1; vagarna random ba size VQA q_vocab
+        - Model az registry captioner (``models.build_captioner``) sakhte mishe;
+          class + dims az ``ckpt['config']`` (``model_class``) — MMTransformerCopyCaptioner
+          (v2 default) ya QuestionDependentImageCaptioner (v1, ckpt ghadimi bedoon model_class).
+        - ``captioner_class`` dar YAML faghat fallback / check-e: age ba ckpt fargh dasht,
+          ckpt barande ast (warning chap mishe).
+        - ``word_emb`` → caption vocab az checkpoint; ``q_emb`` → ``q_vocab`` Stage-1.
         - ``captioner_finetune_q`` (default false): freeze hame captioner (test QD transfer)
-          age true: ``q_emb`` + ``q_gru`` trainable az answer loss
+          age true: ``q_emb`` + ``q_gru`` (v1) trainable az answer loss. MMTransformer
+          ``q_gru`` nadare → faghat ``q_emb``.
 
     Args:
         cfg: path haye ``captioner_project_root``, ``captioner_ckpt``, hyperparams.
-        q_vocab_size: ``len(q_vocab.itos)`` — size vocabulary soal (bayad ba ckpt match).
+        q_vocab_size: ``len(q_vocab.itos)`` — faghat vaghti ckpt q_vocab nadare.
         pad_id: PAD index (0).
         device: cuda/cpu.
     """
@@ -721,50 +743,68 @@ def load_captioner(
     if str(captioner_root) not in sys.path:
         sys.path.insert(0, str(captioner_root))
 
-    module_name = "models.captioner_v1"
-
     try:
-        mod = importlib.import_module(module_name)
+        registry = importlib.import_module("models")
     except Exception as e:
-        raise ImportError(f"Cannot import captioner module {module_name}: {e}")
+        raise ImportError(f"Cannot import captioner models package: {e}")
 
-    cls = getattr(
-        mod, cfg.get("captioner_class", "QuestionDependentImageCaptioner")
-    )
+    # Finglish: dims pishfarz az VQA YAML (baraye ckpt bedoon config / bedoon ckpt)
+    model_cfg: Dict[str, Any] = {
+        "word_dim": int(cfg["word_dim"]),
+        "hidden_dim": int(cfg["hidden_dim"]),
+        "embed_dim": int(cfg.get("embed_dim", cfg["hidden_dim"])),
+        "max_regions": int(cfg["max_regions"]),
+        "question_dim": int(cfg["question_dim"]),
+        "region_dim": int(cfg.get("region_dim", 2048)),
+        "fuse_mode": str(cfg.get("captioner_fuse_mode", "concat")),
+    }
+    yaml_class = cfg.get("captioner_class")
 
     ckpt_path = Path(cfg["captioner_ckpt"])
+    state: Optional[Dict[str, Any]] = None
     if ckpt_path.exists():
-        caption_vocab_size = _caption_vocab_size_from_checkpoint(ckpt_path)
-        ckpt_q_size = _question_vocab_size_from_checkpoint(ckpt_path)
-        if ckpt_q_size is not None:
-            q_vocab_size = ckpt_q_size
+        state = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        weights = state.get("model", state)
+        model_cfg.update(state.get("config") or {})
+        if "vocab" in state:
+            vocab = _ItosVocab(state["vocab"])
+        else:
+            vocab = _ItosVocab(
+                _placeholder_itos(_caption_vocab_size_from_checkpoint(ckpt_path))
+            )
+        if "q_vocab" in state:
+            q_vocab = _ItosVocab(state["q_vocab"])
+        else:
+            ckpt_q_size = _question_vocab_size_from_checkpoint(ckpt_path)
+            q_vocab = _ItosVocab(_placeholder_itos(ckpt_q_size or q_vocab_size))
+        ckpt_cfg = state.get("config")
+        if isinstance(ckpt_cfg, dict):
+            # Finglish: ckpt ghadimi (ghabl az registry) model_class nadare → hamishe v1
+            ckpt_class = ckpt_cfg.get("model_class") or registry.DEFAULT_MODEL_CLASS
+        else:
+            ckpt_class = yaml_class or registry.DEFAULT_MODEL_CLASS
+        if yaml_class and ckpt_class != yaml_class:
+            print(
+                f"Warning: captioner_class={yaml_class!r} but checkpoint was trained "
+                f"as {ckpt_class!r}; using the checkpoint class."
+            )
+        model_cfg["model_class"] = ckpt_class
     else:
-        caption_vocab_size = q_vocab_size
+        vocab = _ItosVocab(_placeholder_itos(q_vocab_size))
+        q_vocab = _ItosVocab(_placeholder_itos(q_vocab_size))
+        model_cfg["model_class"] = yaml_class or registry.DEFAULT_MODEL_CLASS
         print(
             f"Captioner checkpoint not found at {ckpt_path}; "
             f"using question vocab size {q_vocab_size} for caption layers."
         )
 
-    model = cls(
-        vocab_size=caption_vocab_size,
-        pad_id=pad_id,
-        word_dim=int(cfg["word_dim"]),
-        hidden_dim=int(cfg["hidden_dim"]),
-        max_regions=int(cfg["max_regions"]),
-        question_dim=int(cfg["question_dim"]),
-        question_vocab_size=q_vocab_size,
-        question_pad_id=pad_id,
-        embed_dim=int(cfg.get("embed_dim", cfg["hidden_dim"])),
-        region_dim=int(cfg.get("region_dim", 2048)),
-        fuse_mode=str(cfg.get("captioner_fuse_mode", "concat")),
-    )
+    model = registry.build_captioner(model_cfg, vocab, q_vocab)
 
-    if ckpt_path.exists():
-        state = torch.load(ckpt_path, map_location="cpu")
-        _load_matching_state_dict(model, state.get("model", state))
+    if state is not None:
+        _load_matching_state_dict(model, weights)
         print(
-            f"Captioner loaded: caption_vocab={caption_vocab_size} "
-            f"question_vocab={q_vocab_size}"
+            f"Captioner loaded: class={model_cfg['model_class']} "
+            f"caption_vocab={len(vocab.itos)} question_vocab={len(q_vocab.itos)}"
         )
 
     model.eval().to(device)

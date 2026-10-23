@@ -12,7 +12,8 @@ val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
 use_captioner: true
 captioner_project_root: ../QuestionDependentImageCaptioner
 captioner_ckpt: ../QuestionDependentImageCaptioner/outputs/default/best.pt
-captioner_class: QuestionDependentImageCaptioner
+# captioner_class: fallback / check — class vagheie az ckpt config (model_class) khoonde mishe
+captioner_class: MMTransformerCopyCaptioner
 captioner_fuse_mode: concat
 # false = freeze hame captioner (QD Stage-1 q_emb/q_gru ghablan train shode)
 # true  = q_emb + q_gru az answer loss fine-tune mishavan

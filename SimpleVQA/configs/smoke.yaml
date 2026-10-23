@@ -22,7 +22,8 @@ use_captioner: true
 caption_repr: hidden
 captioner_project_root: ../QuestionDependentImageCaptioner
 captioner_ckpt: ../QuestionDependentImageCaptioner/outputs/smoke/best.pt
-captioner_class: QuestionDependentImageCaptioner
+# captioner_class: fallback / check — class vagheie az ckpt config (model_class) khoonde mishe
+captioner_class: MMTransformerCopyCaptioner
 captioner_fuse_mode: concat
 captioner_finetune_q: false
 num_workers: 0

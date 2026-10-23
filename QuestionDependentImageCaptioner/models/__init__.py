@@ -1,8 +1,13 @@
-"""Model package — VQA `load_captioner` import mikone `models/captioner_v1.py`.
+"""Model package — Stage-1 QD captioner ha + registry.
 
 Finglish — registry:
-    ``model_class`` dar YAML esm class ro migire (default v1). ``build_captioner``
-    az cfg + vocab ha model misaze ta train/eval/benchmark hame yek builder dashte bashan.
+    ``model_class`` dar YAML esm class ro migire. ``build_captioner(cfg, vocab, q_vocab)``
+    model misaze ta train / eval / benchmark / SimpleVQA ``load_captioner`` hame
+    yek builder dashte bashan.
+
+    - ``MMTransformerCopyCaptioner`` — pishfarz v2 (config haye ``configs/*.yaml``).
+    - ``QuestionDependentImageCaptioner`` (v1) — ``DEFAULT_MODEL_CLASS``: checkpoint
+      haye ghadimi ``model_class`` nadaran → v1 load mishan (backward compat).
 """
 
 from typing import Any, Callable, Dict

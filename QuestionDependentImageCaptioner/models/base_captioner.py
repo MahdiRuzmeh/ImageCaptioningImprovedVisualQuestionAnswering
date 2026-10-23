@@ -3,10 +3,14 @@
 Paper §3.3–§3.4: caption module bayad betune caption generate kone va
 be vector (v_cap) tabdil kone ta ba visual attention dar VQA fuse beshe.
 
-QD Stage 1 (QuestionDependentImageCaptioner):
-    - word_emb baraye caption, q_emb + q_gru baraye soal
-    - soal lazeme; get_caption_embedding(..., differentiable=True) baraye
-      train VQA ta grad be q_emb beresad
+QD Stage 1 implementation ha (registry ``models.build_captioner``):
+    - MMTransformerCopyCaptioner (v2 default): word_emb (tie ba output) baraye
+      caption, q_emb + joint Transformer encoder baraye soal, copy az soal.
+    - QuestionDependentImageCaptioner (v1): word_emb baraye caption,
+      q_emb + q_gru baraye soal.
+    Har do: soal lazeme; get_caption_embedding(..., differentiable=True) baraye
+    train VQA ta grad be q_emb beresad. SimpleVQA ``caption_repr: text`` ham
+    ``_decode_caption`` (greedy) + ``word_emb`` ro seda mizane.
 """
 
 from abc import ABC, abstractmethod

@@ -1,17 +1,27 @@
-"""Train QuestionDependentImageCaptioner roye QD caption JSON.
+"""Train QD captioner (Stage 1) roye QD caption JSON.
 
-Architecture (Stage 1):
-1. Faster R-CNN (freeze) → region features.
-2. q_emb + GRU → qctx.
-3. Yek bar question attention → attended visual.
-4. concat fusion(qctx, attended) → fused.
-5. LSTM: init az fused; har step attention ba h + concat(word, fused, z_t).
+Model az ``model_class`` dar YAML (registry ``models.build_captioner``):
+    - ``MMTransformerCopyCaptioner`` (v2 default, ``models/captioner_mmtransformer_copy.py``):
+      Faster R-CNN (freeze) regions + question tokens → joint Transformer encoder →
+      Transformer decoder + copy az soal. Optimizer ``adamw`` + ``warmup_steps``.
+    - ``QuestionDependentImageCaptioner`` (v1, ``models/captioner_v1.py``):
+      GRU qctx + one-shot attention + concat fusion + LSTM (Adamax, scheduled sampling).
+
+Training protocol (BENCHMARK.md):
+    - Loss: CrossEntropy (+ ``label_smoothing``) roye caption_ids[:, 1:]; copy model
+      log-prob mide → hamoon NLL.
+    - Split: ``<split>_row_range`` → image-disjoint train/val/test az yek JSON;
+      vagarna ``max_*_images`` / ``max_*_samples`` (raftar ghadimi).
+    - best.pt: ``select_metric: cider`` (val greedy CIDEr-D) ya ``loss``.
+    - ``images_from_cache``: JPEG load nemishe, faghat region cache
+      (``scripts/cache_regions.py``).
 
 Run az ``QuestionDependentImageCaptioner/`` (paths relative be oon folder)::
 
     cd QuestionDependentImageCaptioner
     python train.py --config configs/default.yaml
     python train.py --config configs/default.yaml --continue
+    python train.py --config configs/smoke.yaml --seed 43 --save-dir outputs/smoke43 --fresh
 """
 
 from __future__ import annotations
@@ -47,7 +57,6 @@ if str(PROJECT_ROOT) not in sys.path:
 from decoding import generate_split_captions
 from metrics import answer_hit, compute_caption_metrics
 from models import build_captioner
-from models.captioner_v1 import QuestionDependentImageCaptioner
 
 """
 Finglish note (Resource optimization)
@@ -685,7 +694,7 @@ def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     return out
 
 
-# Model dar `models/captioner_v1.py` hast (VQA ham hamoon file ro load mikone).
+# Model ha dar `models/` (registry `build_captioner`; VQA ham az hamoon registry load mikone).
 
 # ---------------------------------------------------------------------------
 # Metrics
@@ -849,7 +858,7 @@ def build_optimizer(model: nn.Module, cfg: Dict[str, Any]) -> torch.optim.Optimi
 
 
 def train_epoch(
-    model: QuestionDependentImageCaptioner,
+    model: nn.Module,
     loader: DataLoader,
     optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
@@ -982,7 +991,7 @@ def train_epoch(
 
 @torch.no_grad()
 def eval_epoch(
-    model: QuestionDependentImageCaptioner,
+    model: nn.Module,
     loader: DataLoader,
     criterion: nn.Module,
     device: torch.device,
@@ -1055,7 +1064,7 @@ def eval_epoch(
 
 def parse_args() -> argparse.Namespace:
     """CLI: path to YAML config (all hyperparameters live in the config file)."""
-    p = argparse.ArgumentParser(description="Train QuestionDependentImageCaptioner")
+    p = argparse.ArgumentParser(description="Train QD captioner (Stage 1)")
     p.add_argument(
         "--config",
         default="configs/default.yaml",
@@ -1131,7 +1140,7 @@ def load_checkpoint(
     2) build vocabulary az captions
     3) sakhte VqaQdCaptionDataset
     4) sakhte DataLoader baraye train/val
-    5) initialize QuestionDependentImageCaptioner
+    5) initialize captioner az registry (``model_class``)
     6) run train_epoch va eval_epoch
     7) save last.pt va best.pt checkpoints
 
@@ -1145,8 +1154,8 @@ def load_checkpoint(
         baraye kalame 6om caption image 4.
 
     Note:
-        validation loss baraye entekhab best model
-        estefade mishavad.
+        best model ba ``select_metric`` entekhab mishe: ``cider`` (val CIDEr-D,
+        pishfarz v2) ya ``loss`` (val loss).
     """
 #
 

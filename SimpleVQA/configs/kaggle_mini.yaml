@@ -34,7 +34,8 @@ use_captioner: true
 caption_repr: hidden
 captioner_project_root: /kaggle/working/ImageCaptioningImprovedVisualQuestionAnswering/QuestionDependentImageCaptioner
 captioner_ckpt: /kaggle/input/notebooks/mahdirouzmeh/vqa-firstbasepaper/outputs/kaggle_mini/best.pt
-captioner_class: QuestionDependentImageCaptioner
+# captioner_class: fallback / check — class vagheie az ckpt config (model_class) khoonde mishe
+captioner_class: MMTransformerCopyCaptioner
 captioner_fuse_mode: concat
 num_workers: 2
 prefetch_factor: 2

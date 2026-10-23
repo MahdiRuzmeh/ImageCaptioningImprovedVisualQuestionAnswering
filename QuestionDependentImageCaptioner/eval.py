@@ -1,9 +1,14 @@
-"""QuestionDependentImageCaptioner — eval va inference (Stage 1 QD).
+"""QD captioner — eval va inference (Stage 1 QD).
 
 Ba ``best.pt`` mitooni:
 - yek ``image_id`` (+ soal) → caption
 - roye split: **token accuracy** (teacher forcing) + BLEU/CIDEr + sample ha
-- QD checkpoint: ``q_vocab`` + ``q_emb``/``q_gru`` az hamoon ``best.pt``
+- QD checkpoint: ``vocab`` + ``q_vocab`` + ``config`` az hamoon ``best.pt``
+
+Finglish: model class az ``ckpt['config']['model_class']`` (registry
+``models.build_captioner``) — MMTransformerCopyCaptioner (v2 default) ya v1.
+Checkpoint ghadimi bedoon ``model_class`` → v1. Benchmark kamel roye test split:
+``benchmark.py``.
 
 Run az project folder::
 
@@ -27,11 +32,11 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from metrics import compute_caption_metrics
-from models.captioner_v1 import QuestionDependentImageCaptioner
+from models import DEFAULT_MODEL_CLASS, build_captioner
 from train import (
     PROJECT_ROOT,
     Vocab,
-    VqaQdCaptionDataset,
+    build_split_dataset,
     collate_batch,
     eval_epoch,
     image_cap,
@@ -51,6 +56,7 @@ PATH_KEYS = (
     "save_dir",
     "train_region_cache_dir",
     "val_region_cache_dir",
+    "test_region_cache_dir",
 )
 
 
@@ -123,17 +129,20 @@ def build_model_from_ckpt(
     cfg: Dict[str, Any],
     device: torch.device,
     vqa_ckpt: Optional[Path] = None,
-) -> Tuple[QuestionDependentImageCaptioner, Vocab, Vocab]:
+) -> Tuple[nn.Module, Vocab, Vocab]:
     """Captioner + vocab + q_vocab ro az QD checkpoint load kon.
 
     Priority baraye q_vocab / q_emb:
         1) QD captioner ``best.pt`` (key ``q_vocab`` + ``q_emb``/``q_gru``)
         2) optional ``--vqa-ckpt`` (legacy override)
 
+    Finglish: hyperparam haye model az ``state['config']`` (age bashe) roye YAML
+    override mishan ta dims/model_class ba checkpoint yeki bashe.
+
     Returns:
         (model, caption_vocab, q_vocab)
     """
-    state = torch.load(ckpt_path, map_location="cpu")
+    state = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     cap_state = state.get("model", state)
     if "vocab" not in state:
         raise ValueError(f"No vocab in checkpoint: {ckpt_path}")
@@ -164,22 +173,14 @@ def build_model_from_ckpt(
             q_vocab = vocab_from_itos(vqa["q_vocab"])
             question_vocab_size = len(q_vocab.itos)
 
-    hidden_dim = int(cfg.get("hidden_dim", cfg.get("lstm_hidden", 512)))
-    model = QuestionDependentImageCaptioner(
-        vocab_size=len(vocab.itos),
-        pad_id=vocab.pad_id,
-        word_dim=int(cfg["word_dim"]),
-        hidden_dim=hidden_dim,
-        max_regions=int(cfg["max_regions"]),
-        question_dim=int(cfg.get("question_dim", cfg["word_dim"])),
-        embed_dim=int(cfg.get("embed_dim", hidden_dim)),
-        region_dim=int(cfg.get("region_dim", 2048)),
-        question_vocab_size=question_vocab_size,
-        question_pad_id=q_vocab.pad_id,
-        dropout=float(cfg.get("dropout", 0.5)),
-        fuse_mode=str(cfg.get("fuse_mode", "concat")),
-    )
+    model_cfg = {**cfg, **(state.get("config") or {})}
+    if isinstance(state.get("config"), dict) and not state["config"].get("model_class"):
+        # Finglish: ckpt ghadimi (ghabl az registry) model_class nadare → hamishe v1
+        model_cfg["model_class"] = DEFAULT_MODEL_CLASS
+    model = build_captioner(model_cfg, vocab, q_vocab)
     missing, unexpected = model.load_state_dict(cap_state, strict=False)
+    # Finglish: detector freeze (pretrained) dar ckpt haye v2 save nemishe → missing OK
+    missing = [k for k in missing if not k.startswith("region_encoder.detector.")]
     if missing:
         print(
             f"Note: missing keys when loading captioner ({len(missing)}): "
@@ -208,20 +209,23 @@ def build_model_from_ckpt(
 
 
 def split_paths(cfg: Dict[str, Any], split: str) -> Tuple[str, str, str]:
-    """(images_dir, filename_template, captions_json_path) baraye train/val."""
+    """(images_dir, filename_template, captions_json_path) baraye train/val/test.
+
+    Finglish: test hamoon val path ha ro dare (row_range az train JSON joda mikone).
+    """
     if split == "train":
         return (
             cfg["train_images_dir"],
             cfg["train_image_filename_template"],
             cfg["train_captions_json"],
         )
-    if split == "val":
+    if split in ("val", "test"):
         return (
             cfg["val_images_dir"],
             cfg["val_image_filename_template"],
             cfg["val_captions_json"],
         )
-    raise ValueError(f"split must be train or val, got {split!r}")
+    raise ValueError(f"split must be train, val or test, got {split!r}")
 
 
 def qd_rows_for_image(qd_json: str, image_id: int) -> List[Dict[str, Any]]:
@@ -230,7 +234,7 @@ def qd_rows_for_image(qd_json: str, image_id: int) -> List[Dict[str, Any]]:
 
 
 def run_single(
-    model: QuestionDependentImageCaptioner,
+    model: nn.Module,
     vocab: Vocab,
     cfg: Dict[str, Any],
     device: torch.device,
@@ -288,7 +292,7 @@ def run_single(
 
 
 def run_val_qd(
-    model: QuestionDependentImageCaptioner,
+    model: nn.Module,
     vocab: Vocab,
     q_vocab: Vocab,
     cfg: Dict[str, Any],
@@ -298,30 +302,10 @@ def run_val_qd(
     metric_images: int,
 ) -> None:
     """Eval QD: teacher-forcing loss/token_acc + BLEU/CIDEr question-guided."""
-    images_dir, filename_template, qd_json = split_paths(cfg, split)
-    cap_key = "max_train_images" if split == "train" else "max_val_images"
-    samp_key = "max_train_samples" if split == "train" else "max_val_samples"
-    max_images = image_cap(cfg.get(cap_key))
-    max_samples = image_cap(cfg.get(samp_key))
-
-    image_ids = None
-    if max_images is not None:
-        image_ids = sorted(
-            {int(r["image_id"]) for r in load_qd_json(qd_json)}
-        )[:max_images]
-
-    ds = VqaQdCaptionDataset(
-        images_dir,
-        qd_json,
-        vocab,
-        q_vocab,
-        int(cfg["max_caption_len"]),
-        int(cfg.get("max_question_len", 14)),
-        filename_template,
-        image_ids=image_ids,
-        image_size=image_size_from_cfg(cfg),
-        max_samples=max_samples,
-    )
+    images_dir, filename_template, _ = split_paths(cfg, split)
+    # Finglish: hamoon split builder train.py — ``<split>_row_range`` (image-disjoint,
+    # bedoon leak) age set bashe; vagarna max_*_images / max_*_samples (ghadimi).
+    ds = build_split_dataset(cfg, split, vocab, q_vocab)
     loader = DataLoader(
         ds,
         batch_size=int(cfg.get("batch_size", 8)),
@@ -402,7 +386,7 @@ def run_val_qd(
 def parse_args() -> argparse.Namespace:
     """Argument haye CLI ro parse kon."""
     p = argparse.ArgumentParser(
-        description="QuestionDependentImageCaptioner — eval / infer"
+        description="QD captioner — eval / infer"
     )
     p.add_argument("--config", default="configs/default.yaml")
     p.add_argument("--ckpt", required=True, help="Captioner checkpoint (.pt)")
@@ -412,7 +396,7 @@ def parse_args() -> argparse.Namespace:
         help="Optional VQA best.pt — override/load captioner.q_* for --question",
     )
     p.add_argument("--image-id", type=int, default=None, help="Single COCO image_id")
-    p.add_argument("--split", choices=("train", "val"), default="val")
+    p.add_argument("--split", choices=("train", "val", "test"), default="val")
     p.add_argument("--question", default=None, help="Question text (required for QD)")
     p.add_argument(
         "--samples",

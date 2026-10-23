@@ -1,6 +1,11 @@
 """MMTransformerCopyCaptioner — multimodal Transformer (early fusion) + copy.
 
-Architecture (benchmark arch B):
+Stage-1 captioner pishfarz dar v2 (``model_class: MMTransformerCopyCaptioner``).
+Entekhab az benchmark (BENCHMARK.md): CIDEr-D 4.07 vs 1.53 (v1), AnswerHit behtar
+az UpDown+copy, train sari tar. v1 (``captioner_v1.py``) baraye checkpoint haye
+ghadimi baghi mimune.
+
+Architecture:
 1. Faster R-CNN (freeze) → 32 region (RegionEncoder v1) → Linear → d.
 2. Question tokens: q_emb + position → d. Har do + type embedding (region/question).
 3. Joint encoder (pre-LN): region-ha va kalamat soal be ham attend mikonan →
@@ -12,6 +17,15 @@ Architecture (benchmark arch B):
 Finglish: train parallel (teacher forcing, bedoon scheduled sampling);
 inference = beam search ba recompute kol prefix (caption kotahe, ≤20).
 Output embedding ba word_emb tie shode (parameter kamtar baraye 3000 sample).
+
+Khorooji forward_train = log-prob (mix vocab + copy), na logits; CrossEntropy
+roosh hamoon NLL mishe (log_softmax(log p) = log p).
+
+VQA hook (Stage 2, BaseImageCaptioner contract):
+    - ``get_caption_embedding`` → v_cap (d_model): eval = mean word_emb(beam caption),
+      train (differentiable) = mean decoder state ta avalin EOS.
+    - ``_decode_caption`` → greedy token ha baraye ``caption_repr: text``.
+    - ``word_emb`` dim = d_model (``hidden_dim``) → bayad = VQA ``word_dim``/``hidden_dim``.
 """
 
 from __future__ import annotations
@@ -223,6 +237,35 @@ class MMTransformerCopyCaptioner(BaseImageCaptioner):
             length_alpha=length_alpha,
             no_repeat_ngram=no_repeat_ngram,
         )
+
+    @torch.no_grad()
+    def _decode_caption(
+        self,
+        image: torch.Tensor,
+        question_ids: Optional[torch.Tensor],
+        max_len: int,
+        collect_hidden: bool = False,
+        image_ids: Optional[torch.Tensor] = None,
+        region_cache_dir: Optional[str] = None,
+    ) -> Tuple[torch.Tensor, Optional[List[torch.Tensor]]]:
+        """Greedy decode — signature mesl v1 (VQA ``caption_repr: text`` seda mizane).
+
+        Finglish: collect_hidden=True → list decoder state har step (N, d).
+        """
+        cap = self.generate_caption(
+            image,
+            question_ids,
+            max_len,
+            beam_size=1,
+            no_repeat_ngram=0,
+            image_ids=image_ids,
+            region_cache_dir=region_cache_dir,
+        )
+        if not collect_hidden:
+            return cap, None
+        s = self._encode(image, question_ids, image_ids, region_cache_dir, True)
+        _, h = self._decode(cap[:, :-1], s)
+        return cap, list(h.unbind(dim=1))
 
     def encode_caption(self, caption_ids: torch.Tensor) -> torch.Tensor:
         """Mean-pool token embeddings → v_cap (N, d_model) — mesl v1."""
