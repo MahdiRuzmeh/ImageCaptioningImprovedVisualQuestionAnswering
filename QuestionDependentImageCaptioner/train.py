@@ -100,6 +100,13 @@ def ddp_setup(cfg: Dict[str, Any]) -> Tuple[bool, int, int, int]:
     return True, world, rank, local_rank
 
 
+def dist_ready() -> bool:
+    """Finglish: process group init shode va bish az yek rank darim?"""
+    import torch.distributed as dist
+
+    return dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1
+
+
 def unwrap_model(model: nn.Module) -> nn.Module:
     """Finglish: DDP wrapper ro bardarim — `forward_train` faghat roye model asli hast."""
     return model.module if hasattr(model, "module") else model
@@ -1029,7 +1036,15 @@ def eval_epoch(
         targets = caps[:, 1:]
         total_loss += float(loss.item())
         total_acc += caption_token_acc(logits, targets)
-    n = max(1, len(loader))
+    n = float(len(loader))
+    # Finglish: DDP → har rank faghat shard khodesh; miangin roye hame rank ha.
+    if dist_ready():
+        import torch.distributed as dist
+
+        t = torch.tensor([total_loss, total_acc, n], dtype=torch.float64, device=device)
+        dist.all_reduce(t, op=dist.ReduceOp.SUM)
+        total_loss, total_acc, n = t.tolist()
+    n = max(1.0, n)
     return total_loss / n, total_acc / n
 
 
@@ -1226,7 +1241,12 @@ def val_caption_scores(
     device: torch.device,
     split: str = "val",
 ) -> Dict[str, float]:
-    """Finglish — greedy (beam=1) decode roye val → CIDEr/BLEU/ROUGE + AnswerHit."""
+    """Finglish — greedy (beam=1) decode roye val → CIDEr/BLEU/ROUGE + AnswerHit.
+
+    DDP: har rank faghat shard DistributedSampler ro decode mikone; hyps ro
+    gather mikonim va ba index sampler be tartib dataset barmigardoonim ta ba
+    refs align bashan (ghablan rank 0 nesf hyps ro ba nesf aval refs moghayese mikard).
+    """
     hyps, _ = generate_split_captions(
         unwrap_model(model),
         loader,
@@ -1237,6 +1257,19 @@ def val_caption_scores(
         region_cache_dir=region_cache_dir_for_split(cfg, split),
     )
     samples = loader.dataset.samples
+    if isinstance(loader.sampler, DistributedSampler) and dist_ready():
+        import torch.distributed as dist
+
+        shards: List[Any] = [None] * dist.get_world_size()
+        dist.all_gather_object(shards, (list(iter(loader.sampler)), hyps))
+        full: List[Optional[List[str]]] = [None] * len(samples)
+        for idx, shard_hyps in shards:
+            # Finglish: sampler padding (index tekrari) faghat overwrite mikone.
+            for i, h in zip(idx, shard_hyps):
+                full[i] = h
+        assert all(h is not None for h in full), "val hyps missing after gather"
+        hyps = full
+    assert len(hyps) == len(samples), (len(hyps), len(samples))
     refs = [[tok(s["caption"])] for s in samples]
     scores = compute_caption_metrics(hyps, refs)
     scores.update(answer_hit(hyps, [tok(s["answer"]) for s in samples]))
