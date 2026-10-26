@@ -43,6 +43,9 @@ python eval.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt \
   --image-id 25 --split train --question "How many animals are in this photo?"
 # Test split → outputs/smoke/test_metrics.json (BLEU, CIDEr-D, ROUGE-L, Answer-Hit, per question type)
 python benchmark.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --name smoke
+# Image ablation: does the model use the image? (normal / shuffle / mean / mask / question-only prior)
+python scripts/image_ablation.py --config configs/smoke.yaml --ckpt outputs/smoke/best.pt --split test \
+  --out outputs/ablation/smoke_test.json
 # Multi-seed comparison
 bash scripts/run_bench.sh configs/bench_transformer_copy.yaml transformer_copy
 python scripts/bench_compare.py --root outputs/bench --out outputs/bench/summary.md
@@ -167,6 +170,7 @@ All paths are relative to `QuestionDependentImageCaptioner/` unless absolute.
 | `benchmark.py` | `--config` / `--ckpt` / `--name` | Splits from config, model from checkpoint, label for results |
 | `benchmark.py` | `--split` / `--beam` / `--out` | `test` (default) or `val` / beam size (3) / output JSON |
 | `scripts/cache_regions.py` | `--config` | Cache Faster R-CNN features for every split with a row range |
+| `scripts/image_ablation.py` | `--config` / `--ckpt` / `--split` / `--modes` / `--out` | Decode with real, shuffled, mean or masked regions + question-only prior; ImageDep = AnswerHit(normal) − AnswerHit(shuffle) |
 
 ## VQA integration (Stage 2)
 
