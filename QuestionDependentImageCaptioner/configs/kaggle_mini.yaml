@@ -2,12 +2,19 @@
 # torchrun --nproc_per_node=2 train.py --config configs/kaggle_mini.yaml
 seed: 42
 model_class: MMTransformerCopyCaptioner
-train_captions_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/vqa_v2_question_dependent_captions_train2014.json
-val_captions_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/vqa_v2_question_dependent_captions_val2014.json
+train_captions_json: /kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014.json
+val_captions_json: /kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014.json
 train_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014
-val_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/val2014
+val_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
-val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
+val_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+
+# --- image-disjoint split (rows [start, end), snapped be marz image_id) ---
+train_row_range: [0, 9500]
+val_row_range: [9500, 10000]
+test_row_range: [10000, 10500]
+
+
 save_dir: outputs/kaggle_mini
 save_model_type: epoch
 save_every_samples: 5000
@@ -16,7 +23,7 @@ val_beam_size: 1
 save_detector_weights: false
 num_workers: 2
 batch_size: 32
-epochs: 10
+epochs: 20
 eval_every: 1
 optimizer: adamw
 learning_rate: 0.0003
@@ -34,6 +41,9 @@ max_question_len: 14
 vocab_min_freq: 2
 cap_vocab_include_question: true
 max_regions: 32
+
+# --- region cache: hame split ha az COCO train2014 → yek cache dir ---
+images_from_cache: true
 cache_regions: true
 train_region_cache_dir: /kaggle/working/region_cache/captioner/train
 val_region_cache_dir: /kaggle/working/region_cache/captioner/val
@@ -53,6 +63,7 @@ fuse_mode: concat
 device: cuda
 ddp: true
 ddp_backend: nccl
+# These are not read when range is setted
 max_train_images: 20000
 max_val_images: 500
 # scheduled_sampling_*: faghat v1 (MMTransformerCopyCaptioner ignore mikone)
