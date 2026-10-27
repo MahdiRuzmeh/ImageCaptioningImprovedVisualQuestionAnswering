@@ -23,11 +23,13 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--config", default="configs/small.yaml")
     p.add_argument("--split", default="test")
+    p.add_argument("--captions", choices=["generated", "human"], default="generated")
     args = p.parse_args()
     cfg = load_config(args.config)
     work = Path(cfg["work_dir"])
     recs = read_json(work / "split" / f"{args.split}.json")
-    cap = torch.load(work / "features" / f"captions_{args.split}.pt")
+    suffix = "" if args.captions == "generated" else f"_{args.captions}"
+    cap = torch.load(work / "features" / f"captions_{args.split}{suffix}.pt")
     itos = torch.load(cfg["captioner_ckpt"], map_location="cpu", weights_only=False)["vocab"]
     stats = defaultdict(lambda: defaultdict(float))
     for r, toks in zip(recs, cap["tokens"]):

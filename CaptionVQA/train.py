@@ -70,12 +70,13 @@ class Vocabs:
 class VQAFeatures:
     """Hame tensor ha dar RAM; batch = index-gather (bedoon DataLoader)."""
 
-    def __init__(self, name: str, work: Path, vocabs: Vocabs, build_cands: bool) -> None:
+    def __init__(self, name: str, work: Path, vocabs: Vocabs, build_cands: bool, captions: str = "generated") -> None:
         self.recs = read_json(work / "split" / f"{name}.json")
         reg = torch.load(work / "features" / f"regions_{name}.pt")
         row = {iid: i for i, iid in enumerate(reg["image_ids"])}
         self.regions = reg["feats"]
-        cap = torch.load(work / "features" / f"captions_{name}.pt")
+        suffix = "" if captions == "generated" else f"_{captions}"
+        cap = torch.load(work / "features" / f"captions_{name}{suffix}.pt")
         assert cap["question_ids"] == [r["question_id"] for r in self.recs]
         self.cap_tokens, self.cap_scores, self.cap_hidden = cap["tokens"], cap["scores"], cap["hidden"]
         n = len(self.recs)
@@ -249,13 +250,18 @@ def main() -> None:
     p.add_argument("--no-caption", action="store_true")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--epochs", type=int, default=None)
+    p.add_argument("--captions", choices=["generated", "human"], default="generated",
+                   help="human = COCO human captions (upper bound, prepare_human_captions.py)")
     args = p.parse_args()
     cfg = load_config(args.config)
     set_seed(args.seed)
     device = torch.device("cuda")
     work = Path(cfg["work_dir"])
     use_caption = not args.no_caption
-    name = f"{args.model}{'' if use_caption else '_nocap'}_s{args.seed}"
+    if not use_caption and args.captions != "generated":
+        p.error("--captions has no effect with --no-caption")
+    tag = "" if args.captions == "generated" else f"_{args.captions}"
+    name = f"{args.model}{tag if use_caption else '_nocap'}_s{args.seed}"
     run_dir = work / "runs" / name
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -263,9 +269,9 @@ def main() -> None:
     vocabs = Vocabs(read_json(work / "split" / "train.json"), int(cfg["answer_min_count"]), cap_ckpt)
     want_c = args.model == "C" and use_caption
     print("loading features…")
-    train = VQAFeatures("train", work, vocabs, want_c)
-    dev = VQAFeatures("dev", work, vocabs, want_c)
-    test = VQAFeatures("test", work, vocabs, want_c)
+    train = VQAFeatures("train", work, vocabs, want_c, args.captions)
+    dev = VQAFeatures("dev", work, vocabs, want_c, args.captions)
+    test = VQAFeatures("test", work, vocabs, want_c, args.captions)
 
     model = build_model(args.model, cfg, vocabs, cap_ckpt, use_caption).to(device)
     lr = float(cfg["learning_rate"])
@@ -327,7 +333,8 @@ def main() -> None:
 
     model.load_state_dict(torch.load(run_dir / "best.pt")["model"])
     best_epoch = torch.load(run_dir / "best.pt")["epoch"]
-    res = {"name": name, "model": args.model, "use_caption": use_caption, "seed": args.seed,
+    res = {"name": name, "model": args.model, "use_caption": use_caption,
+           "caption_source": args.captions if use_caption else None, "seed": args.seed,
            "params_M": n_params / 1e6, "best_epoch": best_epoch, "n_answers": K,
            "secs_per_epoch": sum(h["train_secs"] for h in history) / len(history),
            "dev": evaluate(model, dev, vocabs, device)}

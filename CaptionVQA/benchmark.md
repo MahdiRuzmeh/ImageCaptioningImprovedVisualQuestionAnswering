@@ -19,7 +19,7 @@ Date: 2026-10-27. Hardware: one RTX 3070 Laptop GPU (8 GB).
 | Training | AdamW, lr 1e-3 (B: 1e-4 for layers copied from the captioner), 1 warm-up epoch + cosine decay, 15 epochs, batch 128, dropout 0.2, AMP. Best dev epoch → test |
 | Seeds | 3 (0, 1, 2); values are mean ± std |
 
-Split files: `outputs/small/split/{train,dev,test}.json`. Reproduce: see §9.
+Split files: `outputs/small/split/{train,dev,test}.json`. Reproduce: see §10.
 
 ## 2. Architectures
 
@@ -201,10 +201,38 @@ What follows for this benchmark:
 3. Captions help much more when the answering model is a text-only LLM (PICa, PNP-VQA), because there they are the only visual input. That is a different setting from A/B/C.
 4. The useful signal is the extra caption supervision, not the caption as such. A caption computed from the same regions and question adds no new information (model B, §4). Our captioner adds 9.5k LLM captions (beam-1 hit rate 17.8%, §5), about 60× less human-quality supervision than these papers.
 
-## 8. Conclusions and next steps
+## 8. Upper bound: COCO human captions
+
+Same split, models and training as §3. The only change is the caption input: the frozen QD captioner's beams are replaced by COCO human captions (5 per image) of the same image (`prepare_human_captions.py`).
+
+- **Selection:** the 3 captions with the most overlap with the question's non-stopword words. Ties keep COCO order. The answer is never used.
+- **Encoding:** captions use the captioner vocabulary (6.5% of tokens map to `<unk>`). Each caption is teacher-forced through the frozen captioner to get the token hidden states (used by B and C) and a length-normalized log-prob score (the same normalization as beam search).
+- **Answer coverage on test** (§5 metric, first caption / any of 3): all 14.5 / 21.6, yes/no 0.6 / 1.0, number 11.1 / 18.4, other 25.6 / 37.8. Generated captions reach a higher "number" coverage (27.2 / 51.6), but many of those numbers are wrong for the question.
+
+These captions were written by people looking at the test images. This is therefore an **upper bound** on what a better captioner could give, not a comparable result. Wu & Mooney (2019) report the same condition (human 67.1 vs generated 65.8, §7).
+
+Test accuracy, mean ± std over seeds 0/1/2:
+
+| Model | No caption | Generated | Human | Δ human − none | Δ shuffle (generated → human) |
+|---|---|---|---|---|---|
+| A | 46.29 ± 0.16 | 45.89 ± 0.58 | 46.70 ± 0.48 | +0.41 | 0.12 → 0.91 |
+| B | 45.36 ± 0.21 | 45.61 ± 0.21 | 46.32 ± 0.38 | +0.96 | 11.12 → 7.70 |
+| **C** | 46.29 ± 0.16 | 45.64 ± 0.49 | **48.89 ± 0.19** | **+2.60** | 1.98 → 5.73 |
+
+Per answer type, C with human captions vs. no caption: yes/no 67.18 → 66.46, **number 31.91 → 39.20**, **other 34.59 → 38.42**. Dev agrees (48.55 ± 0.24 vs 45.56 ± 0.13).
+
+What this shows:
+
+1. **The fusion can use good captions.** C gains +2.6 points, about 15× the seed std. The gain comes entirely from number and other questions, where captions can contain the answer.
+2. **C gains through the pointer, not the attention path.** With human captions the fusion gate falls to about 0.03 (0.29–0.32 with generated captions), while the pointer stays active (0.14–0.19, vs 0.08–0.13 on shuffled captions). Copying answer words from the caption is what helps.
+3. **A barely gains** (+0.4, within noise). Attending over a mean caption vector does not extract a specific answer word.
+4. **B reads both caption types closely but gains only +1.0.** Its shuffle drop is large for generated captions too (11.1), so dependence on the caption is not the same as useful information.
+5. **The gap between the current captioner and human captions is 3.25 points for C** (45.64 → 48.89). Retraining the captioner (§9) should be measured against this range.
+
+## 9. Conclusions and next steps
 
 1. **On 40k VQA v2 questions, the current QD captioner does not improve VQA accuracy** with any of the three proposed fusions. The best model is the caption-free A/C network (46.29 ± 0.16). All A/B/C variants are about 4 points above the current SimpleVQA (41.79), so for the thesis pipeline any of them is a better Stage-2 base than SimpleVQA.
-2. **The bottleneck is the captioner, not the fusion.** B proves a VQA model can be made to depend strongly on the caption (−11 points when shuffled). C proves answers can be copied from it. But on unseen images the caption contains the correct answer only ~18% of the time (beam 1).
+2. **The bottleneck is the captioner, not the fusion.** B proves a VQA model can be made to depend strongly on the caption (−11 points when shuffled). C proves answers can be copied from it. But on unseen images the caption contains the correct answer only ~18% of the time (beam 1). With COCO human captions, the same model C gains +2.6 points (§8), which confirms that caption quality is the limit.
 3. To give captions a real chance, the most promising steps are, in order:
    - Train the captioner on far more QD caption data. The generator has so far covered only the first 20k VQA train questions.
    - Re-run this benchmark with the improved captioner. The scripts take any captioner checkpoint (`captioner_ckpt`), and features are recomputed in about 15 minutes.
@@ -212,7 +240,7 @@ What follows for this benchmark:
 4. If you continue with one architecture: **C** is the most informative, because its pointer rate and gate show directly whether captions become useful. **B** stands to benefit most from better captions, since it already reads them closely.
 5. To get closer to the setting where captions are known to help (§7): train the captioner jointly with the VQA loss instead of freezing it (Wu & Mooney 2019), and add COCO human captions as caption supervision. When comparing with the base papers, report both conditions: captioner images overlapping the VQA evaluation images vs. disjoint (this benchmark). The difference measures how much of the published gain is leakage.
 
-## 9. Reproduce
+## 10. Reproduce
 
 ```bash
 cd CaptionVQA
@@ -222,10 +250,14 @@ python train.py --config configs/small.yaml --model A [--no-caption] --seed 0   
 bash scripts/run_all.sh                                   # all 18 runs (~70 min)
 python summarize.py --config configs/small.yaml           # tables in §3/§4
 python caption_stats.py --config configs/small.yaml       # table in §5
+# Upper bound with COCO human captions (§8)
+python prepare_human_captions.py --config configs/small.yaml   # captions_{split}_human.pt
+bash scripts/run_human.sh                                 # 9 runs (~60 min)
+python caption_stats.py --config configs/small.yaml --captions human
 # SimpleVQA baseline on the same split (from SimpleVQA/)
 python ../CaptionVQA/precache_simplevqa.py --config configs/caption_vqa_small.yaml
 python train.py --config configs/caption_vqa_small.yaml --fresh
 python ../CaptionVQA/score_simplevqa.py --config configs/caption_vqa_small.yaml
 ```
 
-Per-run outputs: `outputs/small/runs/<model>[_nocap]_s<seed>/{results.json, history.json, test_predictions.json, best.pt}`.
+Per-run outputs: `outputs/small/runs/<model>[_nocap|_human]_s<seed>/{results.json, history.json, test_predictions.json, best.pt}`.
