@@ -19,7 +19,7 @@ Date: 2026-10-27. Hardware: one RTX 3070 Laptop GPU (8 GB).
 | Training | AdamW, lr 1e-3 (B: 1e-4 for layers copied from the captioner), 1 warm-up epoch + cosine decay, 15 epochs, batch 128, dropout 0.2, AMP. Best dev epoch → test |
 | Seeds | 3 (0, 1, 2); values are mean ± std |
 
-Split files: `outputs/small/split/{train,dev,test}.json`. Reproduce: see §8.
+Split files: `outputs/small/split/{train,dev,test}.json`. Reproduce: see §9.
 
 ## 2. Architectures
 
@@ -133,14 +133,75 @@ Validation ablation (paper Table 3): Baseline 57.12 → +Att 62.91 → +Cap 63.6
 | Captioner training | Starts from MS-COCO human captions (5 per image), then question-based captions generated for every image–question pair of train/val/test (paper §5) | 9.5k LLM-generated question-dependent captions from 2.9k images |
 | Image features | ResNet-101 global feature + 32 Faster R-CNN region features, bottom-up/top-down style (paper §3; detector pre-training data not stated) | torchvision COCO Faster R-CNN, top-32 RPN proposals, no global feature, no box coordinates |
 | Answer output | Generative LSTM answer decoder | Classifier over 1,144 answers |
+| Captioner training mode | Pre-trained together with the VQA module for 25 epochs (paper §5) | Frozen |
+| What VQA receives from the captioner | Captioner LSTM hidden state at the last word, average-pooled over 5 captions (a 512-d learned feature, not text), fused by element-wise product | Caption tokens + decoder states (A, B), n-grams of 3 beams (C) |
+| Can the captioner have seen the evaluated images? | Likely for the val ablation (Table 3): COCO human captions exist for val2014 | No, all captioner images excluded |
+| Seeds / variance | 1 run, no std | 3 seeds, mean ± std |
 
 What **is** comparable is the *relative* effect of the caption. The paper reports +7.35 points (test-std) from adding captions to the attention model. Here the caption adds nothing measurable, across three different fusion designs and 3 seeds. Points to keep in mind when citing the paper:
 
 - In the paper's Table 6, the caption branch alone (Baseline + Cap, 69.91) beats Bottom-Up/Top-Down (65.32) by 4.6 points, while attention alone adds only 2.1 over the baseline. That is a very large effect for a caption feature and worth treating with care.
 - The paper's full model scores 66.82 on validation (Table 3) but 70.67 on test-standard (Table 6). A 3.9-point improvement from val to test is unusual unless the final model was also trained on val. The paper does not say whether it was.
 - The paper's captioner sees every COCO image with 5 human captions. If the VQA test images (COCO) overlap with the captioner's training images, the caption carries ground-truth-like information. §5 shows how much caption quality drops on unseen images; we excluded seen images to avoid exactly this.
+- The paper's "Baseline + Att" (63.32 test-std) is below Bottom-Up/Top-Down (65.67), although it is built the same way. Part of the caption gain may come from adding a branch to an under-tuned baseline. Here the no-caption model is the strongest model.
+- Table 6 lists Anderson et al. (65.32) and Teney et al. (65.67) with identical per-type numbers.
 
-## 7. Conclusions and next steps
+### 6.1 Second base paper (Zhou, Liu & Zhao 2024, *A visual question answering model based on image captioning*, IC-VQA)
+
+A question-guided Transformer captioner (Faster R-CNN objects + box geometry + ResNet grid features) produces a caption that is multiplied element-wise with the fused question/visual feature of an Attention+LSTM answer decoder.
+
+| Paper result | Number | Yes/No | Other | Overall |
+|---|---|---|---|---|
+| VQA 1.0, IC-VQA (Table 2) | 42.53 | 84.12 | 57.81 | 70.10 |
+| VQA 2.0, IC-VQA (Table 3) | 46.83 | 87.20 | 61.98 | 70.85 |
+| VQA 2.0 ablation (Table 5): no Obj / Att-obj / Cap / Att-w → only Cap → all four | | | | 62.80 → 64.72 → 70.85 |
+
+Differences from this benchmark, and points to keep in mind:
+
+- The captioner is trained on MS-COCO with 118k training images × 5 human captions. The COCO 2017 train split contains most val2014 images, i.e. most VQA v2 val images. The paper does not say which VQA split its numbers are on.
+- The paper does not explain how a question-specific captioner is supervised when COCO captions are question-agnostic.
+- Full VQA v2 train, 1 run, no std, no code.
+- The same model has Yes/No = 84.12 in Table 2 but 82.3 in Table 4 (VQA 1.0).
+- Table 3 compares against BLIP-2's **zero-shot** score (65.0); fine-tuned BLIP-2 is above 80.
+
+### 6.2 Consistency check of the reported numbers
+
+VQA "Overall" is the question-weighted mean of Number, Yes/No and Other, so it is fixed by the per-type numbers. We fitted the type weights by least squares on the rows both papers copy from other work (VQA 2.0 test-std: Goyal et al. prior / language-only / LSTM+CNN / MCB, Teney et al.; VQA 1.0 test-std: 7 rows from Table 5 / Table 2). The fit reproduces those rows to within 0.00 (VQA 2.0) and 0.03 (VQA 1.0) points, and also reproduces the Up-Down ensemble (70.34) and Wu & Mooney (69.66) rows of IC-VQA Table 3 exactly. Fitted weights (Number, Yes/No, Other): VQA 2.0 0.109 / 0.415 / 0.476, VQA 1.0 0.119 / 0.405 / 0.484. Applied to the papers' own rows:
+
+| Row | Reported overall | Implied by per-type numbers | Gap |
+|---|---|---|---|
+| P1 VQA 2.0 Baseline | 61.21 | 62.62 | −1.41 |
+| P1 VQA 2.0 Baseline + Att | 63.32 | 64.46 | −1.14 |
+| P1 VQA 2.0 Baseline + Cap | 69.91 | 68.68 | +1.23 |
+| P1 VQA 2.0 Baseline + Att + Cap | 70.67 | 69.75 | +0.92 |
+| P1 VQA 1.0 Baseline + Att + Cap | 70.35 | 68.39 | +1.96 |
+| P2 VQA 2.0 IC-VQA | 70.85 | 70.78 | +0.07 |
+| P2 VQA 1.0 IC-VQA (Table 2) | 70.10 | 67.12 | +2.98 |
+
+- In Sharma & Jalal, rows without captions are below the overall their per-type numbers imply, and rows with captions are above it. From the per-type numbers, the caption gain on VQA 2.0 is about +5.3 (64.46 → 69.75), not +7.35.
+- IC-VQA's VQA 1.0 overall (70.10) is higher than CAM's (69.29), although IC-VQA is 2.4 points lower on Yes/No and 2.6 lower on Other. This is not possible with a weighted mean.
+
+These checks do not show the papers are wrong, but both should be cited with care.
+
+## 7. Related work: captions in the VQA pipeline
+
+| Work | Setup | Effect of captions |
+|---|---|---|
+| Wu, Hu & Mooney, ACL 2019 ([arXiv 1906.00513](https://arxiv.org/abs/1906.00513)), cited by IC-VQA | Question-relevant captioner trained **jointly** with Up-Down VQA. For each question, the caption loss is applied only to the human COCO caption whose gradient agrees most with the predicted answer. Then 5 captions are generated per question for train/val/test and the model is fine-tuned | VQA 2.0 val (Table 2): Up-Down 63.2 → 64.6 (generic Up-Down captions) → **65.8** (generated question-relevant) → 67.1 (human captions). Test-std 65.3 → 68.4. Human captions alone, without the image: 59.6 |
+| Kim & Bansal, ACL 2019 ([arXiv 1906.06216](https://arxiv.org/abs/1906.06216)) | Generated paragraph captions + image (Visual Genome QA) | Test 44.68 → 46.86. Human paragraphs only about 0.6 higher than generated ones (val) |
+| Li et al., *Tell-and-Answer*, EMNLP 2018 ([D18-1164](https://aclanthology.org/D18-1164/)) | Attributes + generic captions replace the image | Comparable to baselines. The gain is explainability, not accuracy |
+| Yang et al., PICa, AAAI 2022 ([arXiv 2109.05014](https://arxiv.org/abs/2109.05014)) | Captions/tags + in-context examples → GPT-3 | +8.6 over supervised SOTA on OK-VQA. The caption is the LLM's only view of the image |
+| Tiong et al., PNP-VQA, 2022 ([arXiv 2210.08773](https://arxiv.org/abs/2210.08773)) | Question-guided captions → frozen QA language model, zero-shot | SOTA zero-shot VQAv2/GQA at the time. VQA accuracy correlates with the captions' **answer hit rate**, the measure of §5 |
+| Özdemir & Akagündüz, CVPRW 2024 ([arXiv 2404.08589](https://arxiv.org/abs/2404.08589)) | Question-keyword-driven captions as LLM prompts | Competitive zero-shot results on GQA |
+
+What follows for this benchmark:
+
+1. With a classic VQA model that already sees the regions, the credible gain from captions is about **2–3 points**. It requires a captioner trained on large human caption data (≈600k COCO captions), preferably jointly with the VQA loss. Gains of 6–7 points (both base papers) are outliers.
+2. Question-relevant captions help more than generic ones (Wu & Mooney: 65.8 vs 64.6), which supports the QD captioner design.
+3. Captions help much more when the answering model is a text-only LLM (PICa, PNP-VQA), because there they are the only visual input. That is a different setting from A/B/C.
+4. The useful signal is the extra caption supervision, not the caption as such. A caption computed from the same regions and question adds no new information (model B, §4). Our captioner adds 9.5k LLM captions (beam-1 hit rate 17.8%, §5), about 60× less human-quality supervision than these papers.
+
+## 8. Conclusions and next steps
 
 1. **On 40k VQA v2 questions, the current QD captioner does not improve VQA accuracy** with any of the three proposed fusions. The best model is the caption-free A/C network (46.29 ± 0.16). All A/B/C variants are about 4 points above the current SimpleVQA (41.79), so for the thesis pipeline any of them is a better Stage-2 base than SimpleVQA.
 2. **The bottleneck is the captioner, not the fusion.** B proves a VQA model can be made to depend strongly on the caption (−11 points when shuffled). C proves answers can be copied from it. But on unseen images the caption contains the correct answer only ~18% of the time (beam 1).
@@ -149,8 +210,9 @@ What **is** comparable is the *relative* effect of the caption. The paper report
    - Re-run this benchmark with the improved captioner. The scripts take any captioner checkpoint (`captioner_ckpt`), and features are recomputed in about 15 minutes.
    - Scale VQA training data (the full train split). The no-caption baseline will rise too, so the caption gain should be measured as with/without at the same scale, as done here.
 4. If you continue with one architecture: **C** is the most informative, because its pointer rate and gate show directly whether captions become useful. **B** stands to benefit most from better captions, since it already reads them closely.
+5. To get closer to the setting where captions are known to help (§7): train the captioner jointly with the VQA loss instead of freezing it (Wu & Mooney 2019), and add COCO human captions as caption supervision. When comparing with the base papers, report both conditions: captioner images overlapping the VQA evaluation images vs. disjoint (this benchmark). The difference measures how much of the published gain is leakage.
 
-## 8. Reproduce
+## 9. Reproduce
 
 ```bash
 cd CaptionVQA
