@@ -1,0 +1,42 @@
+# Small VQA v2 benchmark (A / B / C caption-aware VQA models).
+# Run from CaptionVQA/:
+#   python make_split.py --config configs/small.yaml
+#   python prepare_features.py --config configs/small.yaml
+#   python train.py --config configs/small.yaml --model A
+
+seed: 0
+train_questions_json: ../dataset/v2_OpenEnded_mscoco_train2014_questions.json
+train_annotations_json: ../dataset/v2_mscoco_train2014_annotations.json
+val_questions_json: ../dataset/v2_OpenEnded_mscoco_val2014_questions.json
+val_annotations_json: ../dataset/v2_mscoco_val2014_annotations.json
+train_images_dir: ../dataset/train2014
+val_images_dir: ../dataset/val2014
+# Images the captioner was trained on (the whole QD caption set) are excluded from VQA train.
+qd_captions_json: ../dataset/vqa_v2_question_dependent_captions_train2014.json
+
+# Split sizes (questions). dev = model selection, test = reported numbers.
+num_train_questions: 40000
+num_dev_questions: 5000
+num_test_questions: 10000
+
+captioner_ckpt: ../QuestionDependentImageCaptioner/outputs/kaggle_mini/best.pt
+caption_beam: 3
+caption_max_len: 20
+max_question_len: 14
+max_regions: 32
+image_size: 448
+
+work_dir: outputs/small
+answer_min_count: 3
+
+# Training (shared by A / B / C)
+epochs: 15
+batch_size: 128
+learning_rate: 0.001
+pretrained_lr_scale: 0.1   # B: captioner encoder layers
+weight_decay: 0.0001
+warmup_epochs: 1
+dropout: 0.2
+hidden_dim: 512
+grad_clip: 20.0
+use_amp: true

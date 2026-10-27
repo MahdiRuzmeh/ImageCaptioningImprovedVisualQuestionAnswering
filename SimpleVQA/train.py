@@ -1638,7 +1638,18 @@ PATH_KEYS = (
     "val_region_cache_dir",
     "train_global_cache_dir",
     "val_global_cache_dir",
+    "train_qids_json",
+    "val_qids_json",
 )
+
+
+def _split_qids(path: Optional[str]) -> Optional[List[int]]:
+    """Optional fixed question list (e.g. CaptionVQA ``split/*.json``: records ba ``question_id``)."""
+    if not path:
+        return None
+    with Path(path).open("r", encoding="utf-8") as f:
+        rows = json.load(f)
+    return sorted(int(r["question_id"]) if isinstance(r, dict) else int(r) for r in rows)
 
 
 def build_loaders(
@@ -1650,11 +1661,13 @@ def build_loaders(
   Age captioner QD ckpt ``q_vocab`` dashte bashe, ``q_cap`` joda encode mishe.
     """
     tr_qids = cap_list(
-        intersect_qids(cfg["train_questions_json"], cfg["train_annotations_json"]),
+        _split_qids(cfg.get("train_qids_json"))
+        or intersect_qids(cfg["train_questions_json"], cfg["train_annotations_json"]),
         cfg.get("max_train_qids"),
     )
     va_qids = cap_list(
-        intersect_qids(cfg["val_questions_json"], cfg["val_annotations_json"]),
+        _split_qids(cfg.get("val_qids_json"))
+        or intersect_qids(cfg["val_questions_json"], cfg["val_annotations_json"]),
         cfg.get("max_val_qids"),
     )
 

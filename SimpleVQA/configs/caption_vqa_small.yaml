@@ -1,0 +1,64 @@
+# SimpleVQA baseline on the CaptionVQA small benchmark split (same questions as A / B / C).
+# Run from SimpleVQA/ (after CaptionVQA make_split.py + prepare_features.py):
+#   python train.py --config configs/caption_vqa_small.yaml
+#   python ../CaptionVQA/score_simplevqa.py --config configs/caption_vqa_small.yaml
+# Hyper-parameters = kaggle_mini.yaml (architecture-comparison harness), epochs = 15 like A/B/C.
+
+seed: 0
+train_questions_json: ../dataset/v2_OpenEnded_mscoco_train2014_questions.json
+train_annotations_json: ../dataset/v2_mscoco_train2014_annotations.json
+val_questions_json: ../dataset/v2_OpenEnded_mscoco_val2014_questions.json
+val_annotations_json: ../dataset/v2_mscoco_val2014_annotations.json
+train_images_dir: ../dataset/train2014
+val_images_dir: ../dataset/val2014
+train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+val_image_filename_template: "COCO_val2014_{image_id:012d}.jpg"
+# Fixed question lists: train = CaptionVQA train, val = CaptionVQA dev (model selection).
+train_qids_json: ../CaptionVQA/outputs/small/split/train.json
+val_qids_json: ../CaptionVQA/outputs/small/split/dev.json
+use_captioner: true
+caption_repr: hidden
+captioner_project_root: ../QuestionDependentImageCaptioner
+captioner_ckpt: ../QuestionDependentImageCaptioner/outputs/kaggle_mini/best.pt
+captioner_class: MMTransformerCopyCaptioner
+captioner_fuse_mode: concat
+captioner_finetune_q: false
+num_workers: 2  # 16 GB RAM: each worker copies the VQA data (4 workers + persistent val workers grew the C: page file)
+prefetch_factor: 2
+pin_memory: true
+persistent_workers: false
+batch_size: 32
+grad_accum_steps: 1
+epochs: 15
+eval_every: 1
+learning_rate: 0.001
+lr_decay_every: 5
+lr_decay_factor: 0.5
+weight_decay: 0.0001
+label_smoothing: 0.05
+max_question_len: 14
+max_answer_len: 6
+vocab_min_freq: 4
+use_amp: true
+max_regions: 32
+cache_regions: true
+# Shared with CaptionVQA: the captioner reads its own {id}.pt files here; VQAModel adds {id}_k32_raw1024.pt.
+train_region_cache_dir: ../CaptionVQA/outputs/small/region_cache/train
+val_region_cache_dir: ../CaptionVQA/outputs/small/region_cache/val
+cache_global: true
+train_global_cache_dir: outputs/caption_vqa_small/global_cache/train
+val_global_cache_dir: outputs/caption_vqa_small/global_cache/val
+image_size: 448
+device: cuda
+ddp: false
+ddp_backend: nccl
+hidden_dim: 512
+word_dim: 512
+question_dim: 1280
+fuse_mode: concat
+dropout: 0.1
+save_dir: outputs/caption_vqa_small
+save_model_type: epoch
+save_every_samples: 5000
+max_train_qids: null
+max_val_qids: null
