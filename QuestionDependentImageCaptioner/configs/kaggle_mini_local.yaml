@@ -1,0 +1,30 @@
+# Local copy of kaggle_mini data/split keys — baraye eval/ablation roye
+# outputs/kaggle_mini/best.pt (model hyperparam ha az checkpoint khoonde mishan).
+#   python scripts/image_ablation.py --config configs/kaggle_mini_local.yaml \
+#       --ckpt outputs/kaggle_mini/best.pt --split train --out outputs/ablation/kaggle_mini_ep17_train.json
+seed: 42
+model_class: MMTransformerCopyCaptioner
+train_captions_json: ../dataset/vqa_v2_question_dependent_captions_train2014.json
+val_captions_json: ../dataset/vqa_v2_question_dependent_captions_train2014.json
+train_images_dir: ../dataset/train2014
+val_images_dir: ../dataset/train2014
+train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+val_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+
+# --- same as configs/kaggle_mini.yaml ---
+train_row_range: [0, 9500]
+val_row_range: [9500, 10000]
+test_row_range: [10000, 10500]
+
+num_workers: 0
+batch_size: 32
+max_caption_len: 20
+max_question_len: 14
+
+# --- region cache: hame split ha az COCO train2014 → yek cache dir ---
+cache_regions: true
+images_from_cache: true
+train_region_cache_dir: outputs/region_cache/captioner/train
+val_region_cache_dir: outputs/region_cache/captioner/train
+test_region_cache_dir: outputs/region_cache/captioner/train
+image_size: 448

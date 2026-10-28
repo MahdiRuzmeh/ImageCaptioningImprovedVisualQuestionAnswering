@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark import DATA_KEYS, PATH_KEYS, score_block, vocab_from_itos  # noqa: E402
 from decoding import generate_split_captions  # noqa: E402
-from metrics import NON_LEXICAL_ANSWERS  # noqa: E402
+from metrics import NON_LEXICAL_ANSWERS, answer_in_caption  # noqa: E402
 from models import build_captioner  # noqa: E402
 from train import (  # noqa: E402
     PROJECT_ROOT,
@@ -115,6 +115,54 @@ def answer_prior(cfg: Dict[str, Any], samples: List[Dict[str, Any]]) -> List[Lis
     return out
 
 
+def same_question_pairs(hyps: List[List[str]], samples: List[Dict[str, Any]]) -> Dict[str, float]:
+    """Finglish: soal *yeksan*, tasvir motefavet → caption ham avaz mishe? javab ro donbal mikone?
+
+    Item haro ba soal normalize-shode group mikonim (>= 2 tasvir). Baraye har joft
+    (tasvir motefavet):
+      diff_answer — javab GT fargh dare: caption fargh dare? harkodoom javab khodesh ro dare?
+      same_answer — javab GT yeksane: caption yeksane?
+    """
+    groups: Dict[str, List[int]] = defaultdict(list)
+    for i, s in enumerate(samples):
+        groups[" ".join(tok(s["question"]))].append(i)
+    ans = [tok(str(s["answer"])) for s in samples]
+    lex = [bool(a) and " ".join(a) not in NON_LEXICAL_ANSWERS for a in ans]
+    hit = [lex[i] and answer_in_caption(ans[i], hyps[i]) for i in range(len(samples))]
+    c = Counter()
+    n_groups = n_items = 0
+    for idx in groups.values():
+        if len({int(samples[i]["image_id"]) for i in idx}) < 2:
+            continue
+        n_groups += 1
+        n_items += len(idx)
+        for a_pos, i in enumerate(idx):
+            for j in idx[a_pos + 1:]:
+                if samples[i]["image_id"] == samples[j]["image_id"]:
+                    continue
+                if ans[i] == ans[j]:
+                    c["same_n"] += 1
+                    c["same_cap_equal"] += hyps[i] == hyps[j]
+                    continue
+                c["diff_n"] += 1
+                c["diff_cap_changed"] += hyps[i] != hyps[j]
+                if lex[i] and lex[j]:
+                    c["diff_lex_n"] += 1
+                    c["diff_both_hit"] += hit[i] and hit[j]
+                    c["diff_one_hit"] += hit[i] != hit[j]
+    r = lambda k, n: c[k] / c[n] if c[n] else 0.0  # noqa: E731
+    return {
+        "groups": float(n_groups), "items": float(n_items),
+        "diff_answer_pairs": float(c["diff_n"]),
+        "diff_answer_caption_changed": r("diff_cap_changed", "diff_n"),
+        "diff_answer_lexical_pairs": float(c["diff_lex_n"]),
+        "diff_answer_both_hit": r("diff_both_hit", "diff_lex_n"),
+        "diff_answer_one_hit": r("diff_one_hit", "diff_lex_n"),
+        "same_answer_pairs": float(c["same_n"]),
+        "same_answer_caption_equal": r("same_cap_equal", "same_n"),
+    }
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="Image-ablation diagnostic for QD captioners")
     p.add_argument("--config", required=True)
@@ -122,6 +170,7 @@ def main() -> None:
     p.add_argument("--split", default="test", choices=("train", "val", "test"))
     p.add_argument("--modes", default="normal,shuffle,mean,mask")
     p.add_argument("--beam", type=int, default=3)
+    p.add_argument("--examples", type=int, default=60, help="-1 = hame item ha")
     p.add_argument("--out", required=True)
     args = p.parse_args()
 
@@ -176,6 +225,10 @@ def main() -> None:
         print(f"{mode:8s} " + "  ".join(f"{k}={v:.4f}" for k, v in results[mode]["overall"].items()
                                        if k in ("BLEU-4", "CIDEr", "AnswerHit")))
 
+    if "normal" in hyps_by_mode:
+        results["same_question"] = same_question_pairs(hyps_by_mode["normal"], samples)
+        print("same_q   " + "  ".join(f"{k}={v:.3f}" for k, v in results["same_question"].items()))
+
     prior = answer_prior(cfg, samples)
     results["prior"] = {"overall": score_block(prior, samples)}
     print(f"prior    AnswerHit={results['prior']['overall']['AnswerHit']:.4f}")
@@ -187,9 +240,10 @@ def main() -> None:
         "seed": model_cfg.get("seed"), "split": args.split, "beam": args.beam,
         "results": results,
         "examples": [
-            {"question": s["question"], "answer": s["answer"], "gt": s["caption"],
+            {"image_id": int(s["image_id"]), "question": s["question"], "answer": s["answer"],
+             "rule": s.get("rule"), "shuffle_image_id": id_map[int(s["image_id"])], "gt": s["caption"],
              **{m: " ".join(h[i]) for m, h in hyps_by_mode.items()}}
-            for i, s in enumerate(samples[:60])
+            for i, s in enumerate(samples if args.examples < 0 else samples[:args.examples])
         ],
     }, indent=1), encoding="utf-8")
     print(f"saved -> {out}")

@@ -1,0 +1,46 @@
+# "Seen" VQA v2 benchmark: questions on the images the QD captioner was TRAINED on.
+# Captions here often contain the answer (leakage condition, like the base papers).
+# Run from CaptionVQA/:
+#   python make_seen_split.py --config configs/seen.yaml
+#   python prepare_features.py --config configs/seen.yaml --splits train,dev,test
+#   python train.py --config configs/seen.yaml --model C
+#   python eval_runs.py --runs-config configs/small.yaml --data-config configs/seen.yaml --split test
+
+seed: 0
+train_questions_json: ../dataset/v2_OpenEnded_mscoco_train2014_questions.json
+train_annotations_json: ../dataset/v2_mscoco_train2014_annotations.json
+val_questions_json: ../dataset/v2_OpenEnded_mscoco_val2014_questions.json
+val_annotations_json: ../dataset/v2_mscoco_val2014_annotations.json
+train_images_dir: ../dataset/train2014
+val_images_dir: ../dataset/val2014
+qd_captions_json: ../dataset/vqa_v2_question_dependent_captions_train2014.json
+# Captioner (kaggle_mini) train rows of qd_captions_json, snapped to image_id boundaries
+captioner_train_row_range: [0, 9500]
+# Captioner region cache (same Faster R-CNN features the captioner was trained on)
+captioner_region_cache_dir: ../QuestionDependentImageCaptioner/outputs/region_cache/captioner/train
+
+# Split of the captioner-train images (by image). Sizes are image counts.
+num_dev_images: 250
+num_test_images: 600
+
+captioner_ckpt: ../QuestionDependentImageCaptioner/outputs/kaggle_mini/best.pt
+caption_beam: 3
+caption_max_len: 20
+max_question_len: 14
+max_regions: 32
+image_size: 448
+
+work_dir: outputs/seen
+answer_min_count: 3
+
+# Training — same as configs/small.yaml
+epochs: 15
+batch_size: 128
+learning_rate: 0.001
+pretrained_lr_scale: 0.1
+weight_decay: 0.0001
+warmup_epochs: 1
+dropout: 0.2
+hidden_dim: 512
+grad_clip: 20.0
+use_amp: true

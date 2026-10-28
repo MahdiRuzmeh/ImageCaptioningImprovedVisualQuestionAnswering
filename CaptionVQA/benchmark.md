@@ -229,6 +229,14 @@ What this shows:
 4. **B reads both caption types closely but gains only +1.0.** Its shuffle drop is large for generated captions too (11.1), so dependence on the caption is not the same as useful information.
 5. **The gap between the current captioner and human captions is 3.25 points for C** (45.64 → 48.89). Retraining the captioner (§9) should be measured against this range.
 
+## 8.1 Captioner-seen data (leakage condition)
+
+Same models, trained and/or tested on the images and (image, question) pairs the captioner was trained on, where captions contain the answer about twice as often (beam 1: 33.9% on trained pairs vs 17.8% unseen). Full report: [benchmark_seen.md](benchmark_seen.md).
+
+- Trained and tested on seen data, **C gains +2.6 overall and +4.6 on the captioner's own training pairs** (A 0.0, B +0.9).
+- Models trained on unseen images gain nothing on seen data (C +0.3): they learned not to trust captions.
+- Models trained on seen data lose on unseen images (C −0.6): they over-trust captions.
+
 ## 9. Conclusions and next steps
 
 1. **On 40k VQA v2 questions, the current QD captioner does not improve VQA accuracy** with any of the three proposed fusions. The best model is the caption-free A/C network (46.29 ± 0.16). All A/B/C variants are about 4 points above the current SimpleVQA (41.79), so for the thesis pipeline any of them is a better Stage-2 base than SimpleVQA.

@@ -37,14 +37,19 @@ def main() -> None:
         beams = [[itos[t] for t in row.tolist() if t != 0] for row in toks]
         g1 = ngrams(beams[0])
         gall = set().union(*(ngrams(b) for b in beams))
-        for t in (r["answer_type"], "all"):
+        keys = [r["answer_type"], "all"]
+        if "qd_pair" in r:  # seen split: captioner-trained (image, question) pair or not
+            pair = "qd_pair" if r["qd_pair"] else "other_q"
+            keys += [pair, f"{pair} {r['answer_type']}"]
+        for t in keys:
             s = stats[t]
             s["n"] += 1
             s["beam1_has_answer"] += max((st.get(a, 0) for a in g1), default=0)
             s["any_beam_has_answer"] += max((st.get(a, 0) for a in gall), default=0)
     print(f"| Answer type | n | Best answer in beam-1 caption (soft acc) | Best answer in any of 3 beams |")
     print("|---|---|---|---|")
-    for t in ("all", "yes/no", "number", "other"):
+    for t in [k for k in ("all", "yes/no", "number", "other") if k in stats] + sorted(
+            k for k in stats if k.startswith(("qd_pair", "other_q"))):
         s = stats[t]
         print(f"| {t} | {int(s['n'])} | {100*s['beam1_has_answer']/s['n']:.1f} | {100*s['any_beam_has_answer']/s['n']:.1f} |")
 

@@ -88,12 +88,21 @@ class _ImageDS(Dataset):
         return self.tf(img), iid
 
 
-def cache_regions(cfg: dict, device: torch.device) -> None:
+def image_split_of(work: Path, name: str) -> str:
+    """Finglish: image folder (train/val) az ``image_split``-e record ha (yek split = yek folder)."""
+    kinds = {r["image_split"] for r in read_json(work / "split" / f"{name}.json")}
+    assert len(kinds) == 1, f"{name}: mixed image splits {kinds}"
+    return kinds.pop()
+
+
+def cache_regions(cfg: dict, device: torch.device, splits: List[str]) -> None:
     work = Path(cfg["work_dir"])
     encoder = RegionEncoder(int(cfg["max_regions"]), 2048).to(device).eval()
     for img_split, template in (("train", "COCO_train2014_{image_id:012d}.jpg"),
                                 ("val", "COCO_val2014_{image_id:012d}.jpg")):
-        names = ["train"] if img_split == "train" else ["dev", "test"]
+        names = [n for n in splits if image_split_of(work, n) == img_split]
+        if not names:
+            continue
         ids = sorted({r["image_id"] for n in names for r in read_json(work / "split" / f"{n}.json")})
         cache_dir = work / "region_cache" / img_split
         todo = [i for i in ids if not (cache_dir / f"{i}.pt").exists()]
@@ -105,11 +114,11 @@ def cache_regions(cfg: dict, device: torch.device) -> None:
                 for imgs, iids in tqdm(dl, desc=f"regions/{img_split}"):
                     encoder(imgs.to(device), image_ids=iids, cache_dir=str(cache_dir), save_cache=True)
     # Finglish: yek file-e jam baraye har split (training ba RAM, bedoon disk I/O)
-    for name in SPLITS:
+    for name in splits:
         out = work / "features" / f"regions_{name}.pt"
         if out.exists():
             continue
-        img_split = "train" if name == "train" else "val"
+        img_split = image_split_of(work, name)
         ids = sorted({r["image_id"] for r in read_json(work / "split" / f"{name}.json")})
         feats = torch.stack([
             torch.load(work / "region_cache" / img_split / f"{i}.pt", map_location="cpu").half()
@@ -182,7 +191,7 @@ def caption_split(cfg: dict, name: str, captioner, vocab: _Itos, q_vocab: _Itos,
         print(f"[captions] {out} exists, skip")
         return
     recs = read_json(work / "split" / f"{name}.json")
-    cache_dir = str(work / "region_cache" / ("train" if name == "train" else "val"))
+    cache_dir = str(work / "region_cache" / image_split_of(work, name))
     beam, max_len = int(cfg["caption_beam"]), int(cfg["caption_max_len"])
     L = max_len - 1
     all_tok, all_score, all_hid = [], [], []
@@ -221,12 +230,14 @@ def caption_split(cfg: dict, name: str, captioner, vocab: _Itos, q_vocab: _Itos,
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--config", default="configs/small.yaml")
+    p.add_argument("--splits", default=",".join(SPLITS), help="comma-separated split names in work_dir/split/")
     args = p.parse_args()
     cfg = load_config(args.config)
+    splits = [s for s in args.splits.split(",") if s]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    cache_regions(cfg, device)
+    cache_regions(cfg, device, splits)
     captioner, vocab, q_vocab, _ = load_frozen_captioner(cfg["captioner_ckpt"], device)
-    for name in SPLITS:
+    for name in splits:
         caption_split(cfg, name, captioner, vocab, q_vocab, device)
 
 

@@ -170,6 +170,7 @@ All paths are relative to `QuestionDependentImageCaptioner/` unless absolute.
 | `benchmark.py` | `--config` / `--ckpt` / `--name` | Splits from config, model from checkpoint, label for results |
 | `benchmark.py` | `--split` / `--beam` / `--out` | `test` (default) or `val` / beam size (3) / output JSON |
 | `scripts/cache_regions.py` | `--config` | Cache Faster R-CNN features for every split with a row range |
+| `VISUAL_GROUNDING.md` | Same question, different image: is the kaggle_mini captioner visually grounded? (train/val/test) |
 | `scripts/image_ablation.py` | `--config` / `--ckpt` / `--split` / `--modes` / `--out` | Decode with real, shuffled, mean or masked regions + question-only prior; ImageDep = AnswerHit(normal) − AnswerHit(shuffle) |
 
 ## VQA integration (Stage 2)

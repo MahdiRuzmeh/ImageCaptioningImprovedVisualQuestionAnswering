@@ -97,6 +97,8 @@ To test a **new captioner**, set `captioner_ckpt` in `configs/small.yaml`, delet
 | `precache_simplevqa.py`, `score_simplevqa.py` | Run and score the SimpleVQA baseline on the same split |
 | `scripts/run_all.sh` | All benchmark runs |
 | `benchmark.md` | Results, diagnostics, comparison with the paper |
+| `make_seen_split.py`, `configs/seen.yaml`, `scripts/run_seen.sh` | "Seen" benchmark on the captioner's training images ([benchmark_seen.md](benchmark_seen.md)) |
+| `eval_runs.py` | Evaluate trained runs on a split of another work dir (cross-condition tests) |
 
 ## Config reference (`configs/small.yaml`)
 
