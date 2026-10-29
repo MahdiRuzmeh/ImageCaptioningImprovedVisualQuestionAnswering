@@ -1,0 +1,76 @@
+# Step 2a — pretrain captioner on COCO human captions (QD format, fixed question).
+# Data: scripts/build_coco_pretrain.py → 81,157 train images (405,980 rows), 1,000 val images.
+# QD val/test images (QD rows >= 9500) are excluded from this file.
+# python scripts/cache_regions.py --config configs/kaggle_coco_pretrain.yaml   (once)
+# torchrun --nproc_per_node=2 train.py --config configs/kaggle_coco_pretrain.yaml
+seed: 42
+model_class: MMTransformerCopyCaptioner
+train_captions_json: /kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/coco_pretrain_captions_train2014.json
+val_captions_json: /kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/coco_pretrain_captions_train2014.json
+train_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014
+val_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014
+train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+val_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+
+# --- az info-e build_coco_pretrain.py (train image ha / val image ha joda) ---
+train_row_range: [0, 405980]
+val_row_range: [405980, 410982]
+
+# --- vocab: COCO train + QD train rows (caption + caption_base) → fine-tune bedoon UNK ---
+vocab_extra_json: /kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_qd_captions_enriched_train2014.json
+vocab_extra_row_range: [0, 9500]
+vocab_min_freq: 3
+cap_vocab_include_question: true
+
+save_dir: outputs/kaggle_coco_pretrain
+save_model_type: epoch
+save_every_samples: 100000
+select_metric: cider
+val_group_refs: true   # 5 COCO caption-e har image = reference ha
+val_beam_size: 1
+save_detector_weights: false
+num_workers: 4
+batch_size: 32
+epochs: 8
+eval_every: 1
+optimizer: adamw
+learning_rate: 0.0003
+weight_decay: 0.01
+warmup_steps: 2000
+grad_clip: 2.0
+label_smoothing: 0.1
+dropout: 0.2
+lr_decay_factor: 0.6
+lr_decay_interval: 3
+use_amp: true
+grad_accum_steps: 1
+max_caption_len: 32
+max_question_len: 14
+max_regions: 32
+
+images_from_cache: true
+cache_regions: true
+train_region_cache_dir: /kaggle/working/region_cache/captioner/train
+val_region_cache_dir: /kaggle/working/region_cache/captioner/train
+test_region_cache_dir: /kaggle/working/region_cache/captioner/train
+image_size: 448
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+word_dim: 512
+hidden_dim: 512
+num_heads: 8
+num_layers: 3
+ff_dim: 1024
+embed_dim: 512
+region_dim: 2048
+question_dim: 1280
+fuse_mode: concat
+device: cuda
+ddp: true
+ddp_backend: nccl
+max_train_images: null
+max_val_images: null
+scheduled_sampling_max_prob: 0.24
+scheduled_sampling_interval: 4
+scheduled_sampling_increment: 0.06

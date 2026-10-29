@@ -17,6 +17,7 @@ from pathlib import Path
 
 import torch
 from PIL import Image
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from tqdm import tqdm
 
@@ -33,11 +34,31 @@ from train import (  # noqa: E402
 )
 
 
+class _Images(Dataset):
+    """Finglish: JPEG decode dar worker ha (ghablan serial dar main process)."""
+
+    def __init__(self, ids, images_dir: Path, template: str, transform) -> None:
+        self.ids, self.dir, self.template, self.tf = ids, images_dir, template, transform
+
+    def __len__(self) -> int:
+        return len(self.ids)
+
+    def __getitem__(self, i: int):
+        iid = self.ids[i]
+        img = Image.open(self.dir / self.template.format(image_id=iid)).convert("RGB")
+        return self.tf(img), iid
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="Cache Faster R-CNN regions")
     p.add_argument("--config", required=True)
     p.add_argument("--batch-size", type=int, default=8)
+    p.add_argument("--num-workers", type=int, default=0, help="JPEG decode workers")
+    p.add_argument("--shard", default="0/1",
+                   help="k/n: faghat image haye i %% n == k (2 GPU → 2 process)")
+    p.add_argument("--device", default=None, help="e.g. cuda:1")
     args = p.parse_args()
+    shard_k, shard_n = (int(x) for x in args.shard.split("/"))
 
     config_path = Path(args.config)
     if not config_path.is_absolute():
@@ -54,7 +75,7 @@ def main() -> None:
             "test_region_cache_dir",
         ),
     )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     size = int(cfg.get("image_size", 448))
     transform = transforms.Compose(
         [
@@ -76,22 +97,19 @@ def main() -> None:
         ids = sorted(
             {int(r["image_id"]) for r in split_rows(cfg, split, cfg["train_captions_json"])}
         )
-        todo = [i for i in ids if not (Path(cache_dir) / f"{i}.pt").exists()]
-        print(f"split={split} images={len(ids)} to_cache={len(todo)} dir={cache_dir}")
-        for k in tqdm(range(0, len(todo), args.batch_size), desc=split):
-            chunk = todo[k : k + args.batch_size]
-            imgs = torch.stack(
-                [
-                    transform(
-                        Image.open(images_dir / template.format(image_id=i)).convert("RGB")
-                    )
-                    for i in chunk
-                ]
-            ).to(device)
+        todo = [
+            i for n, i in enumerate(ids)
+            if n % shard_n == shard_k and not (Path(cache_dir) / f"{i}.pt").exists()
+        ]
+        print(f"split={split} images={len(ids)} to_cache={len(todo)} "
+              f"shard={args.shard} dir={cache_dir}")
+        ds = _Images(todo, images_dir, template, transform)
+        dl = DataLoader(ds, batch_size=args.batch_size, num_workers=args.num_workers)
+        for imgs, chunk in tqdm(dl, desc=f"{split}[{args.shard}]"):
             with torch.no_grad():
                 encoder(
-                    imgs,
-                    image_ids=torch.tensor(chunk, device=device),
+                    imgs.to(device),
+                    image_ids=chunk.to(device),
                     cache_dir=cache_dir,
                     save_cache=True,
                 )

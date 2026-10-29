@@ -485,6 +485,14 @@ class Vocab:
         )
         self.stoi = {w: i for i, w in enumerate(self.itos)}
 
+    @classmethod
+    def from_itos(cls, itos: List[str]) -> "Vocab":
+        """Finglish: vocab-e yek checkpoint (init_from) — dast nakhorde, bedoon count."""
+        v = cls([], min_freq=1)
+        v.itos = list(itos)
+        v.stoi = {w: i for i, w in enumerate(v.itos)}
+        return v
+
     def encode(self, words: List[str]) -> List[int]:
         """Map tokens to ids; unknown tokens use UNK."""
         unk = self.stoi[self.UNK]
@@ -541,6 +549,8 @@ def build_qd_vocabs(
     q_words: List[str] = []
     for r in rows:
         cap_words.extend(tok(str(r["caption"])))
+        # Finglish: enriched JSON → caption_base (QD-e ghadimi) ham vocab bashe
+        cap_words.extend(tok(str(r.get("caption_base", ""))))
         q_words.extend(tok(str(r["question"])))
     if include_question_in_cap:
         cap_words = cap_words + q_words
@@ -1220,10 +1230,24 @@ def build_split_dataset(
 
 
 def build_vocabs_from_cfg(cfg: Dict[str, Any]) -> Tuple[Vocab, Vocab]:
-    """Finglish: vocab faghat az train split (benchmark) ya kol train JSON (ghadimi)."""
+    """Finglish: vocab faghat az train split (benchmark) ya kol train JSON (ghadimi).
+
+    ``init_from`` → vocab-e hamoon checkpoint (fine-tune ba vazn haye pretrain).
+    ``vocab_extra_json`` (+ ``vocab_extra_row_range``) → rows-e train-e yek JSON-e
+    digar (masalan QD) be vocab-e pretrain ezafe mishe ta fine-tune UNK nadashte bashe.
+    """
+    if cfg.get("init_from"):
+        state = torch.load(cfg["init_from"], map_location="cpu", weights_only=False)
+        return Vocab.from_itos(state["vocab"]), Vocab.from_itos(state["q_vocab"])
     rows = None
     if cfg.get("train_row_range"):
         rows = split_rows(cfg, "train", cfg["train_captions_json"])
+    if cfg.get("vocab_extra_json"):
+        if rows is None:
+            rows = load_qd_json(cfg["train_captions_json"])
+        extra = load_qd_json(cfg["vocab_extra_json"])
+        rng = snap_row_range(extra, cfg.get("vocab_extra_row_range"))
+        rows = rows + (extra[rng[0] : rng[1]] if rng else extra)
     return build_qd_vocabs(
         cfg["train_captions_json"],
         int(cfg["vocab_min_freq"]),
@@ -1270,7 +1294,14 @@ def val_caption_scores(
         assert all(h is not None for h in full), "val hyps missing after gather"
         hyps = full
     assert len(hyps) == len(samples), (len(hyps), len(samples))
-    refs = [[tok(s["caption"])] for s in samples]
+    if bool(cfg.get("val_group_refs", False)):
+        # Finglish: COCO pretrain — 5 caption-e yek (image, soal) hame reference-e ham
+        groups: Dict[Tuple[int, str], List[List[str]]] = {}
+        for s in samples:
+            groups.setdefault((s["image_id"], s["question"]), []).append(tok(s["caption"]))
+        refs = [groups[(s["image_id"], s["question"])] for s in samples]
+    else:
+        refs = [[tok(s["caption"])] for s in samples]
     scores = compute_caption_metrics(hyps, refs)
     scores.update(answer_hit(hyps, [tok(s["answer"]) for s in samples]))
     return scores
@@ -1311,8 +1342,9 @@ def main() -> None:
             "test_region_cache_dir",
         ),
     )
-    if isinstance(cfg.get("resume_from"), str) and cfg["resume_from"]:
-        resolve_path_fields(cfg, ("resume_from",))
+    for key in ("resume_from", "init_from", "vocab_extra_json"):
+        if isinstance(cfg.get(key), str) and cfg[key]:
+            resolve_path_fields(cfg, (key,))
     ddp_on, world, rank, local_rank = ddp_setup(cfg)
 
     # Finglish: baraye DDP, seed ro ham per-rank shift midim ta shuffle yeksan nabashe.
@@ -1414,7 +1446,8 @@ def main() -> None:
         if resume_path is None and cfg.get("resume_from"):
             resume_path = str(cfg["resume_from"])
 
-    if resume_path:
+    # Finglish: --continue bedoon last.pt (run-e aval) → init_from estefade mishe
+    if resume_path and Path(resume_path).expanduser().exists():
         start_epoch, best_val, samples_seen = load_checkpoint(
             Path(resume_path).expanduser().resolve(),
             model,
@@ -1423,6 +1456,12 @@ def main() -> None:
             scaler,
             device,
         )
+    elif cfg.get("init_from"):
+        # Finglish: faghat vazn ha (na optimizer/epoch) → fine-tune az pretrain
+        state = torch.load(cfg["init_from"], map_location="cpu", weights_only=False)
+        load_model_state(model, state["model"])
+        if rank == 0:
+            print(f"init_from {cfg['init_from']} (epoch {state.get('epoch')})")
 
     next_save_at = (
         init_next_save_at(samples_seen, save_every_samples(cfg))
