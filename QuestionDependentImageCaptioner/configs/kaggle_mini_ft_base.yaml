@@ -1,4 +1,4 @@
-# Step 2b — fine-tune COCO-pretrained captioner on original QD captions (ablation).
+# Step 2b — fine-tune COCO-pretrained captioner on the original QD captions.
 # Same split as kaggle_mini; vocab + weights from init_from (pretrain best.pt).
 # torchrun --nproc_per_node=2 train.py --config configs/kaggle_mini_ft_base.yaml
 seed: 42

@@ -137,10 +137,10 @@ Accuracy drop when captions are shuffled between questions (how much the model r
 ## Next: step 2 (COCO pretraining)
 
 Pretrain the captioner on COCO human captions (81k train2014 images, 406k captions, QD val/test images
-excluded), then fine-tune on the same QD split: once on enriched captions and once on the original captions
-(an ablation that separates the effect of pretraining from the effect of enrichment).
+excluded), then fine-tune on the same QD split using the **original** QD captions. Enriched captions are
+not part of step 2 for now; `configs/kaggle_mini_ft_enriched.yaml` stays available for later.
 Files:
 - `QuestionDependentImageCaptioner/scripts/build_coco_pretrain.py`
 - `configs/kaggle_coco_pretrain.yaml`
-- `configs/kaggle_mini_ft_{enriched,base}.yaml`
+- `configs/kaggle_mini_ft_base.yaml`
 - `scripts/kaggle_step2.sh`.

@@ -16,8 +16,8 @@ val_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 train_row_range: [0, 405980]
 val_row_range: [405980, 410982]
 
-# --- vocab: COCO train + QD train rows (caption + caption_base) → fine-tune bedoon UNK ---
-vocab_extra_json: /kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_qd_captions_enriched_train2014.json
+# --- vocab: COCO train + QD train rows → fine-tune bedoon UNK ---
+vocab_extra_json: /kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014.json
 vocab_extra_row_range: [0, 9500]
 vocab_min_freq: 3
 cap_vocab_include_question: true
