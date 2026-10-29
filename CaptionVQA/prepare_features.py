@@ -186,7 +186,9 @@ def strip_bos_eos(seqs: torch.Tensor, max_tokens: int) -> torch.Tensor:
 
 def caption_split(cfg: dict, name: str, captioner, vocab: _Itos, q_vocab: _Itos, device) -> None:
     work = Path(cfg["work_dir"])
-    out = work / "features" / f"captions_{name}.pt"
+    # caption_set: tag baraye captioner-e digar (e.g. "enriched" → captions_{name}_enriched.pt)
+    tag = f"_{cfg['caption_set']}" if cfg.get("caption_set") else ""
+    out = work / "features" / f"captions_{name}{tag}.pt"
     if out.exists():
         print(f"[captions] {out} exists, skip")
         return
@@ -223,7 +225,7 @@ def caption_split(cfg: dict, name: str, captioner, vocab: _Itos, q_vocab: _Itos,
     for k in range(0, len(recs), max(1, len(recs) // 30)):
         caps = [" ".join(vocab.itos[t] for t in row.tolist() if t > 3 or t == 3) for row in tokens[k]]
         sample.append({"question": recs[k]["question"], "answers": recs[k]["answers"][:3], "captions": caps})
-    write_json(work / "features" / f"captions_{name}_sample.json", sample)
+    write_json(work / "features" / f"captions_{name}{tag}_sample.json", sample)
     print(f"[captions] wrote {out} tokens={tuple(tokens.shape)}")
 
 
