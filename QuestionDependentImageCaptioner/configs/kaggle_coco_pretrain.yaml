@@ -1,12 +1,12 @@
 # Step 2a — pretrain captioner on COCO human captions (QD format, fixed question).
-# Data: scripts/build_coco_pretrain.py → 81,157 train images (405,980 rows), 1,000 val images.
+# Data: built on Kaggle by scripts/kaggle_step2.sh (build_coco_pretrain.py) → 81,157 train images (405,980 rows), 1,000 val images.
 # QD val/test images (QD rows >= 9500) are excluded from this file.
 # python scripts/cache_regions.py --config configs/kaggle_coco_pretrain.yaml   (once)
 # torchrun --nproc_per_node=2 train.py --config configs/kaggle_coco_pretrain.yaml
 seed: 42
 model_class: MMTransformerCopyCaptioner
-train_captions_json: /kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/coco_pretrain_captions_train2014.json
-val_captions_json: /kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/coco_pretrain_captions_train2014.json
+train_captions_json: /kaggle/working/coco_pretrain_captions_train2014.json
+val_captions_json: /kaggle/working/coco_pretrain_captions_train2014.json
 train_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014
 val_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
