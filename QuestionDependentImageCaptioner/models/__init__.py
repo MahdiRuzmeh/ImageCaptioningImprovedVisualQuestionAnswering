@@ -55,6 +55,11 @@ def _build_mmtransformer_copy(
         max_regions=int(cfg["max_regions"]),
         region_dim=int(cfg.get("region_dim", 2048)),
         dropout=float(cfg.get("dropout", 0.2)),
+        # Finglish: visual_backend (frcnn_box / siglip / ...) → cached token ha ba dim-e visual_feat_dim
+        visual_feat_dim=int(cfg["visual_feat_dim"]) if cfg.get("visual_backend") else None,
+        # Finglish: visual_sources: [{cache_dir, tokens, feat_dim}, ...] → chand cache posht-e ham
+        visual_sources=[(str(v["cache_dir"]), int(v["tokens"]), int(v["feat_dim"]))
+                        for v in cfg["visual_sources"]] if cfg.get("visual_sources") else None,
     )
 
 

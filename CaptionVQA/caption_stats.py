@@ -23,7 +23,7 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--config", default="configs/small.yaml")
     p.add_argument("--split", default="test")
-    p.add_argument("--captions", choices=["generated", "human", "enriched", "ft_base"], default="generated")
+    p.add_argument("--captions", choices=["generated", "human", "enriched", "ft_base", "butd"], default="generated")
     args = p.parse_args()
     cfg = load_config(args.config)
     work = Path(cfg["work_dir"])

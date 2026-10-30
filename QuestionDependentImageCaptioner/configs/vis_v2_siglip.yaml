@@ -1,0 +1,78 @@
+# Visual-feature comparison — V2: SigLIP so400m/14-384 patch tokens pooled to 12x12 + 1 global token
+# (1152-D, box = grid cell). Otherwise = vis_v0_frcnn_box.yaml.
+#   HF_HOME=outputs/hf_cache python scripts/extract_visual.py --config configs/vis_v2_siglip.yaml
+#   python train.py --config configs/vis_v2_siglip.yaml --seed 42 --save-dir outputs/vis/v2_siglip/s42 --fresh
+seed: 42
+model_class: MMTransformerCopyCaptioner
+train_captions_json: ../dataset/vqa_v2_question_dependent_captions_train2014.json
+val_captions_json: ../dataset/vqa_v2_question_dependent_captions_train2014.json
+train_images_dir: ../dataset/train2014
+val_images_dir: ../dataset/train2014
+train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+val_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+
+# --- image-disjoint split (rows [start, end), snapped be marz image_id) ---
+train_row_range: [0, 9500]
+val_row_range: [9500, 10000]
+test_row_range: [10000, 10500]
+
+
+save_dir: outputs/vis/v2_siglip
+save_model_type: epoch
+save_every_samples: 5000
+select_metric: cider
+val_beam_size: 1
+save_detector_weights: false
+num_workers: 0
+batch_size: 32
+epochs: 20
+eval_every: 1
+optimizer: adamw
+learning_rate: 0.0003
+weight_decay: 0.01
+warmup_steps: 400
+grad_clip: 2.0
+label_smoothing: 0.1
+dropout: 0.2
+lr_decay_factor: 0.6
+lr_decay_interval: 4
+use_amp: true
+grad_accum_steps: 1
+max_caption_len: 20
+max_question_len: 14
+vocab_min_freq: 2
+cap_vocab_include_question: true
+max_regions: 145
+visual_backend: siglip
+visual_feat_dim: 1152
+visual_grid: 12
+
+# --- region cache: hame split ha az COCO train2014 → yek cache dir ---
+images_from_cache: true
+cache_regions: true
+train_region_cache_dir: outputs/visual_cache/siglip
+val_region_cache_dir: outputs/visual_cache/siglip
+test_region_cache_dir: outputs/visual_cache/siglip
+image_size: 448
+pin_memory: true
+persistent_workers: false
+prefetch_factor: 2
+word_dim: 512
+hidden_dim: 512
+num_heads: 8
+num_layers: 3
+ff_dim: 1024
+embed_dim: 512
+region_dim: 2048
+question_dim: 1280
+fuse_mode: concat
+device: cuda
+ddp: false
+ddp_backend: nccl
+# These are not read when range is setted
+max_train_images: 20000
+max_val_images: 500
+# scheduled_sampling_*: faghat v1 (MMTransformerCopyCaptioner ignore mikone)
+scheduled_sampling_max_prob: 0.24
+scheduled_sampling_interval: 4
+scheduled_sampling_increment: 0.06

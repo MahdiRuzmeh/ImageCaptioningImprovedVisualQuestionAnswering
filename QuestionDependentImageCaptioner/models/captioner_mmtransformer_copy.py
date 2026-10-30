@@ -7,6 +7,10 @@ ghadimi baghi mimune.
 
 Architecture:
 1. Faster R-CNN (freeze) → 32 region (RegionEncoder v1) → Linear → d.
+   Ya ``visual_backend`` (cache az scripts/extract_visual.py): token ha + box →
+   LN/Linear(feat) + Linear(box geometry) → d (models/visual_encoder.py).
+   ``visual_sources`` (chand cache, e.g. BUTD + DINOv2): har source projection + source
+   embedding-e khodesh, box embedding moshtarak.
 2. Question tokens: q_emb + position → d. Har do + type embedding (region/question).
 3. Joint encoder (pre-LN): region-ha va kalamat soal be ham attend mikonan →
    grounding dar har layer question-conditioned hast (na faghat yek attention).
@@ -39,6 +43,7 @@ from torch import nn
 from .base_captioner import BaseImageCaptioner
 from .beam_utils import State, beam_search, mix_copy_distribution
 from .captioner_v1 import RegionEncoder
+from .visual_encoder import BOX_DIM, CachedVisualEncoder, MultiCachedVisualEncoder
 
 SPECIAL_MAX_ID = 3  # PAD/BOS/EOS/UNK
 MAX_POS = 64
@@ -61,16 +66,37 @@ class MMTransformerCopyCaptioner(BaseImageCaptioner):
         max_regions: int = 32,
         region_dim: int = 2048,
         dropout: float = 0.2,
+        visual_feat_dim: Optional[int] = None,
+        visual_sources: Optional[List[Tuple[str, int, int]]] = None,
     ) -> None:
         super().__init__()
         self.d_model = d_model
         self.pad_id = pad_id
         self.question_pad_id = int(question_pad_id)
-        self.region_encoder = RegionEncoder(max_regions, region_dim)
+        # Finglish: visual_feat_dim → cached token ha + box embedding; None → Faster R-CNN-e ghadimi
+        self.visual_feat_dim = visual_feat_dim
+        self.multi_source = bool(visual_sources)
+        if self.multi_source:
+            # Finglish: (cache_dir, tokens, dim) har source → projection-e joda roye baze-ye khodesh
+            self.region_encoder = MultiCachedVisualEncoder(visual_sources)
+            self.visual_feat_dim = self.region_encoder.feat_dim
+            self.region_projs = nn.ModuleList(
+                nn.Sequential(nn.LayerNorm(dim), nn.Linear(dim, d_model))
+                for _, _, dim in visual_sources
+            )
+            self.source_emb = nn.Embedding(len(visual_sources), d_model)
+            self.box_proj = nn.Linear(BOX_DIM, d_model)
+        elif visual_feat_dim is None:
+            self.region_encoder = RegionEncoder(max_regions, region_dim)
+        else:
+            self.region_encoder = CachedVisualEncoder(max_regions, visual_feat_dim)
+            region_dim = visual_feat_dim
+            self.box_proj = nn.Linear(BOX_DIM, d_model)
 
-        self.region_proj = nn.Sequential(
-            nn.LayerNorm(region_dim), nn.Linear(region_dim, d_model)
-        )
+        if not self.multi_source:
+            self.region_proj = nn.Sequential(
+                nn.LayerNorm(region_dim), nn.Linear(region_dim, d_model)
+            )
         self.q_emb = nn.Embedding(
             question_vocab_size, d_model, padding_idx=self.question_pad_id
         )
@@ -133,7 +159,18 @@ class MMTransformerCopyCaptioner(BaseImageCaptioner):
         r_mask = regions.abs().sum(dim=-1) == 0
         n, r = regions.shape[:2]
         lq = question_ids.size(1)
-        r_tok = self.region_proj(regions) + self.type_emb.weight[0]
+        if self.multi_source:
+            d = self.visual_feat_dim
+            r_tok = torch.cat([
+                proj(regions[:, s:e, :dim]) + self.source_emb.weight[k]
+                for k, (proj, (s, e, dim)) in enumerate(zip(self.region_projs, self.region_encoder.spans))
+            ], dim=1) + self.box_proj(regions[..., d:])
+        elif self.visual_feat_dim is None:
+            r_tok = self.region_proj(regions)
+        else:
+            d = self.visual_feat_dim
+            r_tok = self.region_proj(regions[..., :d]) + self.box_proj(regions[..., d:])
+        r_tok = r_tok + self.type_emb.weight[0]
         q_pos = torch.arange(lq, device=question_ids.device)
         q_tok = (
             self.q_emb(question_ids) * math.sqrt(self.d_model)

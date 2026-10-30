@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from tqdm import tqdm
 
-from common import add_captioner_to_path, load_config, read_json, tok, write_json
+from common import CAPTIONER_ROOT, add_captioner_to_path, load_config, read_json, tok, write_json
 
 add_captioner_to_path()
 from models import build_captioner  # noqa: E402
@@ -184,7 +184,17 @@ def strip_bos_eos(seqs: torch.Tensor, max_tokens: int) -> torch.Tensor:
     return body[..., :max_tokens]
 
 
-def caption_split(cfg: dict, name: str, captioner, vocab: _Itos, q_vocab: _Itos, device) -> None:
+def captioner_visual_cache(cap_cfg: dict) -> str | None:
+    """Finglish: captioner ba ``visual_backend`` (scripts/extract_visual.py) cache-e khodesh ro
+    mikhoone (COCO image_id unique → train2014 + val2014 dar yek dir); None → region_cache-e inja."""
+    if not cap_cfg.get("visual_backend"):
+        return None
+    d = Path(cap_cfg["train_region_cache_dir"])
+    return str(d if d.is_absolute() else CAPTIONER_ROOT / d)
+
+
+def caption_split(cfg: dict, name: str, captioner, vocab: _Itos, q_vocab: _Itos, device,
+                  visual_cache: str | None = None) -> None:
     work = Path(cfg["work_dir"])
     # caption_set: tag baraye captioner-e digar (e.g. "enriched" → captions_{name}_enriched.pt)
     tag = f"_{cfg['caption_set']}" if cfg.get("caption_set") else ""
@@ -193,7 +203,7 @@ def caption_split(cfg: dict, name: str, captioner, vocab: _Itos, q_vocab: _Itos,
         print(f"[captions] {out} exists, skip")
         return
     recs = read_json(work / "split" / f"{name}.json")
-    cache_dir = str(work / "region_cache" / image_split_of(work, name))
+    cache_dir = visual_cache or str(work / "region_cache" / image_split_of(work, name))
     beam, max_len = int(cfg["caption_beam"]), int(cfg["caption_max_len"])
     L = max_len - 1
     all_tok, all_score, all_hid = [], [], []
@@ -238,9 +248,9 @@ def main() -> None:
     splits = [s for s in args.splits.split(",") if s]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     cache_regions(cfg, device, splits)
-    captioner, vocab, q_vocab, _ = load_frozen_captioner(cfg["captioner_ckpt"], device)
+    captioner, vocab, q_vocab, cap_cfg = load_frozen_captioner(cfg["captioner_ckpt"], device)
     for name in splits:
-        caption_split(cfg, name, captioner, vocab, q_vocab, device)
+        caption_split(cfg, name, captioner, vocab, q_vocab, device, captioner_visual_cache(cap_cfg))
 
 
 if __name__ == "__main__":
