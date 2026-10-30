@@ -250,9 +250,10 @@ def main() -> None:
     p.add_argument("--no-caption", action="store_true")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--epochs", type=int, default=None)
-    p.add_argument("--captions", choices=["generated", "human", "enriched"], default="generated",
+    p.add_argument("--captions", choices=["generated", "human", "enriched", "ft_base"], default="generated",
                    help="human = COCO human captions (upper bound, prepare_human_captions.py); "
-                        "enriched = captioner trained on COCO-context QD captions (configs/small_enriched.yaml)")
+                        "enriched = captioner trained on COCO-context QD captions (configs/small_enriched.yaml); "
+                        "ft_base = COCO-pretrained, QD fine-tuned captioner (configs/small_ft_base.yaml)")
     args = p.parse_args()
     cfg = load_config(args.config)
     set_seed(args.seed)

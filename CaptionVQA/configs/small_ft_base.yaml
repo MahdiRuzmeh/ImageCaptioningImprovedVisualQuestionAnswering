@@ -1,0 +1,53 @@
+# small.yaml with the COCO-pretrained, QD fine-tuned captioner (step 2,
+# QuestionDependentImageCaptioner/configs/kaggle_mini_ft_base.yaml). Same work_dir, split and
+# region features; captions go to captions_{split}_ft_base.pt, runs to runs/<model>_ft_base_s<seed>.
+#   python prepare_features.py --config configs/small_ft_base.yaml
+#   python train.py --config configs/small_ft_base.yaml --model C --captions ft_base
+#
+# Small VQA v2 benchmark (A / B / C caption-aware VQA models).
+# Run from CaptionVQA/:
+#   python make_split.py --config configs/small.yaml
+#   python prepare_features.py --config configs/small.yaml
+#   python train.py --config configs/small.yaml --model A
+
+seed: 0
+train_questions_json: ../dataset/v2_OpenEnded_mscoco_train2014_questions.json
+train_annotations_json: ../dataset/v2_mscoco_train2014_annotations.json
+val_questions_json: ../dataset/v2_OpenEnded_mscoco_val2014_questions.json
+val_annotations_json: ../dataset/v2_mscoco_val2014_annotations.json
+train_images_dir: ../dataset/train2014
+val_images_dir: ../dataset/val2014
+# Images the captioner was trained on (the whole QD caption set) are excluded from VQA train.
+qd_captions_json: ../dataset/vqa_v2_question_dependent_captions_train2014.json
+# COCO human captions (upper-bound experiment, prepare_human_captions.py / --captions human)
+# (src/dataset/captions_train2014.json starts with a stray "clear" line → use the original copy)
+coco_train_captions_json: "../../../../dataset/MSCOCO Captions/2014/captions_train2014.json"
+coco_val_captions_json: "../../../../dataset/MSCOCO Captions/2014/captions_val2014.json"
+
+# Split sizes (questions). dev = model selection, test = reported numbers.
+num_train_questions: 40000
+num_dev_questions: 5000
+num_test_questions: 10000
+
+captioner_ckpt: ../QuestionDependentImageCaptioner/outputs/kaggle_mini_ft_base/best.pt
+caption_set: ft_base
+caption_beam: 3
+caption_max_len: 32
+max_question_len: 14
+max_regions: 32
+image_size: 448
+
+work_dir: outputs/small
+answer_min_count: 3
+
+# Training (shared by A / B / C)
+epochs: 15
+batch_size: 128
+learning_rate: 0.001
+pretrained_lr_scale: 0.1   # B: captioner encoder layers
+weight_decay: 0.0001
+warmup_epochs: 1
+dropout: 0.2
+hidden_dim: 512
+grad_clip: 20.0
+use_amp: true

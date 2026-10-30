@@ -144,3 +144,53 @@ Files:
 - `configs/kaggle_coco_pretrain.yaml`
 - `configs/kaggle_mini_ft_base.yaml`
 - `scripts/kaggle_step2.sh`.
+
+## Step 2 results — COCO pretrain → QD fine-tune (`kaggle_mini_ft_base`)
+
+Trained on Kaggle (`scripts/kaggle_step2.sh`); best epoch 20 of 20 (val greedy CIDEr 3.61 vs 4.38 for the old
+captioner). Checkpoint: `outputs/kaggle_mini_ft_base/best.pt`, vocab 11,444 words (old 2,423).
+Local eval config: `configs/kaggle_mini_ft_base_local.yaml`; CaptionVQA config `configs/small_ft_base.yaml`,
+script `scripts/run_ft_base.sh` (`--captions ft_base`).
+
+### Captioner probe (test rows)
+
+| Metric | Old QD | Enriched | **COCO → QD** |
+|---|---|---|---|
+| CIDEr vs QD captions | **4.90** | 2.10 | 3.97 |
+| AnswerConsistency (all) | **0.362** | 0.360 | 0.346 |
+| AnswerHit | 0.281 | **0.300** | 0.275 |
+| PolarityAcc (yes/no) | **0.582** | 0.522 | 0.537 |
+| CountAcc (number) | 0.293 | 0.217 | **0.315** |
+| CIDEr vs COCO human captions | 0.21 | **0.30** | 0.23 |
+| mean caption length (words) | 5.6 | 7.1 | 5.3 |
+
+Answer coverage on the CaptionVQA test set (beam 1 / any of 3 beams): all 17.6 / 29.6, yes/no 10.1 / 18.8,
+number 28.1 / 52.7, other 20.5 / 31.5, which is about the same as the old captioner.
+
+### VQA accuracy (CaptionVQA small, test, mean ± std over 3 seeds)
+
+| Model | No caption | Old QD | Enriched | **COCO → QD** | Human COCO |
+|---|---|---|---|---|---|
+| A (gated attention) | 46.29 ± 0.16 | 45.89 ± 0.58 | 46.14 ± 0.22 | 46.29 ± 0.13 | 46.70 ± 0.48 |
+| B (single-stream) | 45.36 ± 0.21 | 45.61 ± 0.21 | 45.32 ± 0.13 | **45.81 ± 0.13** | 46.32 ± 0.38 |
+| C (classifier + pointer) | 46.29 ± 0.16 | 45.64 ± 0.49 | 46.22 ± 0.41 | **46.73 ± 0.12** | 48.89 ± 0.19 |
+
+Model C by answer type (yes/no · number · other): COCO → QD 67.6 · 32.3 · 35.1 (no caption 67.2 · 31.9 · 34.6).
+Shuffle drop: A 0.33, B 5.30, C 1.78.
+
+### What we learned
+
+1. **First generated captions that help.** Model C +0.44 over no caption (+1.09 over old QD captions),
+   B +0.45; A unchanged. The gain is small, and with only 3 seeds it is about 2–3 std, but it holds for every seed
+   (C: 46.67 / 46.66 / 46.87, all above the best no-caption seed). The human-caption gap (48.89) is still large.
+2. **Probe metrics do not predict the VQA gain.** QD-reference CIDEr and AnswerConsistency go down slightly,
+   yet VQA improves. The gain is mostly on "other" (+0.5) and yes/no (+0.4), not number.
+3. **The COCO knowledge is mostly forgotten.** COCO-reference CIDEr only goes from 0.21 to 0.23, and with an empty question the
+   model often prints the same sentence for unrelated images ("a tree is in front of the giraffes").
+   20 epochs at lr 1e-4 on 9.5k QD rows likely overwrote the pretraining. Possible fixes: fewer
+   fine-tune epochs or a lower lr, or mixing COCO rows into fine-tuning.
+4. **Caveat: train/test caption mismatch.** COCO pretraining used all train2014 images except QD val/test,
+   so it includes the CaptionVQA **train** images (dev/test are val2014 and stay clean). Captions on VQA-train
+   images can therefore be better than on test, which `make_split.py` was meant to avoid. This does not leak test
+   labels, but it could make the VQA model trust captions more at train time than at test time. A clean rerun would exclude
+   the CaptionVQA train images from `build_coco_pretrain.py`.
