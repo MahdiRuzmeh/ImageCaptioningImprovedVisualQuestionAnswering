@@ -120,6 +120,25 @@ So the VQA model really uses the BUTD captions.
 - The gain is on "other" (+1.8) and yes/no; number does not improve, which matches the probe (counting is not grounded).
 - Human captions are still 1.6 higher for C, mainly on number and other.
 
+### Oracle captions (upper bound, cheat)
+
+`CaptionVQA/prepare_oracle_captions.py`: the gold answer (majority, normalized) is put in front of every BUTD
+caption ("tennis they are playing tennis"), in train, dev and test. 88% of the answers are in the captioner vocab;
+the rest become `<unk>`. This uses the answer at test time, so it only measures the ceiling.
+
+| Test acc (3 seeds) | No caption | BUTD | Human | **Oracle** | yes/no · number · other (oracle) |
+|---|---|---|---|---|---|
+| A | 46.29 | 47.28 | 46.70 | **82.89 ± 0.10** | 100.0 · 82.7 · 70.3 |
+| C | 46.29 | 47.32 | 48.89 | **87.41 ± 0.06** | 100.0 · 83.4 · 79.1 |
+
+With another image's oracle caption, accuracy falls to 10–18%. So the models trust the caption almost completely.
+
+- **The VQA models can use a caption that states the answer**, so fusion is not the bottleneck. **What the
+  captioner says is the bottleneck**: the answer is in the beam-1 BUTD caption for only 20% of test questions (33% in any beam).
+  C reaches 79% on "other", against 70% for A, because the pointer copies the open-vocabulary answers that are not in the A answer list.
+- Caveat: a caption that contains the answer means the captioner has answered the question. So the remaining
+  gain needs better answer-relevant grounding in the captioner (counting, yes/no), not just better caption fluency.
+
 ## Suggested next steps
 
 - **COCO pretraining → QD fine-tuning with BUTD features** (the plan for the chosen extractor). This needs BUTD features
