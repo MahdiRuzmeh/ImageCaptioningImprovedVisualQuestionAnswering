@@ -23,13 +23,14 @@
     "extra_args": []
   },
   "ollama": {
-    "host": "http://localhost:11434",
+    "host": "http://127.0.0.1:11434",
+    "gpus": "auto",
+    "base_port": 11435,
     "num_parallel": null,
-    "sched_spread": true,
     "keep_alive": "-1"
   },
   "paths": {
     "work_dir": "/kaggle/working",
-    "ollama_log": "/kaggle/working/ollama.log"
+    "log_dir": "/kaggle/working"
   }
 }

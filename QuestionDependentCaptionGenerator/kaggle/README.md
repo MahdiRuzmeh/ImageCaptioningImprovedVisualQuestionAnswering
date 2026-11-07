@@ -22,15 +22,48 @@ As of 2026-11-07: 406,573 rows in total, 237,259 `llm_fallback` done,
 4. Finds every copy of the captions JSON among the inputs (your upload,
    earlier notebook versions) and resumes from the one with the **fewest
    `needs_llm` rows**. Only the `vqa_v2_*` files are copied into `outputs/`.
-5. Installs Ollama, starts it, and pulls the model.
+5. Installs Ollama and starts **one server per GPU** (see
+   [Using both T4 GPUs](#using-both-t4-gpus)). It pulls the model and
+   loads it on every GPU.
 6. Runs `generate.py --llm` with the settings from the config.
 7. After `run.hours` it sends Ctrl+C (SIGINT). `generate.py` then writes its
    checkpoint and exits. The script waits up to `run.shutdown_grace_min` for
    that save.
 8. Deletes everything except `outputs/` from
    `/kaggle/working/src/QuestionDependentCaptionGenerator`, so the notebook
-   output is only the results plus `ollama.log`. Prints the remaining
-   `needs_llm` count.
+   output is only the results plus the `ollama_gpu*.log` files. Prints how
+   many requests each GPU served and the remaining `needs_llm` count.
+
+## Using both T4 GPUs
+
+A single Ollama server runs only one copy of the model, so on a T4 x2
+machine the second GPU would sit idle. The runner does this instead:
+
+```
+generate.py --llm-parallel 8
+        │  all requests go to ollama.host
+        ▼
+balancing proxy  127.0.0.1:11434   (inside kaggle_runner.py)
+        │  each request goes to the server with fewer requests in progress
+   ┌────┴─────────────────────┐
+   ▼                          ▼
+ollama serve :11435      ollama serve :11436
+CUDA_VISIBLE_DEVICES=0   CUDA_VISIBLE_DEVICES=1
+NUM_PARALLEL=4           NUM_PARALLEL=4
+```
+
+- Each GPU runs its own full copy of the 3B model (about 2.5 GB, which fits
+  easily in 16 GB), so the two GPUs work at the same time. You get roughly
+  twice the throughput of one GPU.
+- `generate.py` is unchanged. It still writes one output file and one
+  checkpoint, so resuming works exactly as before.
+- Requests are split by load, so a slow GPU never gets a long queue. In a
+  local test with two fake servers, 80 requests split exactly 40 / 40.
+- At the end the log prints the split, for example
+  `Load split: http://127.0.0.1:11435: 10234 requests (0 failed), …`.
+  If one GPU shows 0, or many failures, check its `ollama_gpu*.log`.
+- If a server returns an error or is down, the proxy passes the error back to
+  `generate.py`, and its normal retry logic handles it.
 
 ## Config: `kaggle_config.json`
 
@@ -48,15 +81,16 @@ As of 2026-11-07: 406,573 rows in total, 237,259 `llm_fallback` done,
 | `generate.split` | `train` | `train` or `val`. Also sets the captions file name. |
 | `generate.model` | `qwen2.5:3b-instruct-q4_K_M` | Keep the same as the PC run so all captions are consistent. |
 | `generate.batch_size` | `5` | Same as the PC run. |
-| `generate.llm_parallel` | `8` | Concurrent Ollama requests. Lower it if you see timeouts or out-of-memory errors in `ollama.log`. |
+| `generate.llm_parallel` | `8` | Concurrent Ollama requests. Lower it if you see timeouts or out-of-memory errors in the `ollama_gpu*.log` files. |
 | `generate.checkpoint_every` | `50` | Batches between saves. The file is about 150 MB, so saving every batch is slow. |
 | `generate.extra_args` | `[]` | Extra `generate.py` flags, for example `["--min-consensus", "0.4"]`. |
-| `ollama.host` | `http://localhost:11434` | Ollama listens here; also passed as `--ollama-host`. |
-| `ollama.num_parallel` | `null` | `OLLAMA_NUM_PARALLEL`. `null` means the same as `generate.llm_parallel`. |
-| `ollama.sched_spread` | `true` | Spreads the model across both T4 GPUs. |
+| `ollama.host` | `http://127.0.0.1:11434` | Address of the load-balancing proxy. `generate.py` sends every request here (`--ollama-host`). |
+| `ollama.gpus` | `"auto"` | `"auto"` starts one Ollama server per GPU found by `nvidia-smi`. Or give a list, for example `[0, 1]`, or `[0]` for one GPU. |
+| `ollama.base_port` | `11435` | The server for GPU *k* listens on `base_port + k` (11435, 11436, …). |
+| `ollama.num_parallel` | `null` | `OLLAMA_NUM_PARALLEL` per server. `null` means `ceil(llm_parallel / number of GPUs)`, so 8 becomes 4 + 4. |
 | `ollama.keep_alive` | `"-1"` | Keeps the model loaded. |
 | `paths.work_dir` | `/kaggle/working` | Where the results are written. |
-| `paths.ollama_log` | `/kaggle/working/ollama.log` | Ollama server log. |
+| `paths.log_dir` | `/kaggle/working` | Gets one log per server: `ollama_gpu0.log`, `ollama_gpu1.log`. |
 
 There are two ways to change a setting:
 
@@ -167,4 +201,5 @@ To find the exact paths of an attached dataset, run this in a cell:
   sessions you'll need.
 - **If it gets killed:** the last periodic checkpoint (at most
   `checkpoint_every` batches old) is still in `outputs/`.
-- **If the run fails:** read the cell log and `ollama.log` in the output.
+- **If the run fails:** read the cell log and the `ollama_gpu*.log` files in
+  the output.

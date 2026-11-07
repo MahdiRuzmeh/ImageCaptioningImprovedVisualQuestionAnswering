@@ -23,10 +23,14 @@ The run:
      layout under <work_dir>/src/QuestionDependentCaptionGenerator, so
      generate.py resumes exactly as on the PC (VQA JSONs are passed with
      --questions / --annotations straight from /kaggle/input);
-  2. installs Ollama, starts it, pulls the model;
+  2. installs Ollama, starts ONE `ollama serve` PER GPU (each pinned with
+     CUDA_VISIBLE_DEVICES, own port), pulls + loads the model on each, and
+     puts a load-balancing proxy on ollama.host so requests are split
+     between the GPUs (generate.py itself is unchanged);
   3. runs generate.py --llm and sends Ctrl+C (SIGINT) after run.hours, which
      makes generate.py write its checkpoint and exit;
-  4. leaves only outputs/ (and ollama.log) in <work_dir> -> notebook output.
+  4. leaves only outputs/ (and the ollama_gpu*.log files) in <work_dir>
+     -> notebook output.
 """
 
 from __future__ import annotations
@@ -41,6 +45,7 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -114,6 +119,161 @@ def find_repo() -> Path:
         sh(f"git clone {PASTE_REPO['url']} {repo}")
     sh(f"git -C {repo} checkout {PASTE_REPO['branch']}")
     return repo
+
+
+# ---------------------------------------------------------------- multi-GPU
+def detect_gpus(setting: Any) -> List[str]:
+    """"auto" -> one entry per GPU from nvidia-smi; a list -> as given."""
+    if setting != "auto":
+        return [str(g) for g in setting]
+    try:
+        out = subprocess.run(["nvidia-smi", "-L"], capture_output=True,
+                             text=True, check=True).stdout
+        n = sum(1 for line in out.splitlines() if line.startswith("GPU "))
+    except (OSError, subprocess.CalledProcessError):
+        n = 0
+    return [str(i) for i in range(n)] or [""]   # "" = no GPU pinning
+
+
+def wait_ready(url: str, timeout_s: float = 120) -> None:
+    end = time.time() + timeout_s
+    while time.time() < end:
+        try:
+            urllib.request.urlopen(f"{url}/api/tags", timeout=2)
+            return
+        except Exception:
+            time.sleep(1)
+    raise RuntimeError(f"Ollama at {url} did not start in {timeout_s}s")
+
+
+class BalancingProxy:
+    """Tiny HTTP proxy: each request goes to the backend with the fewest
+    requests in flight (ties -> round-robin), so N GPUs share the load.
+
+    generate.py keeps talking to one --ollama-host; it never knows about the
+    backends. Ollama calls here are non-streaming, so buffering is fine.
+    """
+
+    def __init__(self, listen: str, backends: List[str],
+                 timeout_s: float = 900) -> None:
+        import http.server
+        import itertools
+        import threading
+
+        self.backends = backends
+        self.active = [0] * len(backends)
+        self.served = [0] * len(backends)
+        self.failed = [0] * len(backends)
+        self.lock = threading.Lock()
+        self._rr = itertools.count()
+        proxy = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *a: Any) -> None:   # keep the log quiet
+                pass
+
+            def _forward(self) -> None:
+                n = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(n) if n else None
+                i = proxy._pick()
+                req = urllib.request.Request(
+                    proxy.backends[i] + self.path, data=body,
+                    method=self.command,
+                    headers={"Content-Type": self.headers.get(
+                        "Content-Type", "application/json")})
+                status, data, ctype = 502, b"proxy error", "text/plain"
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout_s) as r:
+                        status, data = r.status, r.read()
+                        ctype = r.headers.get("Content-Type", "application/json")
+                except urllib.error.HTTPError as e:
+                    status, data = e.code, e.read()
+                    ctype = e.headers.get("Content-Type", "text/plain")
+                except Exception as e:                 # backend down / timeout
+                    data = f"backend {proxy.backends[i]}: {e}".encode()
+                finally:
+                    proxy._release(i, ok=status < 500)
+                self.send_response(status)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            do_GET = do_POST = do_DELETE = do_HEAD = _forward
+
+        u = urllib.parse.urlparse(listen)
+        self.server = http.server.ThreadingHTTPServer(
+            (u.hostname or "127.0.0.1", u.port or 80), Handler)
+        self.server.daemon_threads = True
+        self.thread = threading.Thread(target=self.server.serve_forever,
+                                       daemon=True)
+
+    def _pick(self) -> int:
+        with self.lock:
+            low = min(self.active)
+            idle = [i for i, a in enumerate(self.active) if a == low]
+            i = idle[next(self._rr) % len(idle)]
+            self.active[i] += 1
+            return i
+
+    def _release(self, i: int, ok: bool) -> None:
+        with self.lock:
+            self.active[i] -= 1
+            self.served[i] += 1
+            if not ok:
+                self.failed[i] += 1
+
+    def start(self) -> "BalancingProxy":
+        self.thread.start()
+        return self
+
+    def stop(self) -> None:
+        self.server.shutdown()
+
+    def stats(self) -> str:
+        return ", ".join(f"{b}: {s} requests ({f} failed)" for b, s, f in
+                         zip(self.backends, self.served, self.failed))
+
+
+def start_ollama_servers(oll: Dict[str, Any], llm_parallel: int, log_dir: Path):
+    """One `ollama serve` per GPU on base_port, base_port+1, ...
+
+    Returns (processes, backend URLs). Each server gets
+    ceil(llm_parallel / n) parallel slots so the total matches llm_parallel.
+    """
+    gpus = detect_gpus(oll["gpus"])
+    per_server = oll["num_parallel"] or -(-llm_parallel // len(gpus))
+    procs, urls = [], []
+    for k, gpu in enumerate(gpus):
+        port = int(oll["base_port"]) + k
+        env = dict(os.environ,
+                   OLLAMA_HOST=f"127.0.0.1:{port}",
+                   OLLAMA_NUM_PARALLEL=str(per_server),
+                   OLLAMA_KEEP_ALIVE=str(oll["keep_alive"]))
+        if gpu != "":
+            env["CUDA_VISIBLE_DEVICES"] = gpu
+        log = log_dir / f"ollama_gpu{gpu or 'X'}.log"
+        procs.append(subprocess.Popen(["ollama", "serve"], env=env,
+                                      stdout=open(log, "w"),
+                                      stderr=subprocess.STDOUT))
+        urls.append(f"http://127.0.0.1:{port}")
+        print(f"Ollama #{k}: GPU {gpu or '-'} -> {urls[-1]} "
+              f"(NUM_PARALLEL={per_server}, log {log})", flush=True)
+    for u in urls:
+        wait_ready(u)
+    return procs, urls
+
+
+def warm_up(urls: List[str], model: str) -> None:
+    """Load the model on every server now, not during the first batches."""
+    body = json.dumps({"model": model, "prompt": "", "keep_alive": -1}).encode()
+    for u in urls:
+        req = urllib.request.Request(f"{u}/api/generate", data=body,
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=600).read()
+        print(f"  model loaded on {u}", flush=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -203,23 +363,18 @@ def main() -> None:
         sh("apt-get -qq update && apt-get -qq install -y zstd > /dev/null")
         sh("curl -fsSL https://ollama.com/install.sh | sh")
 
-    num_parallel = oll["num_parallel"] or gen_cfg["llm_parallel"]
-    env = dict(os.environ,
-               OLLAMA_HOST=urllib.parse.urlparse(host).netloc,
-               OLLAMA_NUM_PARALLEL=str(num_parallel),
-               OLLAMA_KEEP_ALIVE=str(oll["keep_alive"]))
-    if oll["sched_spread"]:
-        env["OLLAMA_SCHED_SPREAD"] = "1"           # spread across both T4s
-    ollama = subprocess.Popen(["ollama", "serve"], env=env,
-                              stdout=open(cfg["paths"]["ollama_log"], "w"),
-                              stderr=subprocess.STDOUT)
-    for _ in range(60):
-        try:
-            urllib.request.urlopen(f"{host}/api/tags", timeout=2)
-            break
-        except Exception:
-            time.sleep(2)
-    subprocess.run(["ollama", "pull", gen_cfg["model"]], env=env, check=True)
+    # one server per GPU (models dir is shared, so one pull serves all)
+    servers, backends = start_ollama_servers(
+        oll, int(gen_cfg["llm_parallel"]), Path(cfg["paths"]["log_dir"]))
+    pull_env = dict(os.environ,
+                    OLLAMA_HOST=urllib.parse.urlparse(backends[0]).netloc)
+    subprocess.run(["ollama", "pull", gen_cfg["model"]], env=pull_env,
+                   check=True)
+    warm_up(backends, gen_cfg["model"])
+    # generate.py talks to `host`; the proxy splits requests over the GPUs
+    proxy = BalancingProxy(host, backends).start()
+    wait_ready(host)
+    print(f"Proxy {host} -> {len(backends)} Ollama server(s)", flush=True)
 
     # ------------------------------------------------------------ 3. generate
     proc = subprocess.Popen(cmd, cwd=gen)
@@ -241,7 +396,10 @@ def main() -> None:
     print(f"generate.py exit code: {proc.returncode}", flush=True)
 
     # ------------------------------------------------------------ 4. tidy
-    ollama.terminate()
+    print(f"Load split: {proxy.stats()}", flush=True)
+    proxy.stop()
+    for s in servers:
+        s.terminate()
     for p in gen.iterdir():                       # keep only outputs/ as result
         if p.name != "outputs":
             shutil.rmtree(p, ignore_errors=True) if p.is_dir() else p.unlink()
