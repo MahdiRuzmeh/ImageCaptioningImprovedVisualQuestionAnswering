@@ -1,0 +1,35 @@
+{
+  "repo": {
+    "url": "https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git",
+    "branch": "feat/kaggle-runner",
+    "clone_dir": "/tmp/repo"
+  },
+  "inputs": {
+    "search_root": "/kaggle/input",
+    "questions": "v2_OpenEnded_mscoco_train2014_questions.json",
+    "annotations": "v2_mscoco_train2014_annotations.json",
+    "outputs_dirs": []
+  },
+  "run": {
+    "hours": 9.0,
+    "shutdown_grace_min": 30
+  },
+  "generate": {
+    "split": "train",
+    "model": "qwen2.5:3b-instruct-q4_K_M",
+    "batch_size": 5,
+    "llm_parallel": 8,
+    "checkpoint_every": 50,
+    "extra_args": []
+  },
+  "ollama": {
+    "host": "http://localhost:11434",
+    "num_parallel": null,
+    "sched_spread": true,
+    "keep_alive": "-1"
+  },
+  "paths": {
+    "work_dir": "/kaggle/working",
+    "ollama_log": "/kaggle/working/ollama.log"
+  }
+}
