@@ -318,19 +318,23 @@ def main() -> None:
     annotations = resolve_input(inp["annotations"], inp["search_root"])
     print(f"Questions:   {questions}\nAnnotations: {annotations}", flush=True)
 
-    # outputs: explicit folders from config, else every folder that holds the
-    # captions JSON (your upload, previous notebook versions)
-    if inp["outputs_dirs"]:
-        candidates = [Path(d) for d in inp["outputs_dirs"]]
-        missing = [d for d in candidates if not (d / captions_name).is_file()]
-        if missing:
-            raise FileNotFoundError(f"{captions_name} missing in: {missing}")
-    else:
-        candidates = [Path(p).parent for p in sorted(glob.glob(
-            f"{inp['search_root']}/**/{captions_name}", recursive=True))]
-        if not candidates:
+    # outputs candidates = folders listed in config (must exist) + if
+    # outputs_search, every other folder under search_root that holds the
+    # captions JSON (e.g. a previous notebook version attached as input)
+    candidates: List[Path] = []
+    for d in inp["outputs_dirs"]:
+        if not (Path(d) / captions_name).is_file():
             raise FileNotFoundError(
-                f"{captions_name} not found under {inp['search_root']}")
+                f"{captions_name} not in configured outputs_dirs entry {d}")
+        candidates.append(Path(d))
+    if inp.get("outputs_search", True):
+        candidates += [Path(p).parent for p in sorted(glob.glob(
+            f"{inp['search_root']}/**/{captions_name}", recursive=True))]
+    candidates = list({str(d.resolve()): d for d in candidates}.values())
+    if not candidates:
+        raise FileNotFoundError(
+            f"{captions_name} not found: set inputs.outputs_dirs or attach it "
+            f"under {inp['search_root']}")
     scored = sorted((count_needs_llm(d / captions_name), str(d))
                     for d in candidates)
     for n, d in scored:

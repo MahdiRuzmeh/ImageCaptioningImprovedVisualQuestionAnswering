@@ -75,7 +75,8 @@ NUM_PARALLEL=4           NUM_PARALLEL=4
 | `inputs.search_root` | `/kaggle/input` | Where attached Kaggle inputs are searched. |
 | `inputs.questions` | `v2_OpenEnded_mscoco_train2014_questions.json` | A bare file name or an absolute path; see [Input paths](#input-paths). |
 | `inputs.annotations` | `v2_mscoco_train2014_annotations.json` | Same as above. |
-| `inputs.outputs_dirs` | `[]` | Empty: search for the captions JSON. Otherwise, a list of folders to choose from. |
+| `inputs.outputs_dirs` | `["/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions"]` | Folders that hold `vqa_v2_question_dependent_captions_train2014.json` (your uploaded outputs). The run stops with an error if a listed folder doesn't have it. |
+| `inputs.outputs_search` | `true` | Also search `search_root` for other copies of the captions file, such as a previous notebook version you attached in session 2. The copy with the fewest `needs_llm` rows wins. Set to `false` to use only `outputs_dirs`. |
 | `run.hours` | `9.0` | Hours before Ctrl+C. Setup (about 10 min) and the final save must also fit in Kaggle's session limit. |
 | `run.shutdown_grace_min` | `30` | Minutes to wait for the final save before killing the process. |
 | `generate.split` | `train` | `train` or `val`. Also sets the captions file name. |

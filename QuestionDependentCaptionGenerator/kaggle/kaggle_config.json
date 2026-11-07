@@ -8,7 +8,10 @@
     "search_root": "/kaggle/input",
     "questions": "v2_OpenEnded_mscoco_train2014_questions.json",
     "annotations": "v2_mscoco_train2014_annotations.json",
-    "outputs_dirs": []
+    "outputs_dirs": [
+      "/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions"
+    ],
+    "outputs_search": true
   },
   "run": {
     "hours": 9.0,
