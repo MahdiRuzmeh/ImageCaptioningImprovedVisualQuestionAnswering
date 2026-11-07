@@ -16,12 +16,13 @@ As of 2026-11-07: 406,573 rows in total, 237,259 `llm_fallback` done,
 2. Copies `QuestionDependentCaptionGenerator/` from the checkout to
    `/kaggle/working/src/`, so `generate.py` resumes from `outputs/` exactly
    as it does on the PC.
-3. Finds the VQA questions and annotations files (see
-   [Input paths](#input-paths)). It passes them straight to `generate.py`
-   with `--questions` / `--annotations`, so they're never copied.
-4. Finds every copy of the captions JSON among the inputs (your upload,
-   earlier notebook versions) and resumes from the one with the **fewest
-   `needs_llm` rows**. Only the `vqa_v2_*` files are copied into `outputs/`.
+3. Reads every input path from the config. There's no searching: if a path
+   is wrong, the run stops at once with an error that names it. The VQA
+   questions and annotations are passed straight to `generate.py` with
+   `--questions` / `--annotations` and are only read, never copied.
+4. Copies the `vqa_v2_*` files from `inputs.outputs_dir` into the writable
+   `/kaggle/working/src/QuestionDependentCaptionGenerator/outputs/`. See
+   [How resuming works](#how-resuming-works).
 5. Installs Ollama and starts **one server per GPU** (see
    [Using both T4 GPUs](#using-both-t4-gpus)). It pulls the model and
    loads it on every GPU.
@@ -72,11 +73,9 @@ NUM_PARALLEL=4           NUM_PARALLEL=4
 | `repo.url` | this repo | Used only when the script is pasted into a cell. |
 | `repo.branch` | `feat/kaggle-runner` | Same as above. |
 | `repo.clone_dir` | `/tmp/repo` | Same as above. |
-| `inputs.search_root` | `/kaggle/input` | Where attached Kaggle inputs are searched. |
-| `inputs.questions` | `v2_OpenEnded_mscoco_train2014_questions.json` | A bare file name or an absolute path; see [Input paths](#input-paths). |
-| `inputs.annotations` | `v2_mscoco_train2014_annotations.json` | Same as above. |
-| `inputs.outputs_dirs` | `["/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions"]` | Folders that hold `vqa_v2_question_dependent_captions_train2014.json` (your uploaded outputs). The run stops with an error if a listed folder doesn't have it. |
-| `inputs.outputs_search` | `true` | Also search `search_root` for other copies of the captions file, such as a previous notebook version you attached in session 2. The copy with the fewest `needs_llm` rows wins. Set to `false` to use only `outputs_dirs`. |
+| `inputs.questions` | `/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/v2_OpenEnded_mscoco_train2014_questions.json` | Absolute path to the VQA questions JSON. |
+| `inputs.annotations` | `/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/v2_mscoco_train2014_annotations.json` | Absolute path to the VQA annotations JSON. |
+| `inputs.outputs_dir` | `/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions` | Folder holding `vqa_v2_question_dependent_captions_train2014.json` and the other `vqa_v2_*` files to resume from. In session 2, point it at the previous notebook's output. |
 | `run.hours` | `9.0` | Hours before Ctrl+C. Setup (about 10 min) and the final save must also fit in Kaggle's session limit. |
 | `run.shutdown_grace_min` | `30` | Minutes to wait for the final save before killing the process. |
 | `generate.split` | `train` | `train` or `val`. Also sets the captions file name. |
@@ -103,7 +102,7 @@ There are two ways to change a setting:
   ```
   %%writefile /tmp/override.json
   {"run": {"hours": 8.5},
-   "inputs": {"questions": "/kaggle/input/vqa-v2/v2_OpenEnded_mscoco_train2014_questions.json"}}
+   "inputs": {"outputs_dir": "/kaggle/input/<previous-run>/src/QuestionDependentCaptionGenerator/outputs"}}
   ```
   ```
   !python -u /tmp/repo/QuestionDependentCaptionGenerator/kaggle/kaggle_runner.py --config /tmp/override.json
@@ -111,34 +110,47 @@ There are two ways to change a setting:
 
 ## Input paths
 
-`inputs.questions` and `inputs.annotations` can each be set in two ways:
-
-- **A bare file name** (the default). The script searches for that name at
-  any depth under `/kaggle/input`. Just attach any Kaggle dataset that has
-  the file, for example a public VQA v2 dataset already on Kaggle.
-- **An absolute path**, for example
-  `/kaggle/input/vqa-v2/v2_mscoco_train2014_annotations.json`. Use this when
-  the dataset uses a different file name, or has several copies. The script
-  stops with an error if the path doesn't exist.
-
-To find the exact paths of an attached dataset, run this in a cell:
+All three `inputs` paths are absolute and are used exactly as written. To see
+the real paths of the inputs attached to a notebook, run this in a cell:
 
 ```
-!find /kaggle/input -name "*.json" | head -50
+!find /kaggle/input -name "*.json*" | head -50
 ```
+
+## How resuming works
+
+`/kaggle/input` is **read-only**, so nothing is ever written back to your
+dataset:
+
+```
+/kaggle/input/.../questiondependentcaptions/     (read-only, your upload)
+        │  copy vqa_v2_* files at the start of the run
+        ▼
+/kaggle/working/src/QuestionDependentCaptionGenerator/outputs/   (writable)
+        │  generate.py resumes from this copy and saves its checkpoints here
+        ▼
+notebook output of this version  (Kaggle keeps /kaggle/working)
+        │  attach it as input to the next session
+        ▼
+next session: inputs.outputs_dir = that output's outputs/ folder
+```
+
+So each session reads the previous session's result and writes a new one.
+Your original dataset is never changed and stays as a backup.
 
 ## One-time setup
 
 1. **Code:** the repo is public, so you don't upload any code. The notebook
    clones it and checks out `feat/kaggle-runner`. Push any code or config
    change to that branch before you start a run.
-2. **VQA JSONs:** attach the Kaggle dataset that already has
-   `v2_OpenEnded_mscoco_train2014_questions.json` and
-   `v2_mscoco_train2014_annotations.json`. If its file names are different,
-   set their absolute paths in the config.
-3. **Your outputs:** create a private Kaggle Dataset (for example
-   `vqa-caption-gen`) and upload the 5 files from
-   `QuestionDependentCaptionGenerator/outputs/`, flat, with no zip:
+2. **VQA JSONs:** the config expects them in your dataset
+   `mahdirouzmeh/questiondependentcaptions`. If they're in a different
+   dataset, put their absolute paths in `inputs.questions` /
+   `inputs.annotations`.
+3. **Your outputs:** the private dataset
+   `mahdirouzmeh/questiondependentcaptions` holds the 5 files from
+   `QuestionDependentCaptionGenerator/outputs/`. Upload them as one zip,
+   `caption_outputs.zip` (22 MB instead of 291 MB); Kaggle unzips it:
 
    ```
    vqa_v2_question_dependent_captions_train2014.json
@@ -156,7 +168,8 @@ To find the exact paths of an attached dataset, run this in a cell:
 
 1. Create a new notebook.
 2. Right sidebar: **Accelerator → GPU T4 x2**, **Internet → On**.
-3. **Add Input →** the VQA dataset and your outputs dataset.
+3. **Add Input →** `mahdirouzmeh/questiondependentcaptions` (plus the VQA
+   dataset if it's a separate one).
 4. First run a **dry run** interactively. It checks every path in a few
    seconds, without Ollama:
 
@@ -167,6 +180,8 @@ To find the exact paths of an attached dataset, run this in a cell:
    ```
 
    Check the printed `Questions:`, `Annotations:` and `Resuming from:` lines.
+   `Resuming from:` should show about 100947 `needs_llm`. If a path is
+   wrong, the error names it; fix it in the config (or with `--config`).
 5. Remove `--dry-run` from the last line. The repo goes to `/tmp`, not
    `/kaggle/working`, so it isn't saved as notebook output.
 6. Optional: run the cell for about 10 minutes to check that Ollama starts
@@ -179,11 +194,29 @@ To find the exact paths of an attached dataset, run this in a cell:
 ## Session 2 (and any later sessions)
 
 1. Open the same notebook → **Add Input → Notebook Output →** the version
-   from session 1. Keep the other two datasets attached.
-2. **Save Version → Save & Run All (Commit)** again. The log lists every
-   copy of the outputs it found, with its `needs_llm` count, and resumes from
-   the most advanced one.
-3. Repeat until `Remaining needs_llm` is 0, or no longer goes down.
+   from session 1. Keep the other inputs attached.
+2. Find where that output is mounted:
+
+   ```
+   !find /kaggle/input -name "vqa_v2_question_dependent_captions_train2014.json"
+   ```
+
+   Use the folder that is **not** your original dataset. It ends with
+   `src/QuestionDependentCaptionGenerator/outputs`.
+3. Point `inputs.outputs_dir` at that folder with an override cell above the
+   run cell:
+
+   ```
+   %%writefile /tmp/override.json
+   {"inputs": {"outputs_dir": "<folder from step 2>"}}
+   ```
+
+   Then add `--config /tmp/override.json` to the `kaggle_runner.py` line.
+   Run with `--dry-run` once and check `Resuming from:`. Its `needs_llm`
+   count must be lower than in session 1.
+4. **Save Version → Save & Run All (Commit)**.
+5. Repeat for each session, each time pointing `outputs_dir` at the newest
+   version's output, until `Remaining needs_llm` is 0.
 
 ## Getting the results back to the PC
 

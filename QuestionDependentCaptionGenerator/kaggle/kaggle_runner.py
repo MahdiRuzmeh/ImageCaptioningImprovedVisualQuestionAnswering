@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import glob
 import json
 import os
 import shutil
@@ -84,22 +83,16 @@ def load_json(path: Path) -> Dict[str, Any]:
         return json.load(f)
 
 
-def resolve_input(value: str, search_root: str) -> Path:
-    """Absolute path -> use as is. Bare file name -> search under search_root."""
+def require_file(value: str, key: str) -> Path:
+    """Config paths are used as-is: absolute, and the file must exist."""
     p = Path(value)
-    if p.is_absolute():
-        if not p.is_file():
-            raise FileNotFoundError(f"configured path does not exist: {p}")
-        return p
-    hits = sorted(glob.glob(f"{search_root}/**/{value}", recursive=True))
-    if not hits:
+    if not p.is_absolute():
+        raise ValueError(f"{key} must be an absolute path, got {value!r}")
+    if not p.is_file():
         raise FileNotFoundError(
-            f"{value} not found under {search_root}. Attach the dataset that "
-            f"has it, or set its absolute path in {CONFIG_NAME}."
-        )
-    if len(hits) > 1:
-        print(f"  note: {value} found {len(hits)}x, using {hits[0]}", flush=True)
-    return Path(hits[0])
+            f"{key}: {p} does not exist. Check the path with "
+            f"`!ls {p.parent}` and fix it in {CONFIG_NAME} or --config.")
+    return p
 
 
 def count_needs_llm(captions_file: Path) -> int:
@@ -314,35 +307,19 @@ def main() -> None:
                     ignore=shutil.ignore_patterns("outputs", "__pycache__",
                                                   ".codegraphy"))
 
-    questions = resolve_input(inp["questions"], inp["search_root"])
-    annotations = resolve_input(inp["annotations"], inp["search_root"])
-    print(f"Questions:   {questions}\nAnnotations: {annotations}", flush=True)
-
-    # outputs candidates = folders listed in config (must exist) + if
-    # outputs_search, every other folder under search_root that holds the
-    # captions JSON (e.g. a previous notebook version attached as input)
-    candidates: List[Path] = []
-    for d in inp["outputs_dirs"]:
-        if not (Path(d) / captions_name).is_file():
-            raise FileNotFoundError(
-                f"{captions_name} not in configured outputs_dirs entry {d}")
-        candidates.append(Path(d))
-    if inp.get("outputs_search", True):
-        candidates += [Path(p).parent for p in sorted(glob.glob(
-            f"{inp['search_root']}/**/{captions_name}", recursive=True))]
-    candidates = list({str(d.resolve()): d for d in candidates}.values())
-    if not candidates:
-        raise FileNotFoundError(
-            f"{captions_name} not found: set inputs.outputs_dirs or attach it "
-            f"under {inp['search_root']}")
-    scored = sorted((count_needs_llm(d / captions_name), str(d))
-                    for d in candidates)
-    for n, d in scored:
-        print(f"  {n:>7} needs_llm  {d}", flush=True)
-    latest = Path(scored[0][1])                   # most progress wins
-    print(f"Resuming from: {latest}", flush=True)
+    questions = require_file(inp["questions"], "inputs.questions")
+    annotations = require_file(inp["annotations"], "inputs.annotations")
+    resume_dir = Path(inp["outputs_dir"])
+    resume_file = require_file(str(resume_dir / captions_name),
+                               "inputs.outputs_dir")
+    print(f"Questions:   {questions}", flush=True)
+    print(f"Annotations: {annotations}", flush=True)
+    # /kaggle/input is read-only: copy the generator files into the writable
+    # outputs/ folder; generate.py resumes from (and writes to) that copy.
+    print(f"Resuming from: {resume_dir} "
+          f"({count_needs_llm(resume_file)} needs_llm)", flush=True)
     out.mkdir(parents=True, exist_ok=True)
-    for f in latest.glob("vqa_v2_*"):              # generator files only
+    for f in resume_dir.glob("vqa_v2_*"):              # generator files only
         shutil.copy2(f, out / f.name)
 
     host = oll["host"]
