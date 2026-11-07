@@ -5,8 +5,8 @@
     "clone_dir": "/tmp/repo"
   },
   "inputs": {
-    "questions": "/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/v2_OpenEnded_mscoco_train2014_questions.json",
-    "annotations": "/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/v2_mscoco_train2014_annotations.json",
+    "questions": "/kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Questions/v2_OpenEnded_mscoco_train2014_questions.json",
+    "annotations": "/kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Annotations/v2_mscoco_train2014_annotations.json",
     "outputs_dir": "/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions"
   },
   "run": {
