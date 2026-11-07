@@ -3,17 +3,17 @@
 Paste this whole file into ONE Kaggle notebook cell (GPU T4 x2, Internet ON) and
 use "Save Version -> Save & Run All (Commit)". The run:
 
-  1. builds the normal folder layout under /kaggle/working/src
-     (QuestionDependentCaptionGenerator/ + dataset/), so generate.py resumes
-     exactly as on the PC;
+  1. clones the code from GitHub and builds the normal folder layout under
+     /kaggle/working/src (QuestionDependentCaptionGenerator/ + dataset/), so
+     generate.py resumes exactly as on the PC;
   2. installs Ollama, starts it, pulls the same model;
   3. runs generate.py --llm and sends Ctrl+C (SIGINT) after RUN_HOURS, which
      makes generate.py write its checkpoint and exit;
   4. leaves only the outputs/ folder in /kaggle/working -> notebook output.
 
 Inputs (Add Input in the notebook sidebar):
-  - a Kaggle Dataset with the code folder + VQA question/annotation JSONs
-    + the outputs/ folder from the PC (first run);
+  - a Kaggle Dataset with the VQA question/annotation JSONs + the files of
+    the outputs/ folder from the PC (first run; code comes from git);
   - for the next run: ALSO add this notebook's previous version output.
     The outputs/ copy with the fewest needs_llm rows wins automatically.
 """
@@ -31,6 +31,9 @@ import urllib.request
 from pathlib import Path
 
 # ---------------------------------------------------------------- settings
+REPO_URL = ("https://github.com/MahdiRuzmeh/"
+            "ImageCaptioningImprovedVisualQuestionAnswering.git")
+REPO_BRANCH = "master"     # code is cloned from here (public repo)
 RUN_HOURS = 9.0            # send Ctrl+C after this many hours of generation
 SHUTDOWN_GRACE_MIN = 30    # wait this long for the final checkpoint write
 MODEL = "qwen2.5:3b-instruct-q4_K_M"   # keep identical to the PC run
@@ -63,9 +66,12 @@ def find_one(pattern: str) -> Path:
 
 
 # ------------------------------------------------------------- 1. layout
-code_src = find_one("QuestionDependentCaptionGenerator/generate.py").parent
-shutil.copytree(code_src, GEN, dirs_exist_ok=True,
-                ignore=shutil.ignore_patterns("outputs", "__pycache__"))
+REPO_DIR = Path("/tmp/repo")                  # outside /kaggle/working
+if not REPO_DIR.exists():
+    sh(f"git clone --depth 1 --branch {REPO_BRANCH} {REPO_URL} {REPO_DIR}")
+shutil.copytree(REPO_DIR / "QuestionDependentCaptionGenerator", GEN,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns("outputs", "__pycache__", ".codegraphy"))
 
 DATA.mkdir(parents=True, exist_ok=True)
 for name in (QUESTIONS, ANNOTATIONS):        # read-only is fine -> symlink
@@ -73,11 +79,12 @@ for name in (QUESTIONS, ANNOTATIONS):        # read-only is fine -> symlink
     if not link.exists():
         link.symlink_to(find_one(name))
 
-# newest outputs/ folder (previous notebook version beats the original upload)
+# every folder holding the captions JSON is a candidate (original upload,
+# previous notebook versions); the one with the fewest needs_llm rows wins
 candidates = [Path(p).parent for p in
-              glob.glob(f"/kaggle/input/**/outputs/{CAPTIONS}", recursive=True)]
+              glob.glob(f"/kaggle/input/**/{CAPTIONS}", recursive=True)]
 if not candidates:
-    raise FileNotFoundError(f"outputs/{CAPTIONS} not found under /kaggle/input")
+    raise FileNotFoundError(f"{CAPTIONS} not found under /kaggle/input")
 
 def remaining(d: Path) -> int:
     import json
@@ -91,7 +98,9 @@ for n, d in scored:
     print(f"  {n:>7} needs_llm  {d}", flush=True)
 latest = Path(scored[0][1])                   # most progress wins
 print(f"Resuming from: {latest}", flush=True)
-shutil.copytree(latest, OUT, dirs_exist_ok=True)
+OUT.mkdir(parents=True, exist_ok=True)
+for f in latest.glob("vqa_v2_*"):              # generator files only
+    shutil.copy2(f, OUT / f.name)
 
 # ------------------------------------------------------------- 2. ollama
 if shutil.which("ollama") is None:

@@ -10,11 +10,13 @@ As of 2026-11-07: 406,573 rows in total, 237,259 `llm_fallback` done,
 
 ## What the script does
 
-1. Rebuilds the local folder layout under `/kaggle/working/src`
+1. Clones the code from GitHub (`REPO_URL`, branch `REPO_BRANCH` =
+   `master`) and rebuilds the local folder layout under `/kaggle/working/src`
    (`QuestionDependentCaptionGenerator/` and `dataset/`), so `generate.py`
    resumes from `outputs/` exactly as it does on the PC.
-2. If several `outputs/` folders are attached as inputs, it resumes from the
-   one with the **fewest `needs_llm` rows**.
+2. If several copies of the outputs are attached as inputs (your upload and
+   earlier notebook versions), it resumes from the one with the **fewest
+   `needs_llm` rows**. Only the `vqa_v2_*` files are copied into `outputs/`.
 3. Installs Ollama, starts it (`OLLAMA_NUM_PARALLEL=8`, spread across both
    T4s), and pulls `qwen2.5:3b-instruct-q4_K_M`.
 4. Runs `generate.py --split train --llm --batch-size 5 --llm-parallel 8
@@ -27,29 +29,28 @@ As of 2026-11-07: 406,573 rows in total, 237,259 `llm_fallback` done,
 
 ## One-time setup
 
-1. **Make a Kaggle Dataset** (keep it private), for example
-   `vqa-caption-gen`, with this content:
+1. **The code comes from git.** The repo is public, so you don't upload
+   any code. Just make sure any code changes you want are **pushed** to the
+   branch named in `REPO_BRANCH` (default `master`) before you start a run.
+
+2. **Make a Kaggle Dataset** (keep it private), for example
+   `vqa-caption-gen`, with only the files that are gitignored. You can
+   upload them all flat into the dataset, with no folders and no zip:
 
    ```
-   QuestionDependentCaptionGenerator/     # this code folder, including outputs/
-     generate.py, llm_client.py, ...
-     validation/
-     outputs/
-       vqa_v2_question_dependent_captions_train2014.json
-       vqa_v2_question_classification_result.json
-       vqa_v2_question_dependent_captions_train2014_not_directly_visual.json
-       vqa_v2_question_dependent_captions_train2014_validation_audit.jsonl
-       vqa_v2_question_dependent_captions_train2014.json.llm_failures
-   v2_OpenEnded_mscoco_train2014_questions.json   # from src/dataset/
-   v2_mscoco_train2014_annotations.json           # from src/dataset/
+   # from QuestionDependentCaptionGenerator/outputs/
+   vqa_v2_question_dependent_captions_train2014.json
+   vqa_v2_question_classification_result.json
+   vqa_v2_question_dependent_captions_train2014_not_directly_visual.json
+   vqa_v2_question_dependent_captions_train2014_validation_audit.jsonl
+   vqa_v2_question_dependent_captions_train2014.json.llm_failures
+   # from src/dataset/
+   v2_OpenEnded_mscoco_train2014_questions.json
+   v2_mscoco_train2014_annotations.json
    ```
 
-   Zip the `QuestionDependentCaptionGenerator` folder and upload it together
-   with the two JSONs; Kaggle unzips it. You can leave out `__pycache__/` and
-   `.codegraphy/`.
-
-2. **Verify your phone number** in Kaggle account settings. Without it you
-   can't turn Internet on, and the script needs Internet to install Ollama.
+3. **Verify your phone number** in Kaggle account settings. Without it you
+   can't turn Internet on, and the script needs Internet to clone the repo and install Ollama.
 
 ## Session 1
 
@@ -69,7 +70,7 @@ As of 2026-11-07: 406,573 rows in total, 237,259 `llm_fallback` done,
 
 1. Open the same notebook → **Add Input → Notebook Output →** the version
    from session 1. Keep the original dataset attached as well (it has the
-   code and the VQA JSONs).
+   VQA JSONs).
 2. **Save Version → Save & Run All (Commit)** again.
    The script lists every `outputs/` it finds and resumes from the most
    advanced one.
