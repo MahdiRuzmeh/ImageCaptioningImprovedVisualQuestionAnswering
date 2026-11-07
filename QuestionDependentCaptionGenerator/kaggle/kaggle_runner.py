@@ -1,7 +1,14 @@
 """Kaggle runner: resume LLM caption generation with Ollama, stop cleanly before the time limit.
 
-Paste this whole file into ONE Kaggle notebook cell (GPU T4 x2, Internet ON) and
-use "Save Version -> Save & Run All (Commit)". The run:
+Kaggle notebook (GPU T4 x2, Internet ON), one cell, then
+"Save Version -> Save & Run All (Commit)":
+
+    !git clone https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git /tmp/repo
+    !git -C /tmp/repo checkout feat/kaggle-runner
+    !python -u /tmp/repo/QuestionDependentCaptionGenerator/kaggle/kaggle_runner.py
+
+(Pasting this whole file into a cell also works; it then clones by itself.)
+The run:
 
   1. clones the code from GitHub and builds the normal folder layout under
      /kaggle/working/src (QuestionDependentCaptionGenerator/ + dataset/), so
@@ -33,7 +40,7 @@ from pathlib import Path
 # ---------------------------------------------------------------- settings
 REPO_URL = ("https://github.com/MahdiRuzmeh/"
             "ImageCaptioningImprovedVisualQuestionAnswering.git")
-REPO_BRANCH = "master"     # code is cloned from here (public repo)
+REPO_BRANCH = "feat/kaggle-runner"   # branch checked out after cloning
 RUN_HOURS = 9.0            # send Ctrl+C after this many hours of generation
 SHUTDOWN_GRACE_MIN = 30    # wait this long for the final checkpoint write
 MODEL = "qwen2.5:3b-instruct-q4_K_M"   # keep identical to the PC run
@@ -66,9 +73,18 @@ def find_one(pattern: str) -> Path:
 
 
 # ------------------------------------------------------------- 1. layout
-REPO_DIR = Path("/tmp/repo")                  # outside /kaggle/working
-if not REPO_DIR.exists():
-    sh(f"git clone --depth 1 --branch {REPO_BRANCH} {REPO_URL} {REPO_DIR}")
+# Normal use: the notebook cloned the repo, checked out REPO_BRANCH, and runs
+# this file from inside that checkout -> use it. If the file was pasted into
+# a cell instead (no __file__), clone + checkout here.
+_here = Path(globals().get("__file__", "")).resolve()
+if "__file__" in globals() and (_here.parents[2] / "QuestionDependentCaptionGenerator").is_dir():
+    REPO_DIR = _here.parents[2]
+else:
+    REPO_DIR = Path("/tmp/repo")              # outside /kaggle/working
+    if not REPO_DIR.exists():
+        sh(f"git clone {REPO_URL} {REPO_DIR}")
+    sh(f"git -C {REPO_DIR} checkout {REPO_BRANCH}")
+sh(f"git -C {REPO_DIR} log --oneline -1")     # which commit is running
 shutil.copytree(REPO_DIR / "QuestionDependentCaptionGenerator", GEN,
                 dirs_exist_ok=True,
                 ignore=shutil.ignore_patterns("outputs", "__pycache__", ".codegraphy"))

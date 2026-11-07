@@ -10,8 +10,9 @@ As of 2026-11-07: 406,573 rows in total, 237,259 `llm_fallback` done,
 
 ## What the script does
 
-1. Clones the code from GitHub (`REPO_URL`, branch `REPO_BRANCH` =
-   `master`) and rebuilds the local folder layout under `/kaggle/working/src`
+1. Uses the repo you cloned to `/tmp/repo` and checked out at
+   `feat/kaggle-runner`, and rebuilds the local folder layout under
+   `/kaggle/working/src`
    (`QuestionDependentCaptionGenerator/` and `dataset/`), so `generate.py`
    resumes from `outputs/` exactly as it does on the PC.
 2. If several copies of the outputs are attached as inputs (your upload and
@@ -30,8 +31,9 @@ As of 2026-11-07: 406,573 rows in total, 237,259 `llm_fallback` done,
 ## One-time setup
 
 1. **The code comes from git.** The repo is public, so you don't upload
-   any code. Just make sure any code changes you want are **pushed** to the
-   branch named in `REPO_BRANCH` (default `master`) before you start a run.
+   any code. The notebook clones the repo and checks out
+   `feat/kaggle-runner`. Make sure any code changes you want are **pushed**
+   to that branch before you start a run.
 
 2. **Make a Kaggle Dataset** (keep it private), for example
    `vqa-caption-gen`, with only the files that are gitignored. You can
@@ -57,7 +59,16 @@ As of 2026-11-07: 406,573 rows in total, 237,259 `llm_fallback` done,
 1. Create a new notebook.
 2. Right sidebar: **Accelerator → GPU T4 x2**, **Internet → On**.
 3. **Add Input →** your dataset.
-4. Paste the whole of `kaggle_runner.py` into one code cell.
+4. Put these three lines into one code cell:
+
+   ```
+   !git clone https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git /tmp/repo
+   !git -C /tmp/repo checkout feat/kaggle-runner
+   !python -u /tmp/repo/QuestionDependentCaptionGenerator/kaggle/kaggle_runner.py
+   ```
+
+   The repo goes to `/tmp`, not `/kaggle/working`, so it isn't saved as
+   notebook output.
 5. Optional: run the cell interactively for about 10 minutes to check that
    Ollama starts and the first batches finish. Then stop it with the
    **Interrupt** button.
