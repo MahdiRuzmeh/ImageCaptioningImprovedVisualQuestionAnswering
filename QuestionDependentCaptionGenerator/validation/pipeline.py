@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -24,6 +26,7 @@ class ValidationStats:
     fast_no_hard_error_found_count: int = 0
     llm_pass_count: int = 0
     llm_suspicious_count: int = 0
+    llm_already_judged_count: int = 0
 
     def to_dict(self) -> Dict[str, int]:
         return {
@@ -31,6 +34,7 @@ class ValidationStats:
             "fast_no_hard_error_found_count": self.fast_no_hard_error_found_count,
             "llm_pass_count": self.llm_pass_count,
             "llm_suspicious_count": self.llm_suspicious_count,
+            "llm_already_judged_count": self.llm_already_judged_count,
         }
 
 
@@ -150,6 +154,68 @@ def validate_single_row(
     )
 
 
+def _judge_parallel(
+    client: Any,
+    rows: List[Dict[str, Any]],
+    indices: Sequence[int],
+    *,
+    config: ValidationConfig,
+    parallel: int = 1,
+    progress_every: int = 0,
+) -> Dict[int, bool]:
+    """LLM-judge ``rows[indices]`` in packed batches, ``parallel`` at a time.
+
+    Returns ``{row_index: passed}``. Rows missing from a judge response count
+    as not passed (SUSPICIOUS), as before.
+    """
+    batch_size = max(1, int(config.llm_batch_size))
+    chunks = [
+        list(indices[start : start + batch_size])
+        for start in range(0, len(indices), batch_size)
+    ]
+
+    def _run(chunk: List[int]) -> List[Tuple[int, bool]]:
+        items = [
+            JudgeItem(
+                index=pos,
+                question=str(rows[pos].get("question") or ""),
+                answer=str(rows[pos].get("answer") or ""),
+                caption=str(rows[pos].get("caption") or ""),
+            )
+            for pos in chunk
+        ]
+        return [
+            (jr.index, jr.verdict == LlmVerdict.PASS)
+            for jr in llm_validate_batch(client, items, config=config)
+        ]
+
+    total = len(chunks)
+    if progress_every > 0:
+        print(
+            f"Final validation: LLM judge on {len(indices)} captions in "
+            f"{total} batches (parallel={max(1, parallel)})",
+            flush=True,
+        )
+    started = time.time()
+    llm_pass: Dict[int, bool] = {}
+    with ThreadPoolExecutor(max_workers=max(1, parallel)) as pool:
+        futures = [pool.submit(_run, chunk) for chunk in chunks]
+        for done, fut in enumerate(as_completed(futures), start=1):
+            for idx, ok in fut.result():
+                llm_pass[idx] = ok
+            if progress_every > 0 and (done % progress_every == 0 or done == total):
+                elapsed = time.time() - started
+                rate = done * batch_size / elapsed if elapsed > 0 else 0.0
+                eta = (total - done) * elapsed / done if done else 0.0
+                print(
+                    f"  judge batch {done}/{total} done "
+                    f"(elapsed {elapsed:.0f}s, {rate:.2f} captions/s, "
+                    f"ETA {eta / 60:.1f} min)",
+                    flush=True,
+                )
+    return llm_pass
+
+
 def validate_rows(
     rows: List[Dict[str, Any]],
     *,
@@ -157,8 +223,14 @@ def validate_rows(
     client: Any = None,
     use_llm: bool = True,
     log_writer: Optional[ValidationLogWriter] = None,
+    parallel: int = 1,
+    progress_every: int = 0,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], ValidationStats]:
     """Run validation on all rows; batch LLM judge for NO_HARD_ERROR_FOUND.
+
+    Every row gets the fast validator. The LLM judge runs only on rows that
+    have no ``caption_status`` yet: rows that already have one were judged
+    while they were generated, so their verdict is reused.
 
     Args:
         rows: Annotation dicts with question, answer, caption, rule, ids.
@@ -166,6 +238,8 @@ def validate_rows(
         client: Ollama client for LLM judge (required when ``use_llm``).
         use_llm: When False, NO_HARD_ERROR_FOUND rows are kept as SUSPICIOUS.
         log_writer: Optional JSONL writer; one record per row.
+        parallel: Judge requests sent to Ollama at the same time.
+        progress_every: Print a progress line every N judge batches (0 = off).
 
     Returns:
         (kept_rows, failed_row_dicts, stats)
@@ -180,6 +254,9 @@ def validate_rows(
 
     fast_results: List[FastResult] = []
     unknown_indices: List[int] = []
+    # Rows the LLM judge already saw during generation (they carry a
+    # caption_status). Their verdict is reused instead of judging them again.
+    prejudged: Dict[int, bool] = {}
 
     for i, row in enumerate(rows):
         question = str(row.get("question") or "")
@@ -189,26 +266,25 @@ def validate_rows(
         fast_results.append(fast)
         if fast.verdict == FastVerdict.FAIL:
             stats.fast_fail_count += 1
+            continue
+        stats.fast_no_hard_error_found_count += 1
+        status = row.get("caption_status")
+        if status in (CAPTION_STATUS_READY, CAPTION_STATUS_MANUAL):
+            prejudged[i] = status == CAPTION_STATUS_READY
+            stats.llm_already_judged_count += 1
         else:
-            stats.fast_no_hard_error_found_count += 1
             unknown_indices.append(i)
 
     llm_pass: Dict[int, bool] = {}
     if use_llm and client is not None and unknown_indices:
-        batch_size = cfg.llm_batch_size
-        for start in range(0, len(unknown_indices), batch_size):
-            chunk_idx = unknown_indices[start : start + batch_size]
-            items = [
-                JudgeItem(
-                    index=pos,
-                    question=str(rows[pos]["question"]),
-                    answer=str(rows[pos]["answer"]),
-                    caption=str(rows[pos]["caption"]),
-                )
-                for pos in chunk_idx
-            ]
-            for jr in llm_validate_batch(client, items, config=cfg):
-                llm_pass[jr.index] = jr.verdict == LlmVerdict.PASS
+        llm_pass = _judge_parallel(
+            client,
+            rows,
+            unknown_indices,
+            config=cfg,
+            parallel=parallel,
+            progress_every=progress_every,
+        )
 
     for i, row in enumerate(rows):
         fast = fast_results[i]
@@ -242,25 +318,38 @@ def validate_rows(
                 log_writer.write(trace)
             continue
 
-        passed = (
-            llm_pass.get(i, False) if use_llm and client is not None else False
-        )
+        judged_before = i in prejudged
+        if judged_before:
+            passed = prejudged[i]
+            row_flags = sorted(
+                set(fast.flags) | set(row.get("validation_flags") or [])
+            )
+            if passed:
+                row_flags = [f for f in row_flags if f != FLAG_SUSPICIOUS]
+        else:
+            passed = (
+                llm_pass.get(i, False) if use_llm and client is not None else False
+            )
+            row_flags = sorted(fast.flags)
         if passed:
             stats.llm_pass_count += 1
             trace.llm_verdict = "PASS"
             trace.final_verdict = "PASS"
+            trace.validation_flags = list(row_flags)
             out_row = dict(row)
             out_row["caption_status"] = CAPTION_STATUS_READY
-            if fast.flags:
-                out_row["validation_flags"] = sorted(fast.flags)
+            if row_flags:
+                out_row["validation_flags"] = row_flags
             else:
                 out_row.pop("validation_flags", None)
             kept.append(out_row)
         else:
             stats.llm_suspicious_count += 1
-            flags = _with_suspicious_flag(fast.flags)
+            flags = _with_suspicious_flag(row_flags)
             trace.llm_verdict = (
-                "SUSPICIOUS" if use_llm and client is not None else None
+                "SUSPICIOUS"
+                if judged_before or (use_llm and client is not None)
+                else None
             )
             trace.final_verdict = "SUSPICIOUS"
             trace.validation_flags = flags

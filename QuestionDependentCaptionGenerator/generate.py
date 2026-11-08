@@ -972,8 +972,13 @@ def final_validation_pass(
     config: Optional[ValidationConfig] = None,
     log_writer: Optional[ValidationLogWriter] = None,
     use_llm: bool = True,
+    parallel: int = 1,
 ) -> Tuple[List[Dict[str, Any]], int, int, List[Dict[str, Any]], ValidationStats]:
     """Validate every caption once more via fast + batched LLM judge.
+
+    Every caption gets the fast validator. Only captions without a
+    ``caption_status`` (rule-based ones) go to the LLM judge; LLM captions
+    were already judged when they were generated.
 
     Returns:
         (kept_rows, dropped_count, flagged_count, failed_rows, stats)
@@ -985,6 +990,13 @@ def final_validation_pass(
         client=client,
         use_llm=use_llm and client is not None,
         log_writer=log_writer,
+        parallel=parallel,
+        progress_every=50,
+    )
+    print(
+        f"Final validation: fast-checked {len(rows)} captions; reused the "
+        f"generation-time LLM verdict for {stats.llm_already_judged_count}.",
+        flush=True,
     )
     flagged = sum(1 for r in kept if r.get("validation_flags"))
     return kept, len(failed), flagged, failed, stats
@@ -1688,6 +1700,7 @@ def main() -> None:
             config=validation_config,
             log_writer=val_log,
             use_llm=args.llm,
+            parallel=args.llm_parallel,
         )
     )
     val_log.close()
