@@ -237,3 +237,66 @@ Your original dataset is never changed and stays as a backup.
   `checkpoint_every` batches old) is still in `outputs/`.
 - **If the run fails:** read the cell log and the `ollama_gpu*.log` files in
   the output.
+
+## Re-checking the question classifier (`kaggle_reclassify_runner.py`)
+
+The first classification run kept every non-blacklisted question as
+`DIRECTLY_VISUAL`: Ollama couldn't be reached, so every LLM call failed and
+was counted as `PARSE_FAIL_KEEP` (406,573 of 406,573). The
+[`reclassify_captions.py`](../reclassify_captions.py) script asks the LLM again for every
+row of the finished captions file. It uses the same prompt and few-shots
+(`question_classifier.py`, prompt `v20`):
+
+- `DIRECTLY_VISUAL` rows stay in `vqa_v2_question_dependent_captions_train2014.json`
+  (captions unchanged).
+- `NOT_DIRECTLY_VISUAL` rows are removed and written to
+  `vqa_v2_question_dependent_captions_train2014_not_directly_visual_reclassified.json`
+  with their reason (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION`).
+- `vqa_v2_question_classification_result.json` is updated the same way.
+  This is needed: `generate.py` only resumes when the captions row count
+  matches that file's `post_filter_count`. Otherwise it rebuilds every row.
+
+A failed request is never counted as a label this time. Connection, HTTP
+and timeout errors are retried 3 times, and a row that still fails stays
+unclassified for the next run. The script checks Ollama before it starts and
+stops after 5 batches in a row with no reply.
+
+Settings are in [`kaggle_reclassify_config.json`](kaggle_reclassify_config.json): 2 GPUs
+(`"gpus": "auto"`), `llm_parallel` 8 (4 per GPU), `batch_size` 10, model
+`qwen2.5:3b-instruct-q4_K_M`, `run.hours` 9.
+
+`batch_size` is the number of questions saved to the progress file at once.
+Each question is its own Ollama request, as in the first run. A window of
+16 requests stays in flight, so both GPUs stay busy between batches.
+
+**Session 1.** Upload the finished
+`vqa_v2_question_dependent_captions_train2014.json` and
+`vqa_v2_question_classification_result.json` to the dataset, and check the two
+`inputs` paths. Then:
+
+```
+!git clone https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git /tmp/repo
+!git -C /tmp/repo checkout feat/kaggle-runner
+!python -u /tmp/repo/QuestionDependentCaptionGenerator/kaggle/kaggle_reclassify_runner.py --dry-run
+```
+
+Remove `--dry-run` and use **Save & Run All (Commit)**. Output goes to
+`/kaggle/working/outputs/`.
+
+**If it isn't finished** (the log ends with `NOT finished`), attach that
+version's output and continue from its progress file:
+
+```
+%%writefile /tmp/override.json
+{"inputs": {"resume_dir": "/kaggle/input/<previous-run>/outputs"}}
+```
+
+Then add `--config /tmp/override.json` to the runner line. The final files are
+written only when every row is classified (`DONE` in the log). Copy the three
+JSONs into the local `outputs/` folder (back it up first).
+
+To run it on the PC instead:
+
+```
+python reclassify_captions.py --input outputs/vqa_v2_question_dependent_captions_train2014.json --classification-result outputs/vqa_v2_question_classification_result.json --output-dir outputs_reclassified --llm-parallel 4 --batch-size 10
+```

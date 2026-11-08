@@ -1,0 +1,30 @@
+{
+  "inputs": {
+    "captions": "/kaggle/input/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014.json",
+    "classification_result": "/kaggle/input/questiondependentcaptions/vqa_v2_question_classification_result.json",
+    "resume_dir": null
+  },
+  "run": {
+    "hours": 9.0,
+    "shutdown_grace_min": 10
+  },
+  "reclassify": {
+    "model": "qwen2.5:3b-instruct-q4_K_M",
+    "llm_parallel": 8,
+    "batch_size": 10,
+    "timeout_s": 180,
+    "retries": 3,
+    "extra_args": []
+  },
+  "ollama": {
+    "host": "http://127.0.0.1:11434",
+    "gpus": "auto",
+    "base_port": 11435,
+    "num_parallel": null,
+    "keep_alive": "-1"
+  },
+  "paths": {
+    "output_dir": "/kaggle/working/outputs",
+    "log_dir": "/kaggle/working"
+  }
+}
