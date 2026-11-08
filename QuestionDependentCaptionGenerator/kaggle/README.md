@@ -263,7 +263,12 @@ stops after 5 batches in a row with no reply.
 
 Settings are in [`kaggle_reclassify_config.json`](kaggle_reclassify_config.json): 2 GPUs
 (`"gpus": "auto"`), `llm_parallel` 8 (4 per GPU), `batch_size` 10, model
-`qwen2.5:3b-instruct-q4_K_M`, `run.hours` 9.
+`qwen2.5:3b-instruct-q4_K_M`, `run.hours` 11.
+
+`run.hours` counts from when the runner starts, so the Ollama install and
+model load (about 10 minutes) are included. At 11 h it sends Ctrl+C, the
+script finishes the requests in flight and exits, and about 50 minutes are
+left before Kaggle's 12-hour limit.
 
 `batch_size` is the number of questions saved to the progress file at once.
 Each question is its own Ollama request, as in the first run. A window of

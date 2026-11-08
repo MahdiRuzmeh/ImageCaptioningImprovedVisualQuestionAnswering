@@ -16,8 +16,10 @@ The run:
      progress file (inputs.resume_dir, optional) into the writable output dir;
   2. starts ONE `ollama serve` PER GPU behind a load-balancing proxy (same
      code as kaggle_runner.py), pulls + loads the model on each GPU;
-  3. runs reclassify_captions.py and sends Ctrl+C after run.hours; progress
-     is saved after every batch, so the next session continues from it;
+  3. runs reclassify_captions.py and sends Ctrl+C when run.hours (default
+     11, Kaggle's limit is 12) have passed since the runner STARTED, setup
+     included; progress is saved after every batch, so the next session
+     continues from it;
   4. when every row is classified, the output dir holds the new captions
      JSON (DIRECTLY_VISUAL only), the *_not_directly_visual_reclassified.json
      file and the updated classification result.
@@ -119,13 +121,19 @@ def main() -> None:
     print(f"Proxy {oll['host']} -> {len(backends)} Ollama server(s)", flush=True)
 
     # ------------------------------------------------------------ classify
+    # Deadline counts from when this runner started (T0), so the Ollama
+    # install / model load is inside run.hours too. Kaggle kills the session
+    # at 12 h; 11 h leaves time for the graceful stop and saving the output.
+    deadline = T0 + float(run["hours"]) * 3600
+    left_h = (deadline - time.time()) / 3600
+    print(f"Graceful stop at {run['hours']} h after start "
+          f"({left_h:.2f} h of classification left).", flush=True)
     proc = subprocess.Popen(cmd, cwd=GEN_DIR)
-    deadline = time.time() + float(run["hours"]) * 3600
     while proc.poll() is None and time.time() < deadline:
-        time.sleep(30)
+        time.sleep(min(30, max(1, deadline - time.time())))
     if proc.poll() is None:
-        print(f"\n{run['hours']}h reached -> Ctrl+C (progress is saved per "
-              f"batch)...", flush=True)
+        print(f"\n{run['hours']}h since start reached -> Ctrl+C (progress is "
+              f"saved per batch)...", flush=True)
         proc.send_signal(signal.SIGINT)
         try:
             proc.wait(timeout=float(run["shutdown_grace_min"]) * 60)
