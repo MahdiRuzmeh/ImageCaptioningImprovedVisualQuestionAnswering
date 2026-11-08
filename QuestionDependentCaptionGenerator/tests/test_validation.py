@@ -385,6 +385,80 @@ class TestLlmJudgeParse(unittest.TestCase):
         self.assertEqual(stats.llm_suspicious_count, 1)
 
 
+class TestFinalPassReusesVerdicts(unittest.TestCase):
+    """Final pass: LLM judge only for rows without a caption_status."""
+
+    def _rows(self):
+        def row(qid, rule, status=None, flags=None):
+            r = {
+                "question_id": qid,
+                "image_id": qid,
+                "question": "What color are the dishes?",
+                "answer": "pink",
+                "caption": "The dishes are pink.",
+                "rule": rule,
+            }
+            if status:
+                r["caption_status"] = status
+            if flags:
+                r["validation_flags"] = flags
+            return r
+
+        return [
+            row(1, "llm_fallback", "Ready to Use"),
+            row(2, "llm_fallback", "Need to Manual validate", ["suspicious"]),
+            row(3, "what_color"),
+            row(4, "what_color"),
+            row(5, "what_color"),
+        ]
+
+    def test_only_unjudged_rows_reach_llm(self) -> None:
+        from unittest import mock
+
+        judged: list = []
+
+        def fake_judge(client, items, config=None):
+            judged.extend(item.index for item in items)
+            return [
+                mock.Mock(index=item.index, verdict=LlmVerdict.PASS)
+                for item in items
+            ]
+
+        with mock.patch("validation.pipeline.llm_validate_batch", fake_judge):
+            kept, failed, stats = validate_rows(
+                self._rows(), client=object(), use_llm=True, parallel=3
+            )
+
+        self.assertEqual(sorted(judged), [2, 3, 4])  # row positions 2..4
+        self.assertEqual(failed, [])
+        self.assertEqual(stats.llm_already_judged_count, 2)
+        status = {r["question_id"]: r["caption_status"] for r in kept}
+        self.assertEqual(status[1], "Ready to Use")
+        self.assertEqual(status[2], "Need to Manual validate")
+        self.assertEqual(status[3], "Ready to Use")
+        self.assertIn("suspicious", kept[1]["validation_flags"])
+        self.assertEqual(stats.llm_pass_count, 4)
+        self.assertEqual(stats.llm_suspicious_count, 1)
+
+    def test_parallel_matches_sequential(self) -> None:
+        from unittest import mock
+
+        def fake_judge(client, items, config=None):
+            return [
+                mock.Mock(
+                    index=item.index,
+                    verdict=LlmVerdict.PASS if item.index % 2 else LlmVerdict.SUSPICIOUS,
+                )
+                for item in items
+            ]
+
+        rows = [dict(r, question_id=i) for i, r in enumerate(self._rows()[2:] * 20)]
+        with mock.patch("validation.pipeline.llm_validate_batch", fake_judge):
+            seq, _, _ = validate_rows(rows, client=object(), parallel=1)
+            par, _, _ = validate_rows(rows, client=object(), parallel=8)
+        self.assertEqual(seq, par)
+
+
 class TestValidationLog(unittest.TestCase):
     """Validation log schema."""
 
