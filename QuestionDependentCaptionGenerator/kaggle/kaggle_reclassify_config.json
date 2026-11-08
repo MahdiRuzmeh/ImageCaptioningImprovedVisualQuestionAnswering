@@ -1,6 +1,6 @@
 {
   "inputs": {
-    "captions": "/kaggle/input/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014.json",
+    "captions": "/kaggle/input/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014/vqa_v2_question_dependent_captions_train2014.json",
     "classification_result": "/kaggle/input/questiondependentcaptions/vqa_v2_question_classification_result/vqa_v2_question_classification_result.json",
     "resume_dir": null
   },
