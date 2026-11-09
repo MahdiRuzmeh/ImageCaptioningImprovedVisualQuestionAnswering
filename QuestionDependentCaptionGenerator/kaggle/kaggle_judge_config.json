@@ -6,7 +6,7 @@
     "resume_dir": null
   },
   "run": {
-    "mode": "calibrate",
+    "mode": "full",
     "scope": "all",
     "hours": 11.0,
     "shutdown_grace_min": 10
