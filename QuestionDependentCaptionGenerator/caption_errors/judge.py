@@ -24,7 +24,12 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 # Bumped whenever the judge prompt / few-shots change (stored in progress
 # headers: a resumed run refuses to mix two prompt versions).
-JUDGE_PROMPT_VERSION = "j1"
+JUDGE_PROMPT_VERSION = "j2"
+# j2 (2026-11-09), after the first 7B calibration (precision 84%, recall 77%):
+#   stricter added_facts (purpose, place, count, description words), keep the
+#   question's relation / comparison, answer word used as a thing; plus ok
+#   cases the 7B wrongly flagged (plain "not", opposite word for "no",
+#   singular/plural, "X is shown"). Few-shots are new sentences, not gold rows.
 
 OK = "ok"
 GRAMMAR = "GRAMMAR_ISSUE_ONLY"
@@ -49,33 +54,53 @@ _SYSTEM = (
 
 _RULES = """\
 For each item you get a QUESTION about an image, its ANSWER, and a CAPTION.
-Decide whether the CAPTION states exactly the answer to the question.
+Decide whether the CAPTION states exactly the answer to the question, and
+nothing more.
 
 Verdicts:
-- "ok": the caption states the answer to the question, with the same meaning.
-- "GRAMMAR_ISSUE_ONLY": the meaning is right, but the sentence has a grammar or
-  wording mistake (wrong article, wrong plural, odd word form).
+- "ok": the caption states the answer to the question, with the same meaning,
+  and adds nothing.
+- "GRAMMAR_ISSUE_ONLY": the meaning is right and nothing is added, but the
+  sentence has a grammar or spelling mistake (wrong article, wrong plural,
+  misspelled number such as "Fivety", missing verb, odd word order).
 - "WRONG": the meaning is wrong. Use one reason:
-  - "answer_missing": the caption does not state the answer.
+  - "answer_missing": the caption does not state the answer. This includes
+    using the answer word as a thing ("A yes is seen.") and replacing the
+    answer with a vague word ("An object is held.", "There is green stuff.").
   - "answer_contradicted": the caption states a different or opposite answer.
-  - "meaning_changed": the answer is there, but a word of the question was
-    replaced (e.g. "wall" became "door"), the relation was reversed, or the
-    negation denies something the question did not ask about.
+  - "meaning_changed": the answer is there, but the caption changes what the
+    question asks: a question word replaced ("wall" became "door", "water"
+    became "pool", "a zoo" became "no animals"), the relation or verb changed
+    ("holding" became "visible"), a comparison dropped ("the largest object"
+    became "an object"), the relation reversed, or the negation denies
+    something the question did not ask about.
   - "unrelated": the caption talks about something the question is not about.
-  - "added_facts": the answer is right, but the caption adds objects, places,
-    colors, numbers or reasons that are not in the question or answer.
+  - "added_facts": the answer is right, but the caption adds ANY fact that is
+    not in the question or answer: a purpose or reason ("to dry"), a place
+    ("in the sky", "on a tree", "on a slope", "near the water"), a count or
+    quantity the answer does not give ("both", "two", "multiple", "a few"),
+    or a description ("clean", "male", "open", "parked"). Even one added word
+    of fact makes the caption WRONG.
 
 These are "ok" (do NOT mark them WRONG):
 - Numbers as digits or words (7 / seven). Answer 1 as "a" / "an" / "one".
-- Answer 0 or "none" written as "no X" / "There are no X".
+- Answer 0 or "none" written as "no X" / "There are no X", when the verb of
+  the question is kept ("How many cups is she holding? / 0" -> "She is not
+  holding any cups.").
+- A "no" answer written with "not" or "no": "Is the dog on the sofa? / no" ->
+  "The dog is not on the sofa." This states the answer; it is NOT answer_missing.
 - A "no" answer written with an opposite word: "Is the door open? / no" ->
-  "The door is closed."
+  "The door is closed."; "Is the road dry? / no" -> "The road is wet."
+- Singular or plural differences alone ("airplane" -> "Airplanes are flying").
+- "What room / kind / type is this?" -> "A kitchen is shown." / "This is a kitchen."
+- Names kept as they are ("candy crush" -> "Candy Crush is being played.").
 - Natural paraphrases, and leaving out a question noun that is only context,
-  as long as the asked fact is still stated.
+  as long as the asked fact and the relation of the question are still stated.
 - Yes/no questions: "yes" -> the caption affirms the asked fact; "no" -> the
   caption denies exactly the asked fact.
 Only meaning decides between ok and WRONG. Grammar never makes a caption WRONG.
-When the meaning is right and only wording is off, use "GRAMMAR_ISSUE_ONLY".
+When the meaning is right, nothing is added, and only wording is off, use
+"GRAMMAR_ISSUE_ONLY".
 """
 
 # (question, answer, caption, verdict, reason)
@@ -114,6 +139,31 @@ FEW_SHOTS: List[Tuple[str, str, str, str, Optional[str]]] = [
     ("What is covering the table?", "nothing",
      "The table is not covered, so the wood can be seen.", WRONG,
      "added_facts"),
+    # j2 additions
+    ("Is the cat sleeping?", "no", "The cat is not sleeping.", OK, None),
+    ("Is the road dry?", "no", "The road is wet.", OK, None),
+    ("What is flying over the field?", "kite", "Kites are flying over the field.",
+     OK, None),
+    ("What kind of room is shown?", "bedroom", "A bedroom is shown.", OK, None),
+    ("How many cups is she holding?", "0", "She is not holding any cups.",
+     OK, None),
+    ("How many cars are parked?", "40", "Fourty cars are parked.", GRAMMAR, None),
+    ("Are all the bikes from one brand?", "no",
+     "The bikes from different brands.", GRAMMAR, None),
+    ("How many cups is the girl holding?", "0", "Zero cups are visible.",
+     WRONG, "meaning_changed"),
+    ("What is the tallest building?", "tower", "A tower is in the city.",
+     WRONG, "meaning_changed"),
+    ("What is the girl carrying?", "basket", "An object is carried by the girl.",
+     WRONG, "answer_missing"),
+    ("What is drying on the line?", "towels",
+     "Towels are drying on the line in the sun.", WRONG, "added_facts"),
+    ("How many birds do you see?", "2", "Two birds are sitting on a branch.",
+     WRONG, "added_facts"),
+    ("Are the horses running?", "yes", "Both horses are running.",
+     WRONG, "added_facts"),
+    ("What kind of room is this?", "kitchen", "The kitchen is tidy.",
+     WRONG, "added_facts"),
 ]
 
 

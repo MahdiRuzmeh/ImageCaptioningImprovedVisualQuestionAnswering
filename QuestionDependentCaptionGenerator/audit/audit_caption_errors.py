@@ -151,11 +151,12 @@ def main() -> None:
           f"{100 * TARGET_PRECISION:.0f}%: {'MET -> run mode full' if ok else 'NOT met -> tune the prompt first'}")
     rate = s["n"] / elapsed if elapsed > 0 else 0.0
     judge_h = args.full_rows / rate / 3600 if rate > 0 else float("inf")
-    # Rough: a flagged row costs one single-item regeneration request per
-    # round (~1.5 rounds on average) plus a share of the batch's re-judge
-    # request; together about one judge batch of time per flagged row.
+    # Rough, from the local 3B test (2026-11-09): checked regeneration in packs
+    # of 5 (with one-by-one redo of rejects) ran ~3x slower per caption than
+    # judging; re-judging the new caption adds ~1x; ~1.3 rounds on average.
+    # -> a flagged row costs ~5 judged rows of time.
     flag_rate = full_flag_rate(items, args.full_manual / args.full_rows)
-    regen_h = judge_h * flag_rate * args.batch_size
+    regen_h = judge_h * flag_rate * 5
     print(f"  Speed: {rate:.2f} captions/s ({s['n']} in {elapsed / 60:.1f} min, "
           f"llm-parallel {args.llm_parallel}, batch {args.batch_size})")
     print(f"  Estimated full run ({args.full_rows} rows): judging ~{judge_h:.1f} h "
