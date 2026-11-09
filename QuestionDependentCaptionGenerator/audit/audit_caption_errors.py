@@ -52,7 +52,11 @@ def score(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "wrong_precision": tp / (tp + fp) if tp + fp else 0.0,
         "wrong_recall": tp / (tp + fn) if tp + fn else 0.0,
         "tp": tp, "fp": fp, "fn": fn,
-        "accuracy_3way": sum(1 for g, p in pairs if g == p) / max(1, len(pairs)),
+        "accuracy_binary": sum(1 for g, p in pairs if (g == WRONG) == (p == WRONG))
+                           / max(1, len(pairs)),
+        "correct_kept": (sum(1 for g, p in pairs if g != WRONG and p != WRONG)
+                         / max(1, sum(1 for g, _p in pairs if g != WRONG))),
+        "accuracy_3way":sum(1 for g, p in pairs if g == p) / max(1, len(pairs)),
         "reason_agreement": (sum(1 for it in both if it.get("judge_reason")
                                  == it.get("manual_reason")) / len(both))
                             if both else 0.0,
@@ -109,8 +113,20 @@ def main() -> None:
           f"3-way accuracy {s['accuracy_3way']:.3f} | reason agreement "
           f"{s['reason_agreement']:.3f} | unjudged {s['unjudged']}")
     ok = s["wrong_recall"] >= TARGET_RECALL and s["wrong_precision"] >= TARGET_PRECISION
-    print(f"Target (recall >= {TARGET_RECALL}, precision >= {TARGET_PRECISION}): "
-          f"{'MET' if ok else 'NOT met'}", flush=True)
+    n_wrong = s["tp"] + s["fn"]
+    n_flag = s["tp"] + s["fp"]
+    print(f"\n========== JUDGE QUALITY ({args.model}, {s['n']} test captions: "
+          f"{n_wrong} wrong, {s['n'] - n_wrong} correct) ==========")
+    print(f"  Wrong captions found (recall):          {100 * s['wrong_recall']:5.1f}%  "
+          f"({s['tp']} of {n_wrong})")
+    print(f"  Flagged WRONG that really are (prec.):  {100 * s['wrong_precision']:5.1f}%  "
+          f"({s['tp']} of {n_flag})")
+    print(f"  Correct captions kept (not flagged):    {100 * s['correct_kept']:5.1f}%  "
+          f"({s['n'] - n_wrong - s['fp']} of {s['n'] - n_wrong})")
+    print(f"  Overall WRONG / not-WRONG accuracy:     {100 * s['accuracy_binary']:5.1f}%")
+    print(f"  Target recall >= {100 * TARGET_RECALL:.0f}% and precision >= "
+          f"{100 * TARGET_PRECISION:.0f}%: {'MET -> run mode full' if ok else 'NOT met -> tune the prompt first'}")
+    print("=" * 60, flush=True)
 
     out = Path(args.output) if args.output else gold_path.with_name(
         gold_path.stem + "_scored.json")
