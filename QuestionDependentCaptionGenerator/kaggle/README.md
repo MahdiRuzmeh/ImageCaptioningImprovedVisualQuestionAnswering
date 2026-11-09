@@ -305,3 +305,100 @@ To run it on the PC instead:
 ```
 python reclassify_captions.py --input outputs/vqa_v2_question_dependent_captions_train2014.json --classification-result outputs/vqa_v2_question_classification_result.json --output-dir outputs_reclassified --llm-parallel 4 --batch-size 10
 ```
+
+## Finding and regenerating wrong captions (`kaggle_judge_runner.py`)
+
+[`kaggle_judge_runner.py`](kaggle_judge_runner.py) judges every caption with
+`qwen2.5:7b-instruct-q4_K_M` and regenerates the ones whose meaning is wrong.
+See [`../caption_errors/README.md`](../caption_errors/README.md) for the fields
+it writes. All settings are in
+[`kaggle_judge_config.json`](kaggle_judge_config.json).
+
+Notebook (GPU T4 x2, Internet ON), one cell, then **Save Version → Save & Run All (Commit)**:
+
+```
+!git clone https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git /tmp/repo
+!git -C /tmp/repo checkout feat/kaggle-runner
+!python -u /tmp/repo/QuestionDependentCaptionGenerator/kaggle/kaggle_judge_runner.py
+```
+
+### Step 1: calibrate (`run.mode = "calibrate"`, the default)
+
+Judges only the 298 hand-labelled rows in
+`audit/DevAuditor/caption_error_audit_manual.json` (part of the repo, nothing
+to attach). Prints WRONG precision / recall and every disagreement. Takes a
+few minutes. Switch to `full` only when the target (recall ≥ 0.90,
+precision ≥ 0.80) is met.
+
+### Step 2: full run (`run.mode = "full"`)
+
+Attach the reclassified captions JSON as a dataset and set `inputs.captions`
+to its path (`!find /kaggle/input -name "*.json"` shows it).
+`inputs.expected_rows` (283707) stops the run if the wrong file is attached.
+
+```
+%%writefile /tmp/override.json
+{"run": {"mode": "full", "hours": 5}}
+```
+```
+!python -u /tmp/repo/QuestionDependentCaptionGenerator/kaggle/kaggle_judge_runner.py --config /tmp/override.json
+```
+
+### Time limit
+
+`run.hours` counts from when the runner starts, setup included. The job stops
+starting new batches 5 min before the limit, finishes what is in flight and
+saves. At the limit it gets Ctrl+C, and after `run.shutdown_grace_min` it is
+killed. Lower `run.hours` to save weekly GPU quota; nothing finished is lost.
+
+### Both GPUs
+
+As above: one Ollama server per T4, each with one copy of the model and
+`ceil(llm_parallel / 2)` parallel slots (default `llm_parallel` 8 → 4 per GPU).
+Parallel slots share the model weights, so this is better than loading the
+model twice on one GPU. If both GPUs have memory left (`ollama_gpu*.log`, or
+`!nvidia-smi` in another notebook), try `llm_parallel` 12.
+
+### Every session ends with a captions JSON
+
+`/kaggle/working/outputs/vqa_v2_question_dependent_captions_train2014.json`
+holds every row:
+- rows judged so far have `caption_quality_verdict` / `verdict_reason`, and the
+  new caption if they were regenerated;
+- rows not reached yet have `caption_quality_verdict: null`.
+
+`info.caption_error_fix.progress.complete` is `true` only in the last session.
+
+### Next session (resume)
+
+1. **Add Input → Notebook output →** the previous version of this notebook.
+2. Point `inputs.resume_dir` at the folder that holds
+   `vqa_v2_question_dependent_captions_train2014_caption_check_progress.jsonl`:
+
+   ```
+   %%writefile /tmp/override.json
+   {"run": {"mode": "full", "hours": 5},
+    "inputs": {"resume_dir": "/kaggle/input/<previous-notebook>/outputs"}}
+   ```
+3. Keep `inputs.captions` pointing at the **original** reclassified captions
+   JSON (not the previous session's output).
+
+Each row is judged once. A run with a different model or prompt version
+refuses the progress file instead of mixing results. The end of the log says
+how many rows are left and the ETA.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `inputs.captions` | dataset path | Reclassified captions JSON (input of the full run). |
+| `inputs.expected_rows` | `283707` | Safety check on the row count; `null` to skip. |
+| `inputs.audit` | `audit/DevAuditor/caption_error_audit_manual.json` | Gold set for `calibrate` (relative to `QuestionDependentCaptionGenerator/`). |
+| `inputs.resume_dir` | `null` | Previous session's `outputs` folder. |
+| `run.mode` | `"calibrate"` | `"calibrate"` or `"full"`. |
+| `run.hours` | `11.0` | Max hours from runner start. |
+| `run.shutdown_grace_min` | `10` | Minutes after Ctrl+C before the job is killed. |
+| `judge.model` | `qwen2.5:7b-instruct-q4_K_M` | Judge and regeneration model (~4.7 GB per GPU). |
+| `judge.llm_parallel` | `8` | Batches in flight in total (split over the GPUs). |
+| `judge.batch_size` | `10` | Captions per judge request. |
+| `judge.regen_batch_size` | `1` | WRONG captions per regeneration request (1 gave the best captions). |
+| `judge.regen_rounds` | `2` | Regeneration attempts per WRONG caption. |
+| `judge.extra_args` | `[]` | Extra `judge_captions.py` flags. |
