@@ -344,6 +344,18 @@ to its path (`!find /kaggle/input -name "*.json"` shows it).
 !python -u /tmp/repo/QuestionDependentCaptionGenerator/kaggle/kaggle_judge_runner.py --config /tmp/override.json
 ```
 
+### Start with the "Need to Manual validate" rows (optional)
+
+```
+%%writefile /tmp/override.json
+{"run": {"mode": "full", "scope": "manual", "hours": 2}}
+```
+
+These ~7.5k rows are ~73% wrong (hand-labelled sample) and take about 1 h.
+They hold only ~23% of all wrong captions (~5.5k of ~23.5k); the rest sit in
+`Ready to Use` rows. When the log says `DONE`, continue with `"scope": "all"`
+and `inputs.resume_dir` set to that output. Rows already judged are skipped.
+
 ### Time limit
 
 `run.hours` counts from when the runner starts, setup included. The job stops
@@ -368,6 +380,11 @@ holds every row:
 - rows not reached yet have `caption_quality_verdict: null`.
 
 `info.caption_error_fix.progress.complete` is `true` only in the last session.
+
+Next to it, `vqa_v2_question_dependent_captions_train2014_suspicious.json`
+lists every row whose final caption the code check marks as possibly wrong
+(`suspicious_reasons`). This is the input for a later pass with a bigger
+model. Use the file from the last session.
 
 ### Next session (resume)
 
@@ -394,6 +411,7 @@ how many rows are left and the ETA.
 | `inputs.audit` | `audit/DevAuditor/caption_error_audit_manual.json` | Gold set for `calibrate` (relative to `QuestionDependentCaptionGenerator/`). |
 | `inputs.resume_dir` | `null` | Previous session's `outputs` folder. |
 | `run.mode` | `"calibrate"` | `"calibrate"` or `"full"`. |
+| `run.scope` | `"all"` | Full mode only. `"all"`: every row. `"manual"`: only rows whose `caption_status` is `Need to Manual validate` in the input (~7.5k rows, ~1 h). A later `"all"` run with `resume_dir` skips rows already judged. |
 | `run.hours` | `11.0` | Max hours from runner start. |
 | `run.shutdown_grace_min` | `10` | Minutes after Ctrl+C before the job is killed. |
 | `judge.model` | `qwen2.5:7b-instruct-q4_K_M` | Judge and regeneration model (~4.7 GB per GPU). |

@@ -188,6 +188,42 @@ class TestRegenerateChecked(unittest.TestCase):
         self.assertEqual(rg.check_caption("Q?", "a", None), "unparsed")
 
 
+class TestSuspicious(unittest.TestCase):
+    def check(self, q, a, c):
+        from caption_errors.suspicious import suspicious_reasons
+        return suspicious_reasons(q, a, c)
+
+    def test_extra_words(self) -> None:
+        self.assertEqual(self.check("What is hung up?", "clothes",
+                                    "Clothes are hung up to dry."), ["extra_words:dry"])
+        self.assertEqual(self.check("Are these cows standing up?", "yes",
+                                    "Both cows are standing up."), ["extra_words:both"])
+        self.assertEqual(self.check("What is leaning against the wall?", "motorcycle",
+                                    "The motorcycle is leaning against the door."),
+                         ["extra_words:door"])
+
+    def test_clean_captions(self) -> None:
+        for q, a, c in [("How many cookies can be seen?", "2", "Two cookies can be seen."),
+                        ("How many fish?", "0", "No fish can be seen."),
+                        ("Is the dog on the sofa?", "no", "The dog is not on the sofa."),
+                        ("What color is the man's hat?", "red", "The man's hat is red."),
+                        ("Is it raining?", "yes", "It is raining.")]:
+            self.assertEqual(self.check(q, a, c), [], c)
+
+    def test_polarity_flip(self) -> None:
+        self.assertEqual(self.check("Is it raining?", "yes", "It is not raining."),
+                         ["polarity_flip"])
+        self.assertEqual(self.check("Is the dog on the sofa?", "no",
+                                    "The dog is on the sofa."), ["polarity_flip"])
+        self.assertEqual(self.check("What color tie does the man have?", "green",
+                                    "The man does not have a green tie."),
+                         ["polarity_flip"])
+
+    def test_missing_words_do_not_count(self) -> None:
+        self.assertEqual(self.check("What is the largest object in the water?", "ship",
+                                    "A ship is in the water."), [])
+
+
 class TestOutputs(unittest.TestCase):
     def test_build_row_fields(self) -> None:
         fixed = {"verdict": OK, "reason": None, "original_verdict": WRONG,
@@ -217,6 +253,21 @@ class TestOutputs(unittest.TestCase):
         self.assertEqual(s["caption_status"], "Need to Manual validate")
 
         self.assertIsNone(jc.build_row(ROWS[0], None)["caption_quality_verdict"])
+
+        # step 3 runs on the FINAL caption, also for rows not judged yet
+        self.assertFalse(row["suspicious"])                  # fixed caption is clean
+        self.assertEqual(s["suspicious_reasons"], ["extra_words:door"])
+        self.assertTrue(jc.build_row(ROWS[1], None)["suspicious"])
+
+    def test_scope_manual(self) -> None:
+        self.assertEqual([r["question_id"] for r in ROWS if jc.in_scope(r, "manual")], [3])
+        self.assertEqual(len([r for r in ROWS if jc.in_scope(r, "all")]), 3)
+        done = {3: {"verdict": GRAMMAR, "reason": None, "original_verdict": GRAMMAR,
+                    "original_reason": None}}
+        s = jc.summarize(ROWS, done, "manual")
+        self.assertEqual((s["rows_in_scope"], s["rows_left"], s["complete"],
+                          s["complete_all"], s["rows_left_all"]), (1, 0, True, False, 2))
+        self.assertFalse(jc.summarize(ROWS, done, "all")["complete"])
 
     def test_summary_and_resume_with_torn_line(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -9,6 +9,8 @@ regenerates only those. Captions with only grammar problems are kept as they are
 |---|---|
 | `caption_quality_verdict` | `"ok"`, `"GRAMMAR_ISSUE_ONLY"`, `"WRONG"`, or `null` (not judged yet) |
 | `verdict_reason` | for `"WRONG"`: `answer_missing`, `answer_contradicted`, `meaning_changed`, `unrelated`, `added_facts`; otherwise `null` |
+| `suspicious` | `true` when the code check (step 3) thinks the FINAL caption may still be wrong |
+| `suspicious_reasons` | e.g. `["extra_words:dry"]`, `["polarity_flip"]`; `[]` when not suspicious |
 
 Regenerated rows also get:
 
@@ -26,7 +28,25 @@ rounds. Those rows keep their last caption.
 `info.caption_error_fix.progress` gives rows judged / left, how many were
 regenerated / fixed / still wrong, and `complete` (true only when every row is judged).
 
-## How a batch is processed
+## The three steps
+
+1. **7B judge** on every caption: `ok` / `GRAMMAR_ISSUE_ONLY` / `WRONG`.
+2. **Regenerate** the `WRONG` ones (packs of 5, checked, judged again, 2 rounds).
+3. **Code check** (`suspicious.py`, no LLM) on the FINAL caption of every row:
+   - `extra_words`: a content word that is in neither the question nor the
+     answer ("to dry", "in the sky", "both", "door" for "wall");
+   - `polarity_flip`: the yes/no meaning looks flipped, or a "not" that a
+     non-yes/no answer never implied.
+
+   Words left out of the caption do not count. Rows marked here are written
+   to `<stem>_suspicious.json` for a later pass with a bigger model. The check
+   never changes a caption or verdict.
+
+   Test set (298 captions): the code check marks 16 of the 19 wrong captions
+   the 7B (j2) passed, and 48 of the 213 correct ones. On the current file
+   (before the run) it marks 14.3% of rows.
+
+## How a batch is processed (steps 1 and 2)
 
 ```
 10 captions --judge--> ok / GRAMMAR_ISSUE_ONLY ............ kept unchanged
@@ -79,6 +99,10 @@ python audit/audit_caption_errors.py --model qwen2.5:3b-instruct-q4_K_M
 # smoke test on the first 200 rows; the JSON in the output dir still holds every row
 python -m caption_errors.judge_captions --input outputs/vqa_v2_question_dependent_captions_train2014.json \
     --output-dir outputs_caption_check --model qwen2.5:3b-instruct-q4_K_M --max-items 200
+
+# only rows whose caption_status is "Need to Manual validate" (a later
+# --scope all run in the same output dir skips them)
+python -m caption_errors.judge_captions --input ... --output-dir outputs_caption_check --scope manual
 
 # rebuild the captions JSON from the progress file only (no LLM)
 python -m caption_errors.judge_captions --input ... --output-dir outputs_caption_check --write-only

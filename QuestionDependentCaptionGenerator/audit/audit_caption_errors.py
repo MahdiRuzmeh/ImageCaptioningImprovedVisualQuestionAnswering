@@ -35,6 +35,7 @@ sys.path.insert(0, str(GEN_DIR))
 from caption_errors.judge import (  # noqa: E402
     JUDGE_PROMPT_VERSION, VERDICTS, WRONG, OllamaChat, judge_items,
 )
+from caption_errors.suspicious import suspicious_reasons  # noqa: E402
 
 DEFAULT_GOLD = GEN_DIR / "audit" / "DevAuditor" / "caption_error_audit_manual.json"
 TARGET_RECALL, TARGET_PRECISION = 0.90, 0.80
@@ -149,6 +150,24 @@ def main() -> None:
     print(f"  Overall WRONG / not-WRONG accuracy:     {100 * s['accuracy_binary']:5.1f}%")
     print(f"  Target recall >= {100 * TARGET_RECALL:.0f}% and precision >= "
           f"{100 * TARGET_PRECISION:.0f}%: {'MET -> run mode full' if ok else 'NOT met -> tune the prompt first'}")
+    # Step 3 (code check) on what the judge let through.
+    for it in items:
+        it["suspicious_reasons"] = suspicious_reasons(it["question"], it["answer"],
+                                                      it["caption"])
+    passed_wrong = [it for it in items if it["manual_verdict"] == WRONG
+                    and it.get("judge_verdict") != WRONG]
+    caught = sum(1 for it in passed_wrong if it["suspicious_reasons"])
+    hidden = len(passed_wrong) - caught
+    sus_all = sum(1 for it in items if it["suspicious_reasons"])
+    sus_ok = sum(1 for it in items if it["suspicious_reasons"]
+                 and it["manual_verdict"] != WRONG)
+    s.update(step3_caught=caught, step3_hidden=hidden, step3_flagged=sus_all)
+    print(f"  Step 3 code check: marks {caught} of the {len(passed_wrong)} wrong "
+          f"captions the judge passed")
+    print(f"  -> wrong captions neither found nor marked: {hidden} of {n_wrong} "
+          f"({100 * hidden / max(1, n_wrong):.1f}%)")
+    print(f"  Step 3 marks {sus_all} of {s['n']} test captions "
+          f"({sus_ok} of the {s['n'] - n_wrong} correct ones) for the bigger model")
     rate = s["n"] / elapsed if elapsed > 0 else 0.0
     judge_h = args.full_rows / rate / 3600 if rate > 0 else float("inf")
     # Rough, from the local 3B test (2026-11-09): checked regeneration in packs

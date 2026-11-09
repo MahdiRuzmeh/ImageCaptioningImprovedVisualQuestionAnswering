@@ -21,9 +21,13 @@ On every exit (done, Ctrl+C, too many failed requests) the script writes:
 * ``<output-dir>/<input name>``: the captions JSON with the new fields on
   every judged row (rows not judged yet: ``caption_quality_verdict: null``)
   and ``info.caption_error_fix.progress.complete`` true/false;
+* ``<stem>_suspicious.json``: rows whose FINAL caption may still be wrong
+  (``caption_errors.suspicious``: words not in question + answer, or a
+  flipped yes/no), for a later pass with a bigger model. Every row of the
+  captions JSON also gets ``suspicious`` / ``suspicious_reasons``;
 * ``<stem>_caption_check_state.json``: small progress summary.
 
-Exit code: 0 all rows judged, 3 some rows still unjudged, 4 stopped because
+Exit code: 0 all rows of --scope judged, 3 some rows still unjudged, 4 stopped because
 the model did not reply, 5 time limit (--deadline-unix) reached, 130 interrupted.
 
 Examples::
@@ -66,6 +70,7 @@ from caption_errors.judge import (  # noqa: E402
     judge_items,
 )
 from caption_errors.regenerate import REGEN_PROMPT_VERSION, regenerate_checked  # noqa: E402
+from caption_errors.suspicious import SUSPICIOUS_VERSION, suspicious_reasons  # noqa: E402
 
 CHECKER_VERSION = "c1"
 PROGRESS_SUFFIX = "_caption_check_progress.jsonl"   # keep in sync with the Kaggle runner
@@ -170,15 +175,28 @@ def process_batch(rows: List[Dict[str, Any]], client: OllamaChat,
 
 
 # ---------------------------------------------------------------- outputs
-def summarize(rows: Sequence[Dict[str, Any]], done: Dict[int, Dict[str, Any]]
-              ) -> Dict[str, Any]:
+SCOPES = ("all", "manual")       # manual = only rows with caption_status
+                                  # "Need to Manual validate" in the INPUT file
+
+
+def in_scope(row: Dict[str, Any], scope: str) -> bool:
+    return scope == "all" or row.get("caption_status") == CAPTION_STATUS_MANUAL
+
+
+def summarize(rows: Sequence[Dict[str, Any]], done: Dict[int, Dict[str, Any]],
+              scope: str = "all") -> Dict[str, Any]:
     judged = [done[int(r["question_id"])] for r in rows
               if int(r["question_id"]) in done]
     regen = [d for d in judged if d.get("regen_rounds")]
+    scoped = [r for r in rows if in_scope(r, scope)]
+    scoped_left = sum(1 for r in scoped if int(r["question_id"]) not in done)
     return {
+        "scope": scope,
         "rows_total": len(rows),
+        "rows_in_scope": len(scoped),
         "rows_judged": len(judged),
-        "rows_left": len(rows) - len(judged),
+        "rows_left": scoped_left,
+        "rows_left_all": len(rows) - len(judged),
         "original_verdict_counts": dict(Counter(d["original_verdict"] for d in judged)),
         "original_wrong_reasons": dict(Counter(d["original_reason"] for d in judged
                                                if d["original_verdict"] == WRONG)),
@@ -186,7 +204,8 @@ def summarize(rows: Sequence[Dict[str, Any]], done: Dict[int, Dict[str, Any]]
         "fixed": sum(1 for d in regen if d["verdict"] in GOOD),
         "still_wrong": sum(1 for d in judged if d["verdict"] == WRONG),
         "final_verdict_counts": dict(Counter(d["verdict"] for d in judged)),
-        "complete": len(judged) == len(rows),
+        "complete": scoped_left == 0,                 # every row of the scope judged
+        "complete_all": len(judged) == len(rows),     # every row of the file judged
     }
 
 
@@ -197,30 +216,49 @@ def build_row(row: Dict[str, Any], rec: Optional[Dict[str, Any]]) -> Dict[str, A
         if k == "caption":
             out["caption_quality_verdict"] = rec["verdict"] if rec else None
             out["verdict_reason"] = rec["reason"] if rec else None
-    if rec is None:
-        return out
-    if rec.get("regen_rounds"):
-        out["caption_original"] = row.get("caption")
-        out["caption_original_verdict_reason"] = rec["original_reason"]
-        out["regen_rounds"] = rec["regen_rounds"]
-        if rec.get("caption"):
-            out["caption"] = rec["caption"]
-    out["caption_status"] = (CAPTION_STATUS_READY if rec["verdict"] in GOOD
-                             else CAPTION_STATUS_MANUAL)
+            out["suspicious"] = False            # filled in below (final caption)
+            out["suspicious_reasons"] = []
+    if rec is not None:
+        if rec.get("regen_rounds"):
+            out["caption_original"] = row.get("caption")
+            out["caption_original_verdict_reason"] = rec["original_reason"]
+            out["regen_rounds"] = rec["regen_rounds"]
+            if rec.get("caption"):
+                out["caption"] = rec["caption"]
+        out["caption_status"] = (CAPTION_STATUS_READY if rec["verdict"] in GOOD
+                                 else CAPTION_STATUS_MANUAL)
+    # Step 3: code-only check of the FINAL caption, for a later bigger model.
+    why = suspicious_reasons(str(out.get("question") or ""),
+                             str(out.get("answer") or ""),
+                             str(out.get("caption") or ""))
+    out["suspicious"], out["suspicious_reasons"] = bool(why), why
     return out
+
+
+SUSPICIOUS_SUFFIX = "_suspicious.json"
+_SUSPICIOUS_KEYS = ("question_id", "image_id", "question", "answer", "caption",
+                    "caption_quality_verdict", "verdict_reason", "caption_original",
+                    "caption_status", "suspicious_reasons")
 
 
 def write_outputs(data: Dict[str, Any], done: Dict[int, Dict[str, Any]],
                   in_path: Path, out_dir: Path, meta: Dict[str, Any],
-                  started_at: str, extra: Optional[Dict[str, Any]] = None
-                  ) -> Dict[str, Any]:
+                  started_at: str, extra: Optional[Dict[str, Any]] = None,
+                  scope: str = "all") -> Dict[str, Any]:
     rows: List[Dict[str, Any]] = data["annotations"]
-    progress = summarize(rows, done)
+    progress = summarize(rows, done, scope)
     new_rows = [build_row(r, done.get(int(r["question_id"]))) for r in rows]
+    sus = [r for r in new_rows if r["suspicious"]]
+    sus_judged = sum(1 for r in sus if r["caption_quality_verdict"] is not None)
+    progress.update(
+        suspicious=len(sus), suspicious_judged_rows=sus_judged,
+        suspicious_reason_counts=dict(Counter(k.split(":")[0] for r in sus
+                                              for k in r["suspicious_reasons"])))
     info = dict(data.get("info") or {})
     versions = dict(info.get("versions") or {})
     versions.update(caption_judge_prompt=JUDGE_PROMPT_VERSION,
-                    caption_regen_prompt=REGEN_PROMPT_VERSION)
+                    caption_regen_prompt=REGEN_PROMPT_VERSION,
+                    caption_suspicious_check=SUSPICIOUS_VERSION)
     info["versions"] = versions
     info["caption_error_fix"] = dict(meta, session_started_at=started_at,
                                      written_at=now_iso(), progress=progress,
@@ -233,10 +271,26 @@ def write_outputs(data: Dict[str, Any], done: Dict[int, Dict[str, Any]],
             print(f"Backup of the input -> {backup}", flush=True)
     t = time.perf_counter()
     write_json_atomic(out_path, {**data, "info": info, "annotations": new_rows})
+    write_json_atomic(out_dir / (in_path.stem + SUSPICIOUS_SUFFIX), {
+        "info": {
+            "description": "Rows whose FINAL caption may still be wrong (code check: "
+                           "words not in question+answer, or flipped yes/no). "
+                           "For a later pass with a bigger model.",
+            "source_output": out_path.name,
+            "suspicious_version": SUSPICIOUS_VERSION,
+            "num_samples": len(sus),
+            "of_rows": len(new_rows),
+            "progress_complete": progress["complete"],
+            "reason_counts": progress["suspicious_reason_counts"],
+        },
+        "annotations": [{k: r.get(k) for k in _SUSPICIOUS_KEYS} for r in sus],
+    })
     write_json_atomic(out_dir / (in_path.stem + STATE_SUFFIX),
                       dict(progress, written_at=now_iso(), **(extra or {})))
-    print(f"Captions JSON ({progress['rows_judged']}/{progress['rows_total']} "
-          f"judged, complete={progress['complete']}) -> {out_path} "
+    print(f"Captions JSON (scope {scope}: {progress['rows_in_scope'] - progress['rows_left']}"
+          f"/{progress['rows_in_scope']} judged, complete={progress['complete']}; "
+          f"whole file {progress['rows_judged']}/{progress['rows_total']}; suspicious "
+          f"{progress['suspicious']}) -> {out_path} "
           f"[{time.perf_counter() - t:.0f}s]", flush=True)
     return progress
 
@@ -308,9 +362,9 @@ def run_pass(todo: List[Dict[str, Any]], client: OllamaChat, progress_path: Path
             if el - last_print >= args.log_every_s or not inflight:
                 last_print = el
                 rate = recorded / el if el > 0 else 0.0
-                left = total - len(done)
+                left = len(todo) - recorded
                 eta = left / rate / 3600 if rate > 0 else float("inf")
-                print(f"  {len(done)}/{total} judged | {rate:.2f} rows/s | "
+                print(f"  {total - len(todo) + recorded}/{total} judged | {rate:.2f} rows/s | "
                       f"ETA {eta:.2f} h | this session: {dict(counts)}", flush=True)
     finally:
         progress.close()
@@ -355,6 +409,10 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--max-passes", type=int, default=3,
                     help="passes over rows whose verdict could not be read")
     ap.add_argument("--log-every-s", type=float, default=60.0)
+    ap.add_argument("--scope", choices=SCOPES, default="all",
+                    help="all rows, or only rows whose INPUT caption_status is "
+                         "'Need to Manual validate'. Progress is shared: a later "
+                         "--scope all run skips rows already judged")
     ap.add_argument("--max-items", type=int, default=None,
                     help="only judge the first N rows (smoke test); the JSON "
                          "still holds every row")
@@ -380,7 +438,10 @@ def main() -> None:
     print(f"Loading {in_path} ...", flush=True)
     data = load_json(in_path)
     rows: List[Dict[str, Any]] = data["annotations"]
-    work_rows = rows[:args.max_items] if args.max_items else rows
+    work_rows = [r for r in rows if in_scope(r, args.scope)]
+    if args.max_items:
+        work_rows = work_rows[:args.max_items]
+    print(f"Scope: {args.scope} -> {len(work_rows)} of {len(rows)} rows", flush=True)
 
     meta = {"version": CHECKER_VERSION, "model": args.model,
             "judge_prompt_version": JUDGE_PROMPT_VERSION,
@@ -401,11 +462,16 @@ def main() -> None:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         print(why, flush=True)
         prog = write_outputs(data, done, in_path, out_dir, meta, started_at,
-                             {"session_hours": round((time.perf_counter() - t0) / 3600, 3)})
+                             {"session_hours": round((time.perf_counter() - t0) / 3600, 3)},
+                             scope=args.scope)
         if not prog["complete"]:
-            print(f"NOT finished: {prog['rows_judged']}/{prog['rows_total']} judged, "
-                  f"{prog['rows_left']} left. Re-run with the same output dir "
+            print(f"NOT finished: {prog['rows_left']} of {prog['rows_in_scope']} rows "
+                  f"(scope {args.scope}) left. Re-run with the same output dir "
                   f"(Kaggle: inputs.resume_dir) to continue.", flush=True)
+        elif not prog["complete_all"]:
+            print(f"Scope {args.scope} done. {prog['rows_left_all']} other rows are "
+                  f"not judged; run with --scope all (same output dir) to do them "
+                  f"too, nothing is judged twice.", flush=True)
         sys.stdout.flush()
         os._exit(code)          # don't wait for in-flight HTTP threads
 
@@ -428,7 +494,7 @@ def main() -> None:
             if p > 1:
                 print(f"Pass {p}: {len(todo)} rows whose verdict could not be "
                       f"read earlier", flush=True)
-            if run_pass(todo, client, progress_path, done, args, len(rows)) == 0:
+            if run_pass(todo, client, progress_path, done, args, len(work_rows)) == 0:
                 break
             if args.deadline_unix and time.time() >= args.deadline_unix:
                 raise _Deadline()
@@ -440,7 +506,7 @@ def main() -> None:
         finish(4, f"Stopping: {args.max_failed_batches} batches in a row got no "
                   f"reply from Ollama (last error: {exc}).")
     left = sum(1 for r in work_rows if int(r["question_id"]) not in done)
-    finish(0 if left == 0 and len(done) >= len(rows) else 3,
+    finish(0 if left == 0 else 3,
            f"Run finished in {(time.perf_counter() - t0) / 3600:.2f} h.")
 
 

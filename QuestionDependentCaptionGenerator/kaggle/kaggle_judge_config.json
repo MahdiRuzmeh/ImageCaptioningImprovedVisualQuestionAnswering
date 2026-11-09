@@ -7,6 +7,7 @@
   },
   "run": {
     "mode": "calibrate",
+    "scope": "all",
     "hours": 11.0,
     "shutdown_grace_min": 10
   },

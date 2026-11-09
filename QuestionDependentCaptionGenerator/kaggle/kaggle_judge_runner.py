@@ -14,8 +14,13 @@ All settings live in kaggle_judge_config.json (next to this file):
 run.mode:
   "calibrate"  judge only the hand-labelled audit rows (inputs.audit) and print
                precision / recall of WRONG. A few minutes. Do this first.
-  "full"       judge every caption, regenerate the WRONG ones
-               (caption_errors/judge_captions.py).
+  "full"       judge every caption of run.scope and regenerate the WRONG
+               ones (caption_errors/judge_captions.py).
+
+run.scope (full mode):
+  "all"        every row
+  "manual"     only rows whose caption_status is "Need to Manual validate"
+               (~7.5k rows). A later "all" run with resume_dir skips them.
 
 The run:
   1. checks every input path (and the captions row count), copies the
@@ -88,6 +93,9 @@ def main() -> None:
     mode = run["mode"]
     if mode not in ("calibrate", "full"):
         raise SystemExit(f"run.mode must be 'calibrate' or 'full', got {mode!r}")
+    scope = run.get("scope", "all")
+    if scope not in ("all", "manual"):
+        raise SystemExit(f"run.scope must be 'all' or 'manual', got {scope!r}")
     out_dir = Path(cfg["paths"]["output_dir"])
     if not args.dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -108,7 +116,7 @@ def main() -> None:
         captions = require_file(inp["captions"], "inputs.captions")
         with open(captions, encoding="utf-8") as f:
             n_rows = len(json.load(f)["annotations"])
-        print(f"Captions: {captions} ({n_rows} rows)", flush=True)
+        print(f"Captions: {captions} ({n_rows} rows), scope: {scope}", flush=True)
         want = inp.get("expected_rows")
         if want and int(want) != n_rows:
             raise SystemExit(
@@ -127,6 +135,7 @@ def main() -> None:
         cmd = [
             sys.executable, "-u", "-m", "caption_errors.judge_captions",
             "--input", str(captions), "--output-dir", str(out_dir), *common,
+            "--scope", scope,
             "--regen-batch-size", str(rg["batch_size"]),
             "--regen-rounds", str(rg["rounds"]),
             "--regen-temperature", str(rg["temperature"]),
@@ -180,9 +189,11 @@ def main() -> None:
         print("Calibration done: see the scores above and the *_scored.json "
               "file in the output dir.", flush=True)
     elif code == 0:
-        print("DONE: every caption judged; the final captions JSON is in the "
-              "output dir (info.caption_error_fix.progress.complete = true).",
-              flush=True)
+        print(f"DONE: every row of scope '{scope}' judged; the captions JSON is "
+              "in the output dir (info.caption_error_fix.progress.complete = "
+              "true). " + ("To judge the other rows too, run again with "
+                           'run.scope "all" and inputs.resume_dir = this output.'
+                           if scope != "all" else ""), flush=True)
     else:
         print("NOT finished (the captions JSON in the output dir holds "
               "everything done so far). Next session: attach this version's "
