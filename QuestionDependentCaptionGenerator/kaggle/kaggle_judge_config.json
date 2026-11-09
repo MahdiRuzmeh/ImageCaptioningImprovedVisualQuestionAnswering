@@ -1,6 +1,6 @@
 {
   "inputs": {
-    "captions": "/kaggle/input/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014_reclassified/vqa_v2_question_dependent_captions_train2014.json",
+    "captions": "/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014/vqa_v2_question_dependent_captions_train2014.json",
     "expected_rows": 283707,
     "audit": "audit/DevAuditor/caption_error_audit_manual.json",
     "resume_dir": null
