@@ -399,6 +399,19 @@ how many rows are left and the ETA.
 | `judge.model` | `qwen2.5:7b-instruct-q4_K_M` | Judge and regeneration model (~4.7 GB per GPU). |
 | `judge.llm_parallel` | `8` | Batches in flight in total (split over the GPUs). |
 | `judge.batch_size` | `10` | Captions per judge request. |
-| `judge.regen_batch_size` | `1` | WRONG captions per regeneration request (1 gave the best captions). |
-| `judge.regen_rounds` | `2` | Regeneration attempts per WRONG caption. |
 | `judge.extra_args` | `[]` | Extra `judge_captions.py` flags. |
+| `regen.batch_size` | `5` | WRONG captions per regeneration request (packed like generation). |
+| `regen.rounds` | `2` | Regeneration attempts per WRONG caption; still WRONG after that → `Need to Manual validate`. |
+| `regen.temperature` | `0.3` | Sampling temperature for regeneration (judge always uses 0). |
+| `regen.single_fallback` | `true` | Redo a caption one by one when it fails the checks against its pack (batch contamination, polarity, spurious negation, format). |
+
+Testing other regeneration settings in one notebook, for example:
+
+```
+%%writefile /tmp/override.json
+{"run": {"mode": "full", "hours": 5}, "regen": {"batch_size": 3, "temperature": 0.2}}
+```
+
+You can change `regen.batch_size`, `regen.temperature` and
+`regen.single_fallback` between sessions. The model, the prompt versions and
+`regen.rounds` must stay the same, or the run refuses the progress file.

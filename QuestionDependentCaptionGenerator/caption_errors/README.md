@@ -44,6 +44,20 @@ regenerated / fixed / still wrong, and `complete` (true only when every row is j
   `llm_prompts.SYSTEM_PROMPT`, without the few-shot captions (the 3B model had
   copied them ~900 times). The wrong caption itself is not shown: given
   "Wrong caption: X", the 3B model wrote "not X".
+- Packs of 5 (`--regen-batch-size`), same as generation. Like
+  `llm_client.OllamaClient.captions_with_retry`, every new caption is checked
+  against its pack (`check_caption`: `fast_validate` hard rejects including
+  `batch_contamination`, plus `spurious_negation`). Each reject is asked again
+  on its own (`--no-regen-single-fallback` turns that off), and only captions
+  that pass go to the judge.
+
+  Test on the 85 WRONG gold captions with the 3B (2026-11-09, my grading of the new captions):
+
+  | Setting | Correct new captions | Speed |
+  |---|---|---|
+  | batch 1 | ~76 / 85 (89%) | 0.80 captions/s |
+  | batch 5, no checks | ~50 / 85 (59%): captions moved to other pairs, unwanted "not" | 3.27 captions/s |
+  | **batch 5 + checks + single redo** (default) | ~78 / 85 (92%) | 1.16 captions/s |
 
 ## Files
 

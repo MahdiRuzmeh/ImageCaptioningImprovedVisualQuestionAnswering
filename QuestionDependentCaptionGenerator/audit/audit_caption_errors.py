@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -64,6 +65,22 @@ def score(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def full_flag_rate(items: List[Dict[str, Any]], manual_share: float) -> float:
+    """Share of the FULL file the judge would flag.
+
+    The gold set oversamples 'Need to Manual validate' rows, so its own flag
+    rate is too high; reweight by the real share of those rows.
+    """
+    def rate(group: List[Dict[str, Any]]) -> float:
+        return (sum(1 for it in group if it.get("judge_verdict") == WRONG)
+                / len(group)) if group else 0.0
+    manual = [it for it in items if it.get("caption_status") == "Need to Manual validate"]
+    ready = [it for it in items if it.get("caption_status") != "Need to Manual validate"]
+    if not manual or not ready:
+        return rate(items)
+    return manual_share * rate(manual) + (1 - manual_share) * rate(ready)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("gold_json", nargs="?", default=str(DEFAULT_GOLD))
@@ -74,6 +91,10 @@ def main() -> None:
     ap.add_argument("--num-ctx", type=int, default=4096)
     ap.add_argument("--timeout", type=float, default=300.0)
     ap.add_argument("--retries", type=int, default=3)
+    ap.add_argument("--full-rows", type=int, default=283707,
+                    help="rows of the full captions file, for the time estimate")
+    ap.add_argument("--full-manual", type=int, default=7497,
+                    help="'Need to Manual validate' rows in the full file")
     ap.add_argument("--output", default=None,
                     help="scored copy (default: <gold stem>_scored.json next to it)")
     args = ap.parse_args()
@@ -92,10 +113,12 @@ def main() -> None:
 
     print(f"Judging {len(items)} gold items with {args.model} "
           f"(prompt {JUDGE_PROMPT_VERSION}) ...", flush=True)
+    t0 = time.perf_counter()
     with ThreadPoolExecutor(max_workers=args.llm_parallel) as pool:
         for batch, res in zip(batches, pool.map(run, batches)):
             for it, r in zip(batch, res):
                 it["judge_verdict"], it["judge_reason"] = r if r else (None, None)
+    elapsed = time.perf_counter() - t0
 
     s = score(items)
     print("\nDisagreements (manual -> judge):")
@@ -126,6 +149,18 @@ def main() -> None:
     print(f"  Overall WRONG / not-WRONG accuracy:     {100 * s['accuracy_binary']:5.1f}%")
     print(f"  Target recall >= {100 * TARGET_RECALL:.0f}% and precision >= "
           f"{100 * TARGET_PRECISION:.0f}%: {'MET -> run mode full' if ok else 'NOT met -> tune the prompt first'}")
+    rate = s["n"] / elapsed if elapsed > 0 else 0.0
+    judge_h = args.full_rows / rate / 3600 if rate > 0 else float("inf")
+    # Rough: a flagged row costs one single-item regeneration request per
+    # round (~1.5 rounds on average) plus a share of the batch's re-judge
+    # request; together about one judge batch of time per flagged row.
+    flag_rate = full_flag_rate(items, args.full_manual / args.full_rows)
+    regen_h = judge_h * flag_rate * args.batch_size
+    print(f"  Speed: {rate:.2f} captions/s ({s['n']} in {elapsed / 60:.1f} min, "
+          f"llm-parallel {args.llm_parallel}, batch {args.batch_size})")
+    print(f"  Estimated full run ({args.full_rows} rows): judging ~{judge_h:.1f} h "
+          f"+ regenerating the ~{100 * flag_rate:.0f}% it would flag ~{regen_h:.1f} h "
+          f"= ~{judge_h + regen_h:.0f} h (rough; the full run's log shows the real ETA)")
     print("=" * 60, flush=True)
 
     out = Path(args.output) if args.output else gold_path.with_name(

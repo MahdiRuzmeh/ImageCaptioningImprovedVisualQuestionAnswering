@@ -5,7 +5,10 @@ For every row of a question-dependent captions JSON:
 1. the LLM judge (``caption_errors.judge``) gives ``caption_quality_verdict``
    ``ok`` / ``GRAMMAR_ISSUE_ONLY`` / ``WRONG`` and a ``verdict_reason``;
 2. a WRONG row is regenerated right away (``caption_errors.regenerate``),
-   checked by ``validation.fast_validator.fast_validate`` and judged again,
+   in packs of ``--regen-batch-size`` (default 5), each new caption checked
+   against its pack (``regenerate.check_caption``: fast_validate hard
+   rejects incl. batch contamination, plus spurious negation; rejects are
+   redone one by one) and judged again,
    up to ``--regen-rounds`` times. ``ok`` / ``GRAMMAR_ISSUE_ONLY`` rows are
    never changed.
 
@@ -57,13 +60,12 @@ from reclassify_captions import (  # noqa: E402  (shared helpers)
     load_json, load_progress, now_iso, write_json_atomic,
 )
 from validation.checks import CAPTION_STATUS_MANUAL, CAPTION_STATUS_READY  # noqa: E402
-from validation.fast_validator import fast_validate  # noqa: E402
 
 from caption_errors.judge import (  # noqa: E402
     GRAMMAR, JUDGE_PROMPT_VERSION, OK, WRONG, OllamaChat, TransportError,
     judge_items,
 )
-from caption_errors.regenerate import REGEN_PROMPT_VERSION, regenerate  # noqa: E402
+from caption_errors.regenerate import REGEN_PROMPT_VERSION, regenerate_checked  # noqa: E402
 
 CHECKER_VERSION = "c1"
 PROGRESS_SUFFIX = "_caption_check_progress.jsonl"   # keep in sync with the Kaggle runner
@@ -132,23 +134,17 @@ def process_batch(rows: List[Dict[str, Any]], client: OllamaChat,
         todo = [r for r in wrong if r["verdict"] == WRONG]
         if not todo:
             break
-        new_caps: List[Optional[str]] = []
-        for part in _chunks(todo, args.regen_batch_size):
-            new_caps += regenerate(
-                client, [(r["_q"], r["_a"], r["_last"], r["_reason"]) for r in part],
-                temperature=args.regen_temperature, **kw)
+        new = regenerate_checked(
+            client, [(r["_q"], r["_a"], r["_last"], r["_reason"]) for r in todo],
+            batch_size=args.regen_batch_size,
+            single_fallback=not args.no_regen_single_fallback,
+            temperature=args.regen_temperature, **kw)
         to_judge: List[Tuple[Dict[str, Any], str]] = []
-        for rec, cap in zip(todo, new_caps):
+        for rec, (cap, why) in zip(todo, new):
             rec["regen_rounds"] = rnd
-            if not cap:
-                rec["history"].append({"caption": None, "verdict": WRONG,
-                                       "reason": "unparsed"})
-                continue
-            fast = fast_validate(rec["_q"], rec["_a"], cap)
-            if fast.is_fail:
+            if why is not None:          # unreadable / hard reject / contamination
                 rec["history"].append({"caption": cap, "verdict": WRONG,
-                                       "reason": "fast_validator",
-                                       "detail": ",".join(fast.reasons)})
+                                       "reason": "fast_validator", "detail": why})
                 rec["_reason"] = "fast_validator"
                 continue
             to_judge.append((rec, cap))
@@ -341,8 +337,11 @@ def parse_args() -> argparse.Namespace:
                     help="batches processed at the same time (= requests in flight)")
     ap.add_argument("--batch-size", type=int, default=10,
                     help="captions per judge request")
-    ap.add_argument("--regen-batch-size", type=int, default=1,
-                    help="WRONG captions per regeneration request")
+    ap.add_argument("--regen-batch-size", type=int, default=5,
+                    help="WRONG captions per regeneration request (packed like "
+                         "generation; rejects are redone one by one)")
+    ap.add_argument("--no-regen-single-fallback", action="store_true",
+                    help="do not redo rejected captions of a pack one by one")
     ap.add_argument("--regen-rounds", type=int, default=2)
     ap.add_argument("--regen-temperature", type=float, default=0.3)
     ap.add_argument("--num-ctx", type=int, default=4096)
@@ -389,6 +388,8 @@ def main() -> None:
             "regen_rounds": args.regen_rounds, "input_name": in_path.name,
             "batch_size": args.batch_size,
             "regen_batch_size": args.regen_batch_size,
+            "regen_single_fallback": not args.no_regen_single_fallback,
+            "regen_temperature": args.regen_temperature,
             "llm_parallel": args.llm_parallel}
     check_progress_header(progress_path, meta)
     done = load_progress(progress_path)

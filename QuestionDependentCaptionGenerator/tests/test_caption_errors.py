@@ -16,6 +16,7 @@ from caption_errors import judge_captions as jc
 from caption_errors.judge import (
     GRAMMAR, OK, WRONG, build_messages, parse_reply, TransportError,
 )
+from caption_errors import regenerate as rg
 from caption_errors.regenerate import build_messages as regen_messages
 from caption_errors.regenerate import parse_reply as regen_parse
 from reclassify_captions import load_progress
@@ -75,8 +76,8 @@ class TestRegenerate(unittest.TestCase):
 
 
 def _args(**kw) -> argparse.Namespace:
-    base = dict(retries=0, retry_backoff=0.0, regen_rounds=2, regen_batch_size=1,
-                regen_temperature=0.3)
+    base = dict(retries=0, retry_backoff=0.0, regen_rounds=2, regen_batch_size=5,
+                regen_temperature=0.3, no_regen_single_fallback=False)
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -99,8 +100,8 @@ class TestProcessBatch(unittest.TestCase):
             [(OK, None)],                      # judge of the new caption
         ]
         with mock.patch.object(jc, "judge_items", side_effect=judge_calls), \
-             mock.patch.object(jc, "regenerate",
-                               return_value=["The motorcycle is leaning against the wall."]):
+             mock.patch.object(jc, "regenerate_checked",
+                               return_value=[("The motorcycle is leaning against the wall.", None)]):
             recs = jc.process_batch(ROWS, client=None, args=_args())
         by = {r["question_id"]: r for r in recs}
         self.assertEqual(by[1]["verdict"], OK)
@@ -116,12 +117,24 @@ class TestProcessBatch(unittest.TestCase):
         judge_calls = [[(WRONG, "unrelated")], [(WRONG, "meaning_changed")],
                        [(WRONG, "meaning_changed")]]
         with mock.patch.object(jc, "judge_items", side_effect=judge_calls), \
-             mock.patch.object(jc, "regenerate",
-                               side_effect=[["A cat is there."], ["A dog is there."]]):
+             mock.patch.object(jc, "regenerate_checked",
+                               side_effect=[[("A cat is there.", None)],
+                                            [("A dog is there.", None)]]):
             recs = jc.process_batch([ROWS[1]], client=None, args=_args())
         self.assertEqual(recs[0]["verdict"], WRONG)
         self.assertEqual(recs[0]["regen_rounds"], 2)
         self.assertEqual(recs[0]["caption"], "A dog is there.")
+
+    def test_rejected_regen_goes_to_next_round_without_judge(self) -> None:
+        judge_calls = [[(WRONG, "unrelated")], [(OK, None)]]
+        with mock.patch.object(jc, "judge_items", side_effect=judge_calls) as j,              mock.patch.object(jc, "regenerate_checked",
+                               side_effect=[[(None, "unparsed")],
+                                            [("The motorcycle is leaning against the wall.", None)]]):
+            recs = jc.process_batch([ROWS[1]], client=None, args=_args())
+        self.assertEqual(j.call_count, 2)                  # no judge call for the reject
+        self.assertEqual(recs[0]["verdict"], OK)
+        self.assertEqual(recs[0]["regen_rounds"], 2)
+        self.assertEqual(recs[0]["history"][0]["detail"], "unparsed")
 
     def test_unreadable_verdict_is_not_recorded(self) -> None:
         with mock.patch.object(jc, "judge_items", return_value=[None, (OK, None), None]):
@@ -132,6 +145,47 @@ class TestProcessBatch(unittest.TestCase):
         with mock.patch.object(jc, "judge_items", side_effect=TransportError("x")):
             with self.assertRaises(TransportError):
                 jc.process_batch(ROWS, client=None, args=_args())
+
+
+PACK = [
+    ("What activity is this boy doing?", "surfing", "x", "unrelated"),
+    ("Which way is the one way sign pointing?", "right", "x", "answer_contradicted"),
+    ("What color tie does the man have?", "green", "x", "answer_contradicted"),
+]
+
+
+class TestRegenerateChecked(unittest.TestCase):
+    def test_pack_rejects_are_redone_one_by_one(self) -> None:
+        packed = ["The one way sign points right.",            # belongs to item 2
+                  "The one way sign is pointing right.",
+                  "The man does not have a green tie."]        # spurious negation
+        # near-duplicates: the contamination check rejects BOTH (it can't tell
+        # which one is the original), so items 1, 2 and 3 are redone alone
+        singles = [["The boy is surfing."], ["The one way sign is pointing right."],
+                   ["The man has a green tie."]]
+        with mock.patch.object(rg, "regenerate",
+                               side_effect=[packed] + singles) as gen:
+            out = rg.regenerate_checked(None, PACK, batch_size=5)
+        self.assertEqual(out, [("The boy is surfing.", None),
+                               ("The one way sign is pointing right.", None),
+                               ("The man has a green tie.", None)])
+        self.assertEqual(gen.call_count, 4)                    # 1 pack + 3 singles
+
+    def test_no_single_fallback(self) -> None:
+        with mock.patch.object(rg, "regenerate",
+                               return_value=["The boy is surfing.", None,
+                                             "The man has a green tie."]) as gen:
+            out = rg.regenerate_checked(None, PACK, batch_size=5,
+                                        single_fallback=False)
+        self.assertEqual(out[1], (None, "unparsed"))
+        self.assertEqual(gen.call_count, 1)
+
+    def test_check_caption(self) -> None:
+        self.assertEqual(rg.check_caption("What color tie?", "green",
+                                          "The man does not have a green tie."),
+                         "spurious_negation")
+        self.assertIsNone(rg.check_caption("Is it raining?", "no", "It is not raining."))
+        self.assertEqual(rg.check_caption("Q?", "a", None), "unparsed")
 
 
 class TestOutputs(unittest.TestCase):

@@ -1,10 +1,13 @@
 """Regenerate a caption that the judge marked WRONG.
 
 Uses the generation rules of ``llm_prompts.SYSTEM_PROMPT`` (same style as the
-original captions), plus feedback: the previous caption and what was wrong
-with it. The few-shot captions are NOT shown again, because the 3B model
-copied them into ~900 unrelated captions ("A bus is in front of the
-building.").
+original captions), plus what was wrong with the earlier caption. The
+few-shot captions are NOT shown again, because the 3B model copied them into
+~900 unrelated captions ("A bus is in front of the building.").
+
+Captions are asked for in packs (``regenerate_checked``, default 5 per
+request, like generation) and every new caption is checked against its pack;
+rejects are asked again one at a time.
 """
 
 from __future__ import annotations
@@ -14,10 +17,12 @@ import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from llm_prompts import SYSTEM_PROMPT, PROMPT_VERSION as GENERATION_PROMPT_VERSION
+from validation.checks import has_spurious_negation
+from validation.fast_validator import fast_validate
 
 from .judge import OllamaChat, TransportError, chat_with_retry, _strip_fences
 
-REGEN_PROMPT_VERSION = f"r1+gen{GENERATION_PROMPT_VERSION}"
+REGEN_PROMPT_VERSION = f"r2+gen{GENERATION_PROMPT_VERSION}"
 
 REASON_HINTS = {
     "answer_missing": "it does not state the answer",
@@ -118,4 +123,69 @@ def regenerate(client: OllamaChat, items: Sequence[Tuple[str, str, str, str]], *
         # Batch reply unreadable: one item at a time.
         out = [regenerate(client, [it], retries=retries, backoff_s=backoff_s,
                           temperature=temperature)[0] for it in items]
+    return out
+
+
+# ---------------------------------------------------------------- packed + checked
+def check_caption(question: str, answer: str, caption: Optional[str], *,
+                  batch_pairs: Optional[Sequence[Tuple[str, str]]] = None,
+                  batch_captions: Optional[Sequence[Optional[str]]] = None,
+                  self_index: int = -1) -> Optional[str]:
+    """Reject reason for a new caption, or None if it may go to the judge.
+
+    Same hard rejects as generation (``fast_validate``: format, echo,
+    polarity, quantifier and, with the pack as context, ``batch_contamination``
+    = caption belongs to another pair of the pack), plus ``spurious_negation``:
+    a "not" that a non-yes/no answer never implied ("What color tie? / green"
+    -> "The man does not have a green tie.").
+    """
+    if not caption:
+        return "unparsed"
+    fast = fast_validate(question, answer, caption, batch_pairs=batch_pairs,
+                         batch_captions=batch_captions, self_index=self_index)
+    if fast.is_fail:
+        return fast.reasons[0] if fast.reasons else "fast_fail"
+    if has_spurious_negation(answer, caption, question):
+        return "spurious_negation"
+    return None
+
+
+def regenerate_checked(client: OllamaChat,
+                       items: Sequence[Tuple[str, str, str, str]], *,
+                       batch_size: int = 5, single_fallback: bool = True,
+                       retries: int = 3, backoff_s: float = 2.0,
+                       temperature: float = 0.3,
+                       ) -> List[Tuple[Optional[str], Optional[str]]]:
+    """Regenerate in packs of ``batch_size``, then redo rejects one by one.
+
+    Mirrors ``llm_client.OllamaClient.captions_with_retry``: a packed
+    request first, each caption checked against its pack
+    (:func:`check_caption`), and every rejected (or unreadable) item asked
+    again on its own when ``single_fallback`` is on.
+
+    Returns per item ``(caption, None)`` when the caption passed the checks,
+    or ``(caption_or_None, reject_reason)``.
+    """
+    kw = dict(retries=retries, backoff_s=backoff_s, temperature=temperature)
+    out: List[Tuple[Optional[str], Optional[str]]] = []
+    size = max(1, int(batch_size))
+    for start in range(0, len(items), size):
+        pack = list(items[start:start + size])
+        caps = regenerate(client, pack, **kw)
+        pairs = [(q, a) for q, a, _p, _r in pack]
+        res: List[Tuple[Optional[str], Optional[str]]] = []
+        for i, ((q, a, _p, _r), cap) in enumerate(zip(pack, caps)):
+            ctx = dict(batch_pairs=pairs, batch_captions=caps, self_index=i) \
+                if len(pack) > 1 else {}
+            res.append((cap, check_caption(q, a, cap, **ctx)))
+        if single_fallback and len(pack) > 1:
+            for i, (cap, why) in enumerate(res):
+                if why is None:
+                    continue
+                q, a, prev, reason = pack[i]
+                single = regenerate(client, [pack[i]], **kw)[0]
+                why1 = check_caption(q, a, single)
+                if why1 is None or single:
+                    res[i] = (single, why1)
+        out += res
     return out

@@ -84,6 +84,7 @@ def main() -> None:
     print(json.dumps(cfg, indent=2), flush=True)
 
     inp, run, jd, oll = cfg["inputs"], cfg["run"], cfg["judge"], cfg["ollama"]
+    rg = cfg["regen"]
     mode = run["mode"]
     if mode not in ("calibrate", "full"):
         raise SystemExit(f"run.mode must be 'calibrate' or 'full', got {mode!r}")
@@ -126,8 +127,10 @@ def main() -> None:
         cmd = [
             sys.executable, "-u", "-m", "caption_errors.judge_captions",
             "--input", str(captions), "--output-dir", str(out_dir), *common,
-            "--regen-batch-size", str(jd["regen_batch_size"]),
-            "--regen-rounds", str(jd["regen_rounds"]),
+            "--regen-batch-size", str(rg["batch_size"]),
+            "--regen-rounds", str(rg["rounds"]),
+            "--regen-temperature", str(rg["temperature"]),
+            *([] if rg["single_fallback"] else ["--no-regen-single-fallback"]),
             "--deadline-unix", str(deadline - SELF_STOP_BEFORE_S),
             *[str(a) for a in jd["extra_args"]],
         ]
