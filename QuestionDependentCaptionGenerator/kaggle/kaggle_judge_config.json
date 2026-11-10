@@ -3,7 +3,7 @@
     "captions": "/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014/vqa_v2_question_dependent_captions_train2014.json",
     "expected_rows": 283707,
     "audit": "audit/DevAuditor/caption_error_audit_manual.json",
-    "resume_progress": "/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014_caption_check_progress.jsonl",
+    "resume_progress": "/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014_caption_check_progress/vqa_v2_question_dependent_captions_train2014_caption_check_progress.jsonl",
     "resume_dir": null
   },
   "run": {
