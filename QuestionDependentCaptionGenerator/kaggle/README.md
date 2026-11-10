@@ -388,17 +388,26 @@ model. Use the file from the last session.
 
 ### Next session (resume)
 
-1. **Add Input → Notebook output →** the previous version of this notebook.
-2. Point `inputs.resume_dir` at the folder that holds
-   `vqa_v2_question_dependent_captions_train2014_caption_check_progress.jsonl`:
+1. From the previous session's **Output** tab, download
+   `outputs/vqa_v2_question_dependent_captions_train2014_caption_check_progress.jsonl`.
+2. Add that file to your dataset (**New Version**). Leave the original
+   captions JSON in the dataset **unchanged**, because the run always starts
+   from it. Never replace it with a session's output; the runner refuses an
+   output file as `inputs.captions`.
+3. Set `inputs.resume_progress` in `kaggle_judge_config.json` to the file's
+   path in the dataset (check with
+   `!find /kaggle/input -name "*caption_check_progress.jsonl"`), commit and
+   push. Or set it for one notebook only:
 
    ```
    %%writefile /tmp/override.json
-   {"run": {"mode": "full", "hours": 5},
-    "inputs": {"resume_dir": "/kaggle/input/<previous-notebook>/outputs"}}
+   {"inputs": {"resume_progress": "/kaggle/input/datasets/<you>/<dataset>/vqa_v2_question_dependent_captions_train2014_caption_check_progress.jsonl"}}
    ```
-3. Keep `inputs.captions` pointing at the **original** reclassified captions
-   JSON (not the previous session's output).
+4. Run the notebook. The log should say `Resuming from … (N progress lines)`.
+
+Instead of the dataset, you can also attach the previous notebook's output
+(**Add Input → Notebook output**) and set `inputs.resume_dir` to its
+`outputs` folder. If both are set, `resume_progress` wins.
 
 Each row is judged once. A run with a different model or prompt version
 refuses the progress file instead of mixing results. The end of the log says
@@ -409,7 +418,8 @@ how many rows are left and the ETA.
 | `inputs.captions` | dataset path | Reclassified captions JSON (input of the full run). |
 | `inputs.expected_rows` | `283707` | Safety check on the row count; `null` to skip. |
 | `inputs.audit` | `audit/DevAuditor/caption_error_audit_manual.json` | Gold set for `calibrate` (relative to `QuestionDependentCaptionGenerator/`). |
-| `inputs.resume_dir` | `null` | Previous session's `outputs` folder. |
+| `inputs.resume_progress` | dataset path | The previous session's `*_caption_check_progress.jsonl` (e.g. uploaded to your dataset). `null` for a fresh start. |
+| `inputs.resume_dir` | `null` | Alternative: the folder holding that file (e.g. a notebook output). |
 | `run.mode` | `"calibrate"` | `"calibrate"` or `"full"`. |
 | `run.scope` | `"all"` | Full mode only. `"all"`: every row. `"manual"`: only rows whose `caption_status` is `Need to Manual validate` in the input (~7.5k rows, ~1 h). A later `"all"` run with `resume_dir` skips rows already judged. |
 | `run.hours` | `11.0` | Max hours from runner start. |

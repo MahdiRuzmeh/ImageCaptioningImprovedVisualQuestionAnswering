@@ -20,11 +20,12 @@ run.mode:
 run.scope (full mode):
   "all"        every row
   "manual"     only rows whose caption_status is "Need to Manual validate"
-               (~7.5k rows). A later "all" run with resume_dir skips them.
+               (~7.5k rows). A later "all" run that resumes skips them.
 
 The run:
   1. checks every input path (and the captions row count), copies the
-     previous session's progress file (inputs.resume_dir, optional) into the
+     previous session's progress file (inputs.resume_progress = the file, or
+     inputs.resume_dir = its folder; optional) into the
      writable output dir;
   2. starts ONE `ollama serve` PER GPU behind a load-balancing proxy (same
      code as kaggle_runner.py), pulls + loads the model on each GPU; each
@@ -35,7 +36,8 @@ The run:
      run.shutdown_grace_min later it is killed;
   4. every session ends with a captions JSON in the output dir (rows judged so
      far carry caption_quality_verdict / verdict_reason, regenerated rows the
-     new caption). Next session: attach this output, set inputs.resume_dir.
+     new caption). Next session: put the *_caption_check_progress.jsonl in your
+     dataset and set inputs.resume_progress to it.
 """
 
 from __future__ import annotations
@@ -115,23 +117,39 @@ def main() -> None:
     else:
         captions = require_file(inp["captions"], "inputs.captions")
         with open(captions, encoding="utf-8") as f:
-            n_rows = len(json.load(f)["annotations"])
+            rows = json.load(f)["annotations"]
+        n_rows = len(rows)
         print(f"Captions: {captions} ({n_rows} rows), scope: {scope}", flush=True)
         want = inp.get("expected_rows")
         if want and int(want) != n_rows:
             raise SystemExit(
                 f"inputs.captions has {n_rows} rows, inputs.expected_rows is "
                 f"{want}. Wrong captions file? Fix the path or expected_rows.")
+        if any("caption_quality_verdict" in r for r in rows[:1000]):
+            raise SystemExit(
+                "inputs.captions is an OUTPUT of this check (it already has "
+                "caption_quality_verdict). Keep inputs.captions pointing at the "
+                "ORIGINAL captions JSON and pass the previous session's work "
+                "with inputs.resume_progress (the *_caption_check_progress.jsonl).")
+        del rows
         progress_name = captions.stem + PROGRESS_SUFFIX
-        if inp.get("resume_dir"):
+        # Previous session's progress: an exact file (resume_progress, e.g. in
+        # your dataset) or the folder holding it (resume_dir, e.g. the
+        # previous notebook's output). Either one, or neither for a fresh start.
+        prev = None
+        if inp.get("resume_progress"):
+            prev = require_file(inp["resume_progress"], "inputs.resume_progress")
+        elif inp.get("resume_dir"):
             prev = require_file(str(Path(inp["resume_dir"]) / progress_name),
                                 "inputs.resume_dir")
+        if prev is not None:
             n = sum(1 for _ in open(prev, encoding="utf-8")) - 1   # minus header
             if not args.dry_run:
                 shutil.copy2(prev, out_dir / progress_name)
             print(f"Resuming from {prev} ({n} progress lines)", flush=True)
         else:
-            print("No inputs.resume_dir: starting from row 0.", flush=True)
+            print("No inputs.resume_progress / resume_dir: starting from row 0.",
+                  flush=True)
         cmd = [
             sys.executable, "-u", "-m", "caption_errors.judge_captions",
             "--input", str(captions), "--output-dir", str(out_dir), *common,
@@ -192,13 +210,14 @@ def main() -> None:
         print(f"DONE: every row of scope '{scope}' judged; the captions JSON is "
               "in the output dir (info.caption_error_fix.progress.complete = "
               "true). " + ("To judge the other rows too, run again with "
-                           'run.scope "all" and inputs.resume_dir = this output.'
+                           'run.scope "all" and inputs.resume_progress = this progress file.'
                            if scope != "all" else ""), flush=True)
     else:
         print("NOT finished (the captions JSON in the output dir holds "
-              "everything done so far). Next session: attach this version's "
-              f"output as input and set inputs.resume_dir to the folder holding "
-              f"{progress_name}.", flush=True)
+              f"everything done so far). Next session: add {progress_name} from "
+              "the output dir to your dataset (new version) and set "
+              "inputs.resume_progress to its path. Keep inputs.captions on the "
+              "ORIGINAL captions JSON.", flush=True)
     print(f"Total wall time: {(time.time() - T0) / 3600:.2f} h", flush=True)
 
 

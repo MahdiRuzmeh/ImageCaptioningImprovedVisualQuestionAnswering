@@ -438,6 +438,11 @@ def main() -> None:
     print(f"Loading {in_path} ...", flush=True)
     data = load_json(in_path)
     rows: List[Dict[str, Any]] = data["annotations"]
+    if any("caption_quality_verdict" in r for r in rows[:1000]):
+        raise SystemExit(
+            f"{in_path} is an OUTPUT of this check (rows already have "
+            f"caption_quality_verdict). Use the ORIGINAL captions JSON as "
+            f"--input; earlier work is read from the progress file.")
     work_rows = [r for r in rows if in_scope(r, args.scope)]
     if args.max_items:
         work_rows = work_rows[:args.max_items]
@@ -467,7 +472,7 @@ def main() -> None:
         if not prog["complete"]:
             print(f"NOT finished: {prog['rows_left']} of {prog['rows_in_scope']} rows "
                   f"(scope {args.scope}) left. Re-run with the same output dir "
-                  f"(Kaggle: inputs.resume_dir) to continue.", flush=True)
+                  f"(Kaggle: inputs.resume_progress) to continue.", flush=True)
         elif not prog["complete_all"]:
             print(f"Scope {args.scope} done. {prog['rows_left_all']} other rows are "
                   f"not judged; run with --scope all (same output dir) to do them "
