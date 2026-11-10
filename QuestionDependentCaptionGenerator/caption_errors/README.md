@@ -34,7 +34,9 @@ regenerated / fixed / still wrong, and `complete` (true only when every row is j
 2. **Regenerate** the `WRONG` ones (packs of 5, checked, judged again, 2 rounds).
 3. **Code check** (`suspicious.py`, no LLM) on the FINAL caption of every row:
    - `extra_words`: a content word that is in neither the question nor the
-     answer ("to dry", "in the sky", "both", "door" for "wall");
+     answer ("to dry", "in the sky", "both", "door" for "wall"), including
+     a number that neither of them has ("What's on the plate? / donuts" ->
+     "**Two** donuts are on the plate.");
    - `polarity_flip`: the yes/no meaning looks flipped, or a "not" that a
      non-yes/no answer never implied.
 

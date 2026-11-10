@@ -29,7 +29,7 @@ from validation.checks import (
     has_yes_denial, has_yes_polarity_mismatch,
 )
 
-SUSPICIOUS_VERSION = "s1"
+SUSPICIOUS_VERSION = "s2"   # s2: added number words count as extra
 
 # Function words and words that only restate "this is in the image".
 _STOP = set("""
@@ -64,13 +64,41 @@ def _words(text: str) -> List[str]:
             if w not in _STOP]
 
 
+def _numbers(text: str) -> set:
+    """Numbers in text, as words ("2" and "two" both -> "two").
+
+    Compound numbers also add their parts: "22" -> "twenty-two", "twenty",
+    "two", because a caption's "twenty-two" is read as two words.
+    """
+    out = set()
+    for w in re.findall(r"[a-z0-9]+", text.lower()):
+        if w.isdigit():
+            word = DIGIT_TO_WORD.get(w, w)
+            out.add(word)
+            out.update(word.split("-"))
+        elif w in _NUM_WORDS:
+            out.add(w)
+    return out
+
+
 def extra_words(question: str, answer: str, caption: str) -> List[str]:
-    """Content words of the caption found in neither question nor answer."""
+    """Content words of the caption found in neither question nor answer.
+
+    A number counts as extra too when neither the question nor the answer has
+    it ("What's on the plate? / donuts" -> "Two donuts are on the plate.").
+    "one" stays allowed: it is mostly the article ("one of", "a").
+    """
     known = {_stem(w) for w in _words(f"{question} {answer}")}
     known |= {_stem(DIGIT_TO_WORD[w]) for w in _words(answer) if w in DIGIT_TO_WORD}
+    known_nums = _numbers(f"{question} {answer}")
     out: List[str] = []
     for w in _words(caption):
-        if w in _ANSWER_FORM or w in _NUM_WORDS or w.isdigit() or "n't" in w:
+        if w in _ANSWER_FORM or "n't" in w:
+            continue
+        if w.isdigit() or w in _NUM_WORDS:
+            num = DIGIT_TO_WORD.get(w, w)
+            if num not in known_nums and num != "zero" and w not in out:
+                out.append(w)
             continue
         if _stem(w) not in known and w not in out:
             out.append(w)

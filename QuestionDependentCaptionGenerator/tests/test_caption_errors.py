@@ -219,6 +219,19 @@ class TestSuspicious(unittest.TestCase):
                                     "The man does not have a green tie."),
                          ["polarity_flip"])
 
+    def test_added_numbers(self) -> None:
+        self.assertEqual(self.check("What's on the plate?", "donuts",
+                                    "Two donuts are on the plate."), ["extra_words:two"])
+        self.assertEqual(self.check("What animals are these?", "giraffes",
+                                    "There are 6 giraffes."), ["extra_words:6"])
+        for q, a, c in [("How many cars are there?", "2", "There are two cars."),
+                        ("How many animals?", "22", "There are twenty-two animals."),
+                        ("What are the 2 red things?", "trains", "The two red things are trains."),
+                        ("How many fish?", "0", "Zero fish can be seen.")]:
+            self.assertEqual(self.check(q, a, c), [], c)
+        self.assertEqual(self.check("How many animals?", "22",
+                                    "There are twenty-three animals."), ["extra_words:three"])
+
     def test_missing_words_do_not_count(self) -> None:
         self.assertEqual(self.check("What is the largest object in the water?", "ship",
                                     "A ship is in the water."), [])
