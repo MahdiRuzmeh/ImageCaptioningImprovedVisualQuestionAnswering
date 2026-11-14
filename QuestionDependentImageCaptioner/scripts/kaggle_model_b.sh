@@ -2,9 +2,10 @@
 # Model B on Kaggle (2x T4): BLIP-base question-prompted captioner → train → test metrics.
 # Run from the checkout:  cd <repo>/src/QuestionDependentImageCaptioner && bash scripts/kaggle_model_b.sh
 #
-# Inputs (Kaggle datasets, found by file name under /kaggle/input):
-#   - QD caption JSON (full generator file or prepare_full_qd.py output; checked by row count)
-#   - COCO train2014 JPEGs (folder holding COCO_train2014_000000000009.jpg)
+# Inputs (Kaggle datasets) at the paths in configs/b_blip_full.yaml:
+#   - QD captions: /kaggle/input/questiondependentcaptions/... (checked by row count)
+#   - COCO train2014: /kaggle/input/datasets/mnhlfuch/vqa-v2/.../Images/train2014
+#   A missing path is searched by file name under /kaggle/input.
 #   - optional: an earlier output of this notebook → model_b/b_blip_full/last.pt (resume)
 # Internet on: BLIP weights (Salesforce/blip-image-captioning-base, ~1 GB) + NLTK WordNet.
 #
@@ -22,8 +23,13 @@ export PYTHONIOENCODING=utf-8
 export HF_HOME=$W/hf_cache   # Finglish: BLIP weights; ghabl az tamoom shodan pak mishe (output kochik bemune)
 
 QD=$(python scripts/kaggle_find_qd.py configs/$RUN.yaml)
-IMG=$(dirname "$(find -L /kaggle/input -name COCO_train2014_000000000009.jpg -type f 2>/dev/null | head -1)")
-[ "$IMG" = "." ] && { echo "COCO train2014 images not found under /kaggle/input"; exit 1; }
+# Finglish: image dir az config; age nabashe search
+IMG=$(python -c "import yaml; print(yaml.safe_load(open('configs/$RUN.yaml'))['train_images_dir'])")
+if [ ! -f "$IMG/COCO_train2014_000000000009.jpg" ]; then
+  echo "config train_images_dir not found ($IMG), searching /kaggle/input"
+  IMG=$(dirname "$(find -L /kaggle/input -name COCO_train2014_000000000009.jpg -type f 2>/dev/null | head -1)")
+  [ "$IMG" = "." ] && { echo "COCO train2014 images not found under /kaggle/input"; exit 1; }
+fi
 echo "QD json : $QD"
 echo "images  : $IMG"
 
