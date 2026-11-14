@@ -6,7 +6,7 @@
 #   python train_blip.py --config configs/b_blip_full.yaml --test --beam 3
 seed: 42
 blip_model: Salesforce/blip-image-captioning-base
-train_captions_json: /kaggle/input/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014.json
+train_captions_json: /kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014.json
 train_images_dir: "/kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014"
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 
