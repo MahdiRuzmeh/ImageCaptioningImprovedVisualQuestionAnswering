@@ -26,7 +26,7 @@ The script finds the inputs by file name under `/kaggle/input`, so dataset slugs
 
 ```bash
 !git clone -b feat/captioner-a-mmt-butd-full --depth 1 https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git /kaggle/working/repo
-%cd /kaggle/working/repo/src/QuestionDependentImageCaptioner
+%cd /kaggle/working/repo/QuestionDependentImageCaptioner
 !STAGES="extract" bash scripts/kaggle_model_a.sh
 ```
 
