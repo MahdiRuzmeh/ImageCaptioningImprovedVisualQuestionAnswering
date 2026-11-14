@@ -1,0 +1,39 @@
+# LOCAL SMOKE TEST (tiny random BLIP from scripts/make_tiny_blip.py, no download). Model B — BLIP-base (ViT-B/16 frozen + BERT text decoder) fine-tuned with the question as prompt:
+#   [DEC] question: <question> caption: <caption> [SEP]   (loss only on the caption tokens)
+# Same file, ok filter and image-disjoint split as model A (configs/a_full_butd.yaml), so test tables compare.
+# Kaggle 2x T4; paths are patched by scripts/kaggle_model_b.sh.
+#   torchrun --nproc_per_node=2 train_blip.py --config configs/b_blip_full.yaml --continue
+#   python train_blip.py --config configs/b_blip_full.yaml --test --beam 3
+seed: 42
+blip_model: outputs/tiny_blip
+train_captions_json: ../dataset/vqa_v2_qd_captions_full_train2014.json
+train_images_dir: ../dataset/train2014
+train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+
+train_row_range: [0, 300]
+val_row_range: [300, 360]
+test_row_range: [360, 420]
+
+prompt: "question: {question} caption:"
+max_prompt_tokens: 32
+max_caption_tokens: 32
+image_size: 384
+freeze_vision: true
+
+save_dir: outputs/b_smoke
+batch_size: 8
+eval_batch_size: 16
+num_workers: 2           # per GPU process (Kaggle has 4 CPUs)
+epochs: 2
+learning_rate: 0.001
+weight_decay: 0.05
+warmup_steps: 10
+grad_clip: 1.0
+grad_accum_steps: 1
+label_smoothing: 0.1
+use_amp: true
+val_beam_size: 1
+max_hours: 11.0          # stop cleanly before Kaggle's 12 h limit; resume with --continue
+ddp: false
+ddp_backend: nccl
+ddp_find_unused_parameters: false
