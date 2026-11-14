@@ -6,6 +6,7 @@
 #   - QD captions + COCO train2014 JPEGs at the paths in configs/a_full_butd.yaml
 #     (/kaggle/input/questiondependentcaptions/..., /kaggle/input/datasets/mnhlfuch/vqa-v2/...).
 #     A missing path is searched by file name under /kaggle/input; the QD file is checked by row count.
+#   - BUTD weights: a dataset holding config.yaml + pytorch_model.bin (outputs/butd_weights on the PC)
 #   - optional: an earlier output of this notebook → its butd_packed/ (skip extraction) and
 #     model_a/<run>/last.pt (resume training)
 #
@@ -43,12 +44,21 @@ echo "images  : $IMG"
 
 echo "== 0. setup: NLTK WordNet (METEOR), BUTD weights =="
 python -c "import nltk; nltk.download('wordnet', quiet=True); nltk.download('omw-1.4', quiet=True)"
+# Finglish: BUTD weight (unc-nlp/frcnn-vg-finetuned dige roye HF nist) → az dataset-e attach shode:
+# har folder dar /kaggle/input ke config.yaml (ba "proposal_generator") + pytorch_model.bin dare
 if [ ! -f outputs/butd_weights/pytorch_model.bin ]; then
-  python - <<'EOF'
-from huggingface_hub import hf_hub_download
-for f in ("config.yaml", "pytorch_model.bin"):
-    hf_hub_download("unc-nlp/frcnn-vg-finetuned", f, local_dir="outputs/butd_weights")
-EOF
+  WDIR=""
+  while IFS= read -r c; do
+    d=$(dirname "$c")
+    if [ -f "$d/pytorch_model.bin" ] && grep -q "proposal_generator" "$c"; then WDIR=$d; break; fi
+  done < <(find -L /kaggle/input -name config.yaml -type f 2>/dev/null)
+  if [ -z "$WDIR" ]; then
+    echo "BUTD weights not found: attach a dataset with config.yaml + pytorch_model.bin"
+    echo "(outputs/butd_weights on the PC; the Hugging Face repo unc-nlp/frcnn-vg-finetuned is gone)"
+    exit 1
+  fi
+  echo "BUTD weights: $WDIR"
+  mkdir -p outputs/butd_weights && cp "$WDIR/config.yaml" "$WDIR/pytorch_model.bin" outputs/butd_weights/
 fi
 
 # Earlier session output attached? → reuse its packed cache / checkpoints (copy into the writable working dir)

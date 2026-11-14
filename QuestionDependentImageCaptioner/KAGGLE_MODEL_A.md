@@ -18,7 +18,9 @@ Model B (BLIP) uses the same file and split, so the test tables can be compared 
 1. **QD captions**: upload `dataset/vqa_v2_qd_captions_full_train2014.json` (77 MB) as a Kaggle dataset.
    The raw generator file also works; `load_qd_json` applies the same `ok` filter.
 2. **COCO train2014 images**: the `mnhlfuch/vqa-v2` dataset you already use.
-3. **Internet on**: needed once, for the BUTD weights (`unc-nlp/frcnn-vg-finetuned`, 260 MB) and NLTK WordNet (METEOR).
+3. **BUTD weights**: upload `outputs/butd_weights/` from the PC (`config.yaml` + `pytorch_model.bin`, 262 MB) as a
+   Kaggle dataset and attach it. The Hugging Face repo `unc-nlp/frcnn-vg-finetuned` is no longer available.
+4. **Internet on**: for NLTK WordNet (METEOR).
 
 The script finds the inputs by file name under `/kaggle/input`, so dataset slugs don't matter.
 
