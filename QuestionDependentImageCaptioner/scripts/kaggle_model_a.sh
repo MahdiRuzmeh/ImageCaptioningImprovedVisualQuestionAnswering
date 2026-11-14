@@ -49,8 +49,27 @@ fi
 # Earlier session output attached? → reuse its packed cache / checkpoints (copy into the writable working dir)
 PREV_META=$(find -L /kaggle/input -path '*butd_packed/meta.json' 2>/dev/null | head -1 || true)
 if [ -n "$PREV_META" ] && [ ! -f "$PACKED/meta.json" ]; then
-  echo "reusing packed cache from $(dirname "$PREV_META")"
-  mkdir -p "$PACKED" && cp -r "$(dirname "$PREV_META")"/. "$PACKED"/
+  if [[ " $STAGES " == *" extract "* ]]; then
+    # Finglish: extract bayad benevise → copy be working (resume-e extraction)
+    echo "copying packed cache from $(dirname "$PREV_META") (extraction resumes)"
+    mkdir -p "$PACKED" && cp -r "$(dirname "$PREV_META")"/. "$PACKED"/
+  else
+    # Finglish: faghat train → memmap read-only az input (bedoon copy-e 12 GB, output kochik)
+    PACKED=$(dirname "$PREV_META")
+    echo "using packed cache in place (read-only): $PACKED"
+  fi
+fi
+if [[ " $STAGES " != *" extract "* ]] && [ ! -f "$PACKED/meta.json" ]; then
+  echo "No BUTD packed cache: attach the output of the STAGES=extract run (it holds butd_packed/meta.json)"; exit 1
+fi
+if [[ " $STAGES " != *" extract "* ]]; then
+  python - "$PACKED" <<'EOF'
+import sys, numpy as np, json, pathlib
+d = pathlib.Path(sys.argv[1]); n = len(json.loads((d / "meta.json").read_text())["ids"])
+done = int(np.memmap(d / "done.u8", np.uint8, "r", shape=(n,)).sum())
+print(f"packed cache: {done}/{n} images extracted")
+sys.exit(0 if done == n else "extraction incomplete: rerun STAGES=extract with this output attached")
+EOF
 fi
 for run in a_full_butd a_full_butd_large; do
   prev=$(find -L /kaggle/input -path "*model_a/$run/last.pt" 2>/dev/null | head -1 || true)
