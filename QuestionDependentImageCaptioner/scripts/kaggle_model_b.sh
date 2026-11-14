@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Model B on Kaggle (2x T4): BLIP-base question-prompted captioner → train → test metrics.
-# Run from the checkout:  cd <repo>/src/QuestionDependentImageCaptioner && bash scripts/kaggle_model_b.sh
+# Run from the checkout:  cd <repo>/QuestionDependentImageCaptioner && bash scripts/kaggle_model_b.sh
 #
 # Inputs (Kaggle datasets) at the paths in configs/b_blip_full.yaml:
 #   - QD captions: /kaggle/input/questiondependentcaptions/... (checked by row count)

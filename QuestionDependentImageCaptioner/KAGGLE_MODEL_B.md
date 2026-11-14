@@ -18,7 +18,7 @@ No BUTD and no feature extraction: images are read straight from the COCO JPEGs.
 
 ```bash
 !git clone -b feat/captioner-b-blip --depth 1 https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git /kaggle/working/repo
-%cd /kaggle/working/repo/src/QuestionDependentImageCaptioner
+%cd /kaggle/working/repo/QuestionDependentImageCaptioner
 !bash scripts/kaggle_model_b.sh
 ```
 

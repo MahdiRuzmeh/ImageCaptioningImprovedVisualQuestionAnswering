@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Model A on Kaggle (2x T4): BUTD packed cache → train a_full_butd (+ a_full_butd_large) → test metrics.
-# Run from the checkout:  cd <repo>/src/QuestionDependentImageCaptioner && bash scripts/kaggle_model_a.sh
+# Run from the checkout:  cd <repo>/QuestionDependentImageCaptioner && bash scripts/kaggle_model_a.sh
 #
 # Inputs (attach as Kaggle datasets):
 #   - QD captions + COCO train2014 JPEGs at the paths in configs/a_full_butd.yaml
