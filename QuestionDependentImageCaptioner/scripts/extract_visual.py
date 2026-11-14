@@ -39,7 +39,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from train import load_config, region_cache_dir_for_split, resolve_path_fields, split_rows  # noqa: E402
+from packed_cache import PackedWriter, init_packed  # noqa: E402
+from train import load_config, load_qd_json, region_cache_dir_for_split, resolve_path_fields, split_rows  # noqa: E402
 
 Batch = Tuple[List[torch.Tensor], List[torch.Tensor]]  # per image: feats (T, D), boxes (T, 4)
 
@@ -204,6 +205,12 @@ def main() -> None:
     p.add_argument("--ids-json", default=None, help="JSON list of records with image_id (instead of the QD split)")
     p.add_argument("--images-dir", default=None)
     p.add_argument("--template", default=None)
+    # Finglish: packed memmap (packed_cache.py) — hame image haye train_captions_json, yek file
+    p.add_argument("--packed-dir", default=None, help="Write one packed memmap cache instead of {id}.pt files")
+    p.add_argument("--init-only", action="store_true", help="With --packed-dir: create the files and exit")
+    p.add_argument("--shard", default="0/1", help="i/n: this process extracts ids[i::n] (packed mode)")
+    p.add_argument("--device", default=None, help="e.g. cuda:1")
+    p.add_argument("--limit", type=int, default=None, help="Only the first N images (smoke test)")
     args = p.parse_args()
     config_path = Path(args.config)
     if not config_path.is_absolute():
@@ -211,9 +218,12 @@ def main() -> None:
     cfg = load_config(str(config_path))
     resolve_path_fields(cfg, ("train_captions_json", "train_images_dir", "val_images_dir",
                               "train_region_cache_dir", "val_region_cache_dir", "test_region_cache_dir"))
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    run = BACKENDS[cfg["visual_backend"]](cfg, device)
+    device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     dim = int(cfg["visual_feat_dim"])
+    if args.packed_dir:
+        run_packed(args, cfg, device, dim)
+        return
+    run = BACKENDS[cfg["visual_backend"]](cfg, device)
 
     jobs = []  # (name, cache_dir, ids, images_dir, template)
     if args.ids_json:
@@ -237,6 +247,32 @@ def main() -> None:
             for iid, f, b in zip(chunk, feats, boxes):
                 assert f.shape[1] == dim, f"feat dim {f.shape[1]} != visual_feat_dim {dim}"
                 torch.save({"feats": f.half().cpu(), "boxes": b.half().cpu()}, cache_dir / f"{iid}.pt")
+
+
+def run_packed(args, cfg, device, dim: int) -> None:
+    """Finglish: hame image_id haye JSON (train/val/test) → yek memmap; shard i/n baraye 2 GPU, resume ba done flag."""
+    ids = sorted({int(r["image_id"]) for r in load_qd_json(cfg["train_captions_json"])})
+    if args.limit:
+        ids = ids[: args.limit]
+    init_packed(args.packed_dir, ids, int(cfg["max_regions"]), dim)
+    if args.init_only:
+        print(f"packed cache ready: {args.packed_dir} ({len(ids)} images)")
+        return
+    i, n = (int(x) for x in args.shard.split("/"))
+    writer = PackedWriter(args.packed_dir)
+    todo = writer.todo(ids[i::n])
+    print(f"shard {i}/{n}: images={len(ids[i::n])} to_extract={len(todo)} device={device}")
+    if not todo:
+        return
+    run = BACKENDS[cfg["visual_backend"]](cfg, device)
+    dl = DataLoader(_Images(todo, Path(args.images_dir or cfg["train_images_dir"]),
+                            args.template or cfg["train_image_filename_template"]),
+                    batch_size=args.batch_size, num_workers=args.num_workers, collate_fn=_collate)
+    for imgs, chunk in tqdm(dl, desc=f"shard{i}", mininterval=30):
+        feats, boxes = run(imgs)
+        for iid, f, b in zip(chunk, feats, boxes):
+            writer.write(iid, f.half().cpu().numpy(), b.half().cpu().numpy())
+    writer.flush()
 
 
 if __name__ == "__main__":

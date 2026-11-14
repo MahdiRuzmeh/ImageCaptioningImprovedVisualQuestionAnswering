@@ -1,4 +1,7 @@
-"""Caption metrics (BLEU-1..4 + CIDEr-D) — self-contained, no extra installs.
+"""Caption metrics (BLEU-1..4, CIDEr-D, ROUGE-L, METEOR, AnswerHit).
+
+METEOR = NLTK ``meteor_score`` (exact + stem + WordNet synonym; needs ``nltk.download("wordnet")``).
+It is close to, but not identical with, the Java coco-caption METEOR; without WordNet it is NaN.
 
 Finglish — chera in file?
     token accuracy (teacher forcing) grounding ro nemibine; metric vagheie caption
@@ -237,11 +240,32 @@ def answer_hit(
     return {"AnswerHit": hits / n if n else 0.0, "AnswerHit_n": float(n)}
 
 
+_METEOR_WARNED = False
+
+
+def meteor(hyps: List[List[str]], refs: List[List[List[str]]]) -> float:
+    """Finglish — miangin-e sentence METEOR (NLTK). WordNet nabashe → NaN (yek bar warning)."""
+    global _METEOR_WARNED
+    try:
+        from nltk.corpus import wordnet
+        from nltk.translate.meteor_score import meteor_score
+
+        wordnet.ensure_loaded()
+    except (ImportError, LookupError) as e:
+        if not _METEOR_WARNED:
+            print(f"[metrics] METEOR skipped (NaN): {type(e).__name__}; run nltk.download('wordnet')")
+            _METEOR_WARNED = True
+        return float("nan")
+    scores = [meteor_score(r, h) if h and r else 0.0 for h, r in zip(hyps, refs)]
+    return float(np.mean(scores)) if scores else 0.0
+
+
 def compute_caption_metrics(
     hyps: List[List[str]], refs: List[List[List[str]]]
 ) -> Dict[str, float]:
-    """Finglish: BLEU-1..4 + CIDEr + ROUGE-L ro yekja hesab mikone va dict barmigardune."""
+    """Finglish: BLEU-1..4 + CIDEr + ROUGE-L + METEOR ro yekja hesab mikone va dict barmigardune."""
     out = corpus_bleu(hyps, refs, max_n=4)
     out["CIDEr"] = cider_d(hyps, refs, n=4)
     out["ROUGE-L"] = rouge_l(hyps, refs)
+    out["METEOR"] = meteor(hyps, refs)
     return out

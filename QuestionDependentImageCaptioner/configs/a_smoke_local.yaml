@@ -1,0 +1,73 @@
+# Local smoke test of model A (RTX 3070, single GPU): first ~320 images of the full JSON, packed BUTD cache.
+#   python scripts/extract_visual.py --config configs/a_smoke_local.yaml --packed-dir outputs/butd_packed_smoke --limit 320 --batch-size 1
+#   python train.py --config configs/a_smoke_local.yaml --fresh
+#   python benchmark.py --config configs/a_smoke_local.yaml --ckpt outputs/a_smoke/best.pt --name a_smoke
+seed: 42
+model_class: MMTransformerCopyCaptioner
+train_captions_json: ../dataset/vqa_v2_qd_captions_full_train2014.json
+val_captions_json: ../dataset/vqa_v2_qd_captions_full_train2014.json
+train_images_dir: ../dataset/train2014
+val_images_dir: ../dataset/train2014
+train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+val_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+
+# --- image-disjoint split from scripts/prepare_full_qd.py (info.splits) ---
+train_row_range: [0, 800]
+val_row_range: [800, 900]
+test_row_range: [900, 1000]
+
+# --- BUTD: packed memmap (packed_cache.py, scripts/extract_visual.py --packed-dir) ---
+visual_backend: butd
+visual_feat_dim: 2048
+max_regions: 37
+images_from_cache: true
+cache_regions: true
+train_region_cache_dir: outputs/butd_packed_smoke
+val_region_cache_dir: outputs/butd_packed_smoke
+test_region_cache_dir: outputs/butd_packed_smoke
+
+save_dir: outputs/a_smoke
+save_model_type: epoch
+save_every_samples: 100000
+save_last: true
+select_metric: cider
+val_beam_size: 1
+save_detector_weights: false
+num_workers: 0
+batch_size: 32
+epochs: 2
+eval_every: 1
+optimizer: adamw
+learning_rate: 0.0003
+weight_decay: 0.01
+warmup_steps: 20
+grad_clip: 2.0
+label_smoothing: 0.1
+dropout: 0.1
+lr_decay_factor: 0.6
+lr_decay_interval: 3
+use_amp: true
+grad_accum_steps: 1
+max_caption_len: 24
+max_question_len: 16
+vocab_min_freq: 1
+cap_vocab_include_question: true
+
+image_size: 448
+pin_memory: true
+persistent_workers: false
+prefetch_factor: 2
+word_dim: 512
+hidden_dim: 512
+num_heads: 8
+num_layers: 3
+ff_dim: 1024
+embed_dim: 512
+region_dim: 2048
+question_dim: 1280
+fuse_mode: concat
+device: cuda
+ddp: false
+ddp_backend: nccl
+max_train_images: null
+max_val_images: null

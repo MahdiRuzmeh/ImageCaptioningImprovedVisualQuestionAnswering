@@ -20,6 +20,8 @@ from typing import Dict, List, Optional, Tuple
 import torch
 from torch import nn
 
+from packed_cache import PackedReader, is_packed
+
 BOX_DIM = 5  # x1, y1, x2, y2, area
 
 
@@ -38,8 +40,20 @@ class CachedVisualEncoder(nn.Module):
         self.feat_dim = int(feat_dim)
         # Finglish: RAM cache fp16 (CPU) — grid feature ha bozorgtaran (144 x 1152)
         self._mem_cache: Dict[str, torch.Tensor] = {}
+        self._packed: Dict[str, Optional[PackedReader]] = {}
 
     def _load(self, cache_dir: str, image_id: int) -> torch.Tensor:
+        # Finglish: packed memmap (packed_cache.py) → bedoon _mem_cache, page cache-e OS
+        reader = self._packed.get(cache_dir)
+        if reader is None and cache_dir not in self._packed:
+            reader = PackedReader(cache_dir) if is_packed(cache_dir) else None
+            self._packed[cache_dir] = reader
+        if reader is not None:
+            f, b = reader.get(image_id)
+            feats, boxes = torch.from_numpy(f)[: self.max_tokens], torch.from_numpy(b)[: self.max_tokens]
+            t = torch.zeros(self.max_tokens, self.feat_dim + BOX_DIM)
+            t[: len(feats)] = torch.cat([feats, box_geometry(boxes)], dim=1)
+            return t.half()
         p = str(Path(cache_dir) / f"{int(image_id)}.pt")
         t = self._mem_cache.get(p)
         if t is None:

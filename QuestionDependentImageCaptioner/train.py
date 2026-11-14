@@ -56,6 +56,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from decoding import generate_split_captions
 from metrics import answer_hit, compute_caption_metrics
+from packed_cache import is_packed, missing_ids as packed_missing_ids
 from models import build_captioner
 
 """
@@ -516,7 +517,11 @@ def load_qd_json(path: str) -> List[Dict[str, Any]]:
     """
     with Path(path).open("r", encoding="utf-8") as f:
         data = json.load(f)
-    return list(data["annotations"])
+    rows = list(data["annotations"])
+    # Finglish: JSON-e jadid (judge) → faghat caption_quality_verdict == "ok"; file-e ghadimi field nadare
+    if rows and "caption_quality_verdict" in rows[0]:
+        rows = [r for r in rows if r.get("caption_quality_verdict") == "ok"]
+    return rows
 
 
 def build_qd_vocabs(
@@ -620,13 +625,16 @@ class VqaQdCaptionDataset(Dataset):
         if self.images_from_cache:
             if not region_cache_dir:
                 raise ValueError("images_from_cache needs a region cache dir")
-            missing = sorted(
-                {
-                    s["image_id"]
-                    for s in self.samples
-                    if not (Path(region_cache_dir) / f"{s['image_id']}.pt").exists()
-                }
-            )
+            if is_packed(region_cache_dir):
+                missing = packed_missing_ids(region_cache_dir, {s["image_id"] for s in self.samples})
+            else:
+                missing = sorted(
+                    {
+                        s["image_id"]
+                        for s in self.samples
+                        if not (Path(region_cache_dir) / f"{s['image_id']}.pt").exists()
+                    }
+                )
             if missing:
                 raise FileNotFoundError(
                     f"{len(missing)} images not in region cache {region_cache_dir} "

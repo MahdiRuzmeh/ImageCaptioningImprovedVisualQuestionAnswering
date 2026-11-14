@@ -1,0 +1,75 @@
+# Model A-large — same as a_full_butd.yaml but 6 layers / FFN 2048 (more capacity for 264k rows).
+# Model A — MMTransformerCopyCaptioner (joint region+question encoder, decoder, copy) on BUTD regions,
+# trained from scratch on the FULL QD caption set (caption_quality_verdict == ok, 277,318 rows).
+# Kaggle 2x T4 (torchrun). Paths are patched at run time by scripts/kaggle_model_a.sh (it searches /kaggle/input),
+# so only the values below that are not paths matter.
+#   torchrun --nproc_per_node=2 train.py --config configs/a_full_butd_large.yaml --continue
+seed: 42
+model_class: MMTransformerCopyCaptioner
+train_captions_json: ../dataset/vqa_v2_qd_captions_full_train2014.json
+val_captions_json: ../dataset/vqa_v2_qd_captions_full_train2014.json
+train_images_dir: ../dataset/train2014
+val_images_dir: ../dataset/train2014
+train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+val_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+
+# --- image-disjoint split from scripts/prepare_full_qd.py (info.splits) ---
+train_row_range: [0, 264318]
+val_row_range: [264318, 267321]
+test_row_range: [267321, 277318]
+
+# --- BUTD: packed memmap (packed_cache.py, scripts/extract_visual.py --packed-dir) ---
+visual_backend: butd
+visual_feat_dim: 2048
+max_regions: 37
+images_from_cache: true
+cache_regions: true
+train_region_cache_dir: outputs/butd_packed
+val_region_cache_dir: outputs/butd_packed
+test_region_cache_dir: outputs/butd_packed
+
+save_dir: outputs/a_full_butd_large
+save_model_type: epoch
+save_every_samples: 100000
+save_last: true
+select_metric: cider
+val_beam_size: 1
+save_detector_weights: false
+num_workers: 2
+batch_size: 64          # per GPU → 128 global
+epochs: 15
+eval_every: 1
+optimizer: adamw
+learning_rate: 0.0003
+weight_decay: 0.01
+warmup_steps: 2000
+grad_clip: 2.0
+label_smoothing: 0.1
+dropout: 0.1
+lr_decay_factor: 0.6
+lr_decay_interval: 3
+use_amp: true
+grad_accum_steps: 1
+max_caption_len: 24
+max_question_len: 16
+vocab_min_freq: 3
+cap_vocab_include_question: true
+
+image_size: 448
+pin_memory: true
+persistent_workers: false
+prefetch_factor: 2
+word_dim: 512
+hidden_dim: 512
+num_heads: 8
+num_layers: 6
+ff_dim: 2048
+embed_dim: 512
+region_dim: 2048
+question_dim: 1280
+fuse_mode: concat
+device: cuda
+ddp: true
+ddp_backend: nccl
+max_train_images: null
+max_val_images: null
