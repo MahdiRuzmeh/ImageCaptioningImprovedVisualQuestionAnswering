@@ -29,9 +29,8 @@ find_one() {  # find_one <name> [type] → first match under /kaggle/input
   find -L /kaggle/input -name "$1" ${2:+-type $2} 2>/dev/null | head -1
 }
 
-QD=$(find_one vqa_v2_qd_captions_full_train2014.json f)
-[ -z "$QD" ] && QD=$(find_one vqa_v2_question_dependent_captions_train2014.json f)
-[ -z "$QD" ] && { echo "QD caption JSON not found under /kaggle/input"; exit 1; }
+# Finglish: file-e QD ba row count-e split check mishe (JSON-e ghadimi ghabool nemishe)
+QD=$(python scripts/kaggle_find_qd.py configs/a_full_butd.yaml)
 IMG=$(dirname "$(find_one COCO_train2014_000000000009.jpg f)")
 [ "$IMG" = "." ] && { echo "COCO train2014 images not found under /kaggle/input"; exit 1; }
 echo "QD json : $QD"
