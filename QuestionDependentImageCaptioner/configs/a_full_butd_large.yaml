@@ -1,15 +1,15 @@
 # Model A-large — same as a_full_butd.yaml but 6 layers / FFN 2048 (more capacity for 264k rows).
 # Model A — MMTransformerCopyCaptioner (joint region+question encoder, decoder, copy) on BUTD regions,
 # trained from scratch on the FULL QD caption set (caption_quality_verdict == ok, 277,318 rows).
-# Kaggle 2x T4 (torchrun). Paths are patched at run time by scripts/kaggle_model_a.sh (it searches /kaggle/input),
-# so only the values below that are not paths matter.
+# Kaggle 2x T4 (torchrun), Kaggle paths below. scripts/kaggle_model_a.sh uses them as they are; only if a path is
+# missing it searches /kaggle/input, and an attached BUTD cache from an earlier run replaces the cache dir.
 #   torchrun --nproc_per_node=2 train.py --config configs/a_full_butd_large.yaml --continue
 seed: 42
 model_class: MMTransformerCopyCaptioner
-train_captions_json: ../dataset/vqa_v2_qd_captions_full_train2014.json
-val_captions_json: ../dataset/vqa_v2_qd_captions_full_train2014.json
-train_images_dir: ../dataset/train2014
-val_images_dir: ../dataset/train2014
+train_captions_json: /kaggle/input/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014.json
+val_captions_json: /kaggle/input/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014.json
+train_images_dir: "/kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014"
+val_images_dir: "/kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014"
 train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 val_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
 
@@ -24,11 +24,11 @@ visual_feat_dim: 2048
 max_regions: 37
 images_from_cache: true
 cache_regions: true
-train_region_cache_dir: outputs/butd_packed
-val_region_cache_dir: outputs/butd_packed
-test_region_cache_dir: outputs/butd_packed
+train_region_cache_dir: /kaggle/working/butd_packed
+val_region_cache_dir: /kaggle/working/butd_packed
+test_region_cache_dir: /kaggle/working/butd_packed
 
-save_dir: outputs/a_full_butd_large
+save_dir: /kaggle/working/model_a/a_full_butd_large
 save_model_type: epoch
 save_every_samples: 100000
 save_last: true

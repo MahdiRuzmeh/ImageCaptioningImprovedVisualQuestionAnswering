@@ -2,10 +2,10 @@
 # Model A on Kaggle (2x T4): BUTD packed cache → train a_full_butd (+ a_full_butd_large) → test metrics.
 # Run from the checkout:  cd <repo>/src/QuestionDependentImageCaptioner && bash scripts/kaggle_model_a.sh
 #
-# Inputs (attach as Kaggle datasets; found by file name under /kaggle/input, no fixed paths):
-#   - vqa_v2_qd_captions_full_train2014.json   (scripts/prepare_full_qd.py) — or the raw generator file
-#     vqa_v2_question_dependent_captions_train2014.json (same rows: load_qd_json keeps verdict == ok)
-#   - COCO train2014 JPEGs (folder holding COCO_train2014_000000000009.jpg)
+# Inputs (attach as Kaggle datasets):
+#   - QD captions + COCO train2014 JPEGs at the paths in configs/a_full_butd.yaml
+#     (/kaggle/input/questiondependentcaptions/..., /kaggle/input/datasets/mnhlfuch/vqa-v2/...).
+#     A missing path is searched by file name under /kaggle/input; the QD file is checked by row count.
 #   - optional: an earlier output of this notebook → its butd_packed/ (skip extraction) and
 #     model_a/<run>/last.pt (resume training)
 #
@@ -31,8 +31,13 @@ find_one() {  # find_one <name> [type] → first match under /kaggle/input
 
 # Finglish: file-e QD ba row count-e split check mishe (JSON-e ghadimi ghabool nemishe)
 QD=$(python scripts/kaggle_find_qd.py configs/a_full_butd.yaml)
-IMG=$(dirname "$(find_one COCO_train2014_000000000009.jpg f)")
-[ "$IMG" = "." ] && { echo "COCO train2014 images not found under /kaggle/input"; exit 1; }
+# Finglish: image dir az config; age nabashe search
+IMG=$(python -c "import yaml; print(yaml.safe_load(open('configs/a_full_butd.yaml'))['train_images_dir'])")
+if [ ! -f "$IMG/COCO_train2014_000000000009.jpg" ]; then
+  echo "config train_images_dir not found ($IMG), searching /kaggle/input"
+  IMG=$(dirname "$(find_one COCO_train2014_000000000009.jpg f)")
+  [ "$IMG" = "." ] && { echo "COCO train2014 images not found under /kaggle/input"; exit 1; }
+fi
 echo "QD json : $QD"
 echo "images  : $IMG"
 
