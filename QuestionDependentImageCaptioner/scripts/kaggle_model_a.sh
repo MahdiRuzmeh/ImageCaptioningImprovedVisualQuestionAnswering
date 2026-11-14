@@ -6,7 +6,8 @@
 #   - QD captions + COCO train2014 JPEGs at the paths in configs/a_full_butd.yaml
 #     (/kaggle/input/questiondependentcaptions/..., /kaggle/input/datasets/mnhlfuch/vqa-v2/...).
 #     A missing path is searched by file name under /kaggle/input; the QD file is checked by row count.
-#   - BUTD weights: a dataset holding config.yaml + pytorch_model.bin (outputs/butd_weights on the PC)
+#   - BUTD weights: downloaded from HF's legacy S3 bucket (internet on, sha256 checked); only if that fails,
+#     a dataset holding config.yaml + pytorch_model.bin is used
 #   - optional: an earlier output of this notebook → its butd_packed/ (skip extraction) and
 #     model_a/<run>/last.pt (resume training)
 #
@@ -44,8 +45,22 @@ echo "images  : $IMG"
 
 echo "== 0. setup: NLTK WordNet (METEOR), BUTD weights =="
 python -c "import nltk; nltk.download('wordnet', quiet=True); nltk.download('omw-1.4', quiet=True)"
-# Finglish: BUTD weight (unc-nlp/frcnn-vg-finetuned dige roye HF nist) → az dataset-e attach shode:
-# har folder dar /kaggle/input ke config.yaml (ba "proposal_generator") + pytorch_model.bin dare
+# Finglish: BUTD weight — repo-e HF (unc-nlp/frcnn-vg-finetuned) dige baz nemishe, vali bucket-e S3-e
+# ghadimi-e HF hamoon file ro dare (sha256 = hamoon file-e PC, check shode 2026-11-14).
+# Download fail beshe → fallback: dataset-e attach shode ba config.yaml + pytorch_model.bin
+BUTD_URL=https://s3.amazonaws.com/models.huggingface.co/bert/unc-nlp/frcnn-vg-finetuned
+BUTD_SHA=d3bf8ad74828a244a95d85e17a842cc0ac75419a53e4e81ee68386f192bb24c5
+if [ ! -f outputs/butd_weights/pytorch_model.bin ]; then
+  mkdir -p outputs/butd_weights
+  if curl -sfL --retry 3 -o outputs/butd_weights/config.yaml "$BUTD_URL/config.yaml" \
+     && curl -sfL --retry 3 -o outputs/butd_weights/pytorch_model.bin "$BUTD_URL/pytorch_model.bin" \
+     && echo "$BUTD_SHA  outputs/butd_weights/pytorch_model.bin" | sha256sum -c --quiet; then
+    echo "BUTD weights downloaded from $BUTD_URL (sha256 OK)"
+  else
+    echo "BUTD download failed or checksum mismatch; looking for an attached dataset"
+    rm -f outputs/butd_weights/config.yaml outputs/butd_weights/pytorch_model.bin
+  fi
+fi
 if [ ! -f outputs/butd_weights/pytorch_model.bin ]; then
   WDIR=""
   while IFS= read -r c; do
