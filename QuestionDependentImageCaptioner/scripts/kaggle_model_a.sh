@@ -2,10 +2,10 @@
 # Model A on Kaggle (2x T4): BUTD packed cache → train a_full_butd (+ a_full_butd_large) → test metrics.
 # Run from the checkout:  cd <repo>/src/QuestionDependentImageCaptioner && bash scripts/kaggle_model_a.sh
 #
-# Inputs (attach as Kaggle datasets; found by file name under /kaggle/input, no fixed paths):
-#   - vqa_v2_qd_captions_full_train2014.json   (scripts/prepare_full_qd.py) — or the raw generator file
-#     vqa_v2_question_dependent_captions_train2014.json (same rows: load_qd_json keeps verdict == ok)
-#   - COCO train2014 JPEGs (folder holding COCO_train2014_000000000009.jpg)
+# Inputs (attach as Kaggle datasets):
+#   - QD captions + COCO train2014 JPEGs at the paths in configs/a_full_butd.yaml
+#     (/kaggle/input/questiondependentcaptions/..., /kaggle/input/datasets/mnhlfuch/vqa-v2/...).
+#     A missing path is searched by file name under /kaggle/input; the QD file is checked by row count.
 #   - optional: an earlier output of this notebook → its butd_packed/ (skip extraction) and
 #     model_a/<run>/last.pt (resume training)
 #
@@ -31,8 +31,13 @@ find_one() {  # find_one <name> [type] → first match under /kaggle/input
 
 # Finglish: file-e QD ba row count-e split check mishe (JSON-e ghadimi ghabool nemishe)
 QD=$(python scripts/kaggle_find_qd.py configs/a_full_butd.yaml)
-IMG=$(dirname "$(find_one COCO_train2014_000000000009.jpg f)")
-[ "$IMG" = "." ] && { echo "COCO train2014 images not found under /kaggle/input"; exit 1; }
+# Finglish: image dir az config; age nabashe search
+IMG=$(python -c "import yaml; print(yaml.safe_load(open('configs/a_full_butd.yaml'))['train_images_dir'])")
+if [ ! -f "$IMG/COCO_train2014_000000000009.jpg" ]; then
+  echo "config train_images_dir not found ($IMG), searching /kaggle/input"
+  IMG=$(dirname "$(find_one COCO_train2014_000000000009.jpg f)")
+  [ "$IMG" = "." ] && { echo "COCO train2014 images not found under /kaggle/input"; exit 1; }
+fi
 echo "QD json : $QD"
 echo "images  : $IMG"
 
@@ -49,8 +54,27 @@ fi
 # Earlier session output attached? → reuse its packed cache / checkpoints (copy into the writable working dir)
 PREV_META=$(find -L /kaggle/input -path '*butd_packed/meta.json' 2>/dev/null | head -1 || true)
 if [ -n "$PREV_META" ] && [ ! -f "$PACKED/meta.json" ]; then
-  echo "reusing packed cache from $(dirname "$PREV_META")"
-  mkdir -p "$PACKED" && cp -r "$(dirname "$PREV_META")"/. "$PACKED"/
+  if [[ " $STAGES " == *" extract "* ]]; then
+    # Finglish: extract bayad benevise → copy be working (resume-e extraction)
+    echo "copying packed cache from $(dirname "$PREV_META") (extraction resumes)"
+    mkdir -p "$PACKED" && cp -r "$(dirname "$PREV_META")"/. "$PACKED"/
+  else
+    # Finglish: faghat train → memmap read-only az input (bedoon copy-e 12 GB, output kochik)
+    PACKED=$(dirname "$PREV_META")
+    echo "using packed cache in place (read-only): $PACKED"
+  fi
+fi
+if [[ " $STAGES " != *" extract "* ]] && [ ! -f "$PACKED/meta.json" ]; then
+  echo "No BUTD packed cache: attach the output of the STAGES=extract run (it holds butd_packed/meta.json)"; exit 1
+fi
+if [[ " $STAGES " != *" extract "* ]]; then
+  python - "$PACKED" <<'EOF'
+import sys, numpy as np, json, pathlib
+d = pathlib.Path(sys.argv[1]); n = len(json.loads((d / "meta.json").read_text())["ids"])
+done = int(np.memmap(d / "done.u8", np.uint8, "r", shape=(n,)).sum())
+print(f"packed cache: {done}/{n} images extracted")
+sys.exit(0 if done == n else "extraction incomplete: rerun STAGES=extract with this output attached")
+EOF
 fi
 for run in a_full_butd a_full_butd_large; do
   prev=$(find -L /kaggle/input -path "*model_a/$run/last.pt" 2>/dev/null | head -1 || true)
