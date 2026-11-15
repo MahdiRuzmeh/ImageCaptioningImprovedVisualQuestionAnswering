@@ -22,7 +22,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from decoding import generate_split_captions
-from metrics import answer_hit, compute_caption_metrics
+from metrics import answer_hit, compute_caption_metrics, yes_no_polarity
 from models import build_captioner
 from train import (
     PROJECT_ROOT,
@@ -78,6 +78,7 @@ def score_block(
     refs = [[tok(s["caption"])] for s in samples]
     out = compute_caption_metrics(hyps, refs)
     out.update(answer_hit(hyps, [tok(s["answer"]) for s in samples]))
+    out.update(yes_no_polarity(hyps, [tok(s["answer"]) for s in samples]))
     out["n"] = float(len(samples))
     return out
 

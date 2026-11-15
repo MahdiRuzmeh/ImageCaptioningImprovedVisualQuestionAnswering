@@ -260,6 +260,27 @@ def meteor(hyps: List[List[str]], refs: List[List[List[str]]]) -> float:
     return float(np.mean(scores)) if scores else 0.0
 
 
+# Finglish: yes/no — javab dar caption kalame nist, polarity hast ("that is not a real dog" → no)
+NEGATION_WORDS = {"not", "no", "none", "nobody", "nothing", "never", "neither", "nor", "cannot", "nowhere"}
+
+
+def caption_negated(caption_tokens: List[str]) -> bool:
+    """Finglish: caption manfi-e? not / no / none / ... ya contraction-e "n't" (tok: "isn't" yek token)."""
+    return any(w in NEGATION_WORDS or w.endswith("n't") or w.endswith("nt'") for w in caption_tokens)
+
+
+def yes_no_polarity(hyps: List[List[str]], answers: List[List[str]]) -> Dict[str, float]:
+    """Finglish — sahm-e soal haye yes/no ke polarity-e caption ba javab mikhoone (negated ⇔ no)."""
+    ok, n = 0, 0
+    for hyp, ans in zip(hyps, answers):
+        a = " ".join(ans)
+        if a not in NON_LEXICAL_ANSWERS:
+            continue
+        n += 1
+        ok += int(caption_negated(hyp) == (a == "no"))
+    return {"YesNoPolarity": ok / n if n else 0.0, "YesNo_n": float(n)}
+
+
 def compute_caption_metrics(
     hyps: List[List[str]], refs: List[List[List[str]]]
 ) -> Dict[str, float]:

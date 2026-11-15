@@ -1,0 +1,27 @@
+# Local evaluation (RTX 3070) of the Kaggle-trained captioners on the TEST split (grounding report).
+# Model hyper-parameters come from each checkpoint; only data/split/cache keys are read from here.
+#   python scripts/extract_visual.py --config configs/eval_local.yaml --packed-dir outputs/butd_packed_test --splits test --batch-size 1
+#   python scripts/grounding_eval.py --family mmt --config configs/eval_local.yaml --ckpt a_full_butd/best.pt --name a_full_butd
+seed: 42
+train_captions_json: ../dataset/vqa_v2_qd_captions_full_train2014.json
+val_captions_json: ../dataset/vqa_v2_qd_captions_full_train2014.json
+train_images_dir: ../dataset/train2014
+val_images_dir: ../dataset/train2014
+train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+val_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+train_row_range: [0, 264318]
+val_row_range: [264318, 267321]
+test_row_range: [267321, 277318]
+visual_backend: butd
+visual_feat_dim: 2048
+max_regions: 37
+images_from_cache: true
+cache_regions: true
+train_region_cache_dir: outputs/butd_packed_test
+val_region_cache_dir: outputs/butd_packed_test
+test_region_cache_dir: outputs/butd_packed_test
+max_caption_len: 24
+max_question_len: 16
+batch_size: 64
+num_workers: 0
+image_size: 448

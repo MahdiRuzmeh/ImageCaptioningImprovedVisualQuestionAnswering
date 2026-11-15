@@ -211,6 +211,7 @@ def main() -> None:
     p.add_argument("--shard", default="0/1", help="i/n: this process extracts ids[i::n] (packed mode)")
     p.add_argument("--device", default=None, help="e.g. cuda:1")
     p.add_argument("--limit", type=int, default=None, help="Only the first N images (smoke test)")
+    p.add_argument("--splits", default=None, help="Packed mode: only images of these splits, e.g. test or val,test")
     args = p.parse_args()
     config_path = Path(args.config)
     if not config_path.is_absolute():
@@ -251,7 +252,11 @@ def main() -> None:
 
 def run_packed(args, cfg, device, dim: int) -> None:
     """Finglish: hame image_id haye JSON (train/val/test) → yek memmap; shard i/n baraye 2 GPU, resume ba done flag."""
-    ids = sorted({int(r["image_id"]) for r in load_qd_json(cfg["train_captions_json"])})
+    if args.splits:
+        ids = sorted({int(r["image_id"]) for sp in args.splits.split(",")
+                      for r in split_rows(cfg, sp.strip(), cfg["train_captions_json"])})
+    else:
+        ids = sorted({int(r["image_id"]) for r in load_qd_json(cfg["train_captions_json"])})
     if args.limit:
         ids = ids[: args.limit]
     init_packed(args.packed_dir, ids, int(cfg["max_regions"]), dim)
