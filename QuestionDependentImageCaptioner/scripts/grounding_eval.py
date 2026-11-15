@@ -288,7 +288,7 @@ def main() -> None:
                                   "orig_answer": rows[i]["answer"], "new_question": rows[q_map[i]]["question"],
                                   "new_answer": rows[q_map[i]]["answer"], "pred": out[k],
                                   "normal_pred": preds["normal"][i] if "normal" in preds else None}
-                                 for k, i in enumerate(idx[:400:40])]
+                                 for k, i in list(enumerate(idx))[:400:40]]
         else:
             if c != "normal" and "normal" in preds:
                 entry["changed_vs_normal"] = changed(out, preds["normal"])
