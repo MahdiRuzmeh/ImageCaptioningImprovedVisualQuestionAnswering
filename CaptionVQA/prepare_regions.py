@@ -49,11 +49,12 @@ def main() -> None:
     p.add_argument("--config", default="configs/blip.yaml")
     p.add_argument("--splits", default="train,dev,test")
     p.add_argument("--num-workers", type=int, default=2)
+    p.add_argument("--device", default=None, help="e.g. cuda:1 (Kaggle: one split per GPU)")
     args = p.parse_args()
     cfg = load_config(args.config)
     work = Path(cfg["work_dir"])
     (work / "features").mkdir(parents=True, exist_ok=True)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     T, D = int(cfg["max_regions"]), int(cfg["region_dim"])
     run = None
     for split in args.splits.split(","):

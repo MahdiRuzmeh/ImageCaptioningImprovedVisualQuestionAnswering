@@ -38,57 +38,61 @@ running"* carries the "not", and the question picks the words it needs.
 - Word vocabulary: question and caption words seen at least 2 times in train, shared by both models.
 - Accuracy: official VQA v2, reported overall, by answer type (yes/no, number, other) and by question type (65 types).
 
-## Steps
+## Steps: two Kaggle notebooks, run at the same time
 
-All commands run from `CaptionVQA/` in Git Bash, with the project venv.
+Each notebook does everything itself:
+1. builds the split and checks it is identical to the committed one (`data/blip_caption_requests.json`);
+2. extracts BUTD features (train on GPU 0, dev + test on GPU 1);
+3. **blip only:** generates the BLIP captions;
+4. trains 3 seeds and tests each;
+5. writes `summary.md`.
 
-### 1. On your PC: split and image features (done once, ~40 min)
+### Notebook 1: baseline (no captions, ~45 min)
 
-```bash
-../.venv/Scripts/python.exe make_split.py --config configs/blip.yaml
-../.venv/Scripts/python.exe prepare_regions.py --config configs/blip.yaml
-```
-
-- `make_split.py` writes `outputs/blip/split/{train,dev,test}.json` and `data/blip_caption_requests.json` (45,953 questions, committed).
-- `prepare_regions.py` writes `outputs/blip/features/regions_{train,dev,test}.pt`: BUTD features for 9,690 images.
-
-### 2. On Kaggle: BLIP captions (~20 min on 2× T4)
-
-New notebook: GPU T4 x2, internet on. Inputs:
-- `mnhlfuch/vqa-v2` (train2014 + val2014 images);
-- **your BLIP training notebook's output** (Add Input → Notebooks), which holds `model_b/b_blip_full/best.pt`.
+GPU T4 x2, internet on. Inputs: `mnhlfuch/vqa-v2`, `questiondependentcaptions`.
 
 ```bash
 !rm -rf /kaggle/working/repo
 !git clone -b feat/captionvqa-blip --depth 1 https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git /kaggle/working/repo
-%cd /kaggle/working/repo/QuestionDependentImageCaptioner
-!bash scripts/kaggle_captions_vqa.sh
+%cd /kaggle/working/repo/CaptionVQA
+!MODE=baseline bash scripts/kaggle_vqa.sh
 ```
 
-Download `/kaggle/working/captions_vqa/captions_blip.json` (~3 MB) and put it at
-`CaptionVQA/outputs/blip/captions/captions_blip.json`.
+### Notebook 2: + BLIP captions (~75 min)
 
-### 3. On your PC: train both models (~1 h for all 7 runs)
+GPU T4 x2, internet on. Inputs: `mnhlfuch/vqa-v2`, `questiondependentcaptions`, and **your BLIP training notebook's
+output** (Add Input → Notebooks, it holds `model_b/b_blip_full/best.pt`).
 
 ```bash
-bash scripts/run_blip_vqa.sh
+!rm -rf /kaggle/working/repo
+!git clone -b feat/captionvqa-blip --depth 1 https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git /kaggle/working/repo
+%cd /kaggle/working/repo/CaptionVQA
+!MODE=blip bash scripts/kaggle_vqa.sh
 ```
 
-This runs:
-- **baseline** (no caption), seeds 0, 1, 2;
-- **+ BLIP captions**, seeds 0, 1, 2;
-- **+ oracle captions**, seed 0: the gold answer is put in front of the BLIP caption, which shows the ceiling;
-- **the summary**, `outputs/blip/summary.md`.
+Run both as **Save Version → Save & Run All**. Each prints `VQA_BASELINE_DONE` / `VQA_BLIP_DONE` at the end.
 
-Or one run at a time:
+### What to bring back
+
+| Notebook | Folder | Put it at |
+|---|---|---|
+| 1 | `/kaggle/working/vqa_baseline/` | `CaptionVQA/outputs/vqa_baseline/` |
+| 2 | `/kaggle/working/vqa_blip/` | `CaptionVQA/outputs/vqa_blip/` |
+
+Each folder holds `runs/`, `summary.md`, the split, and (notebook 2) `captions/captions_blip.json`. The region
+features are deleted at the end to keep the output small. The `best.pt` files (~25 MB each) are optional.
+With both folders, I combine them into one table: baseline vs + BLIP, with mean ± std over 3 seeds.
+
+The two models start from the same word table for the question words. Notebook 2 appends the caption words after
+them, and the baseline never uses those rows, so the notebooks don't depend on each other.
+
+### Running on your PC instead (optional)
 
 ```bash
-../.venv/Scripts/python.exe train_vqa.py --config configs/blip.yaml --captions none --seed 0
-../.venv/Scripts/python.exe train_vqa.py --config configs/blip.yaml --captions blip --seed 0
+../.venv/Scripts/python.exe make_split.py --config configs/blip.yaml
+../.venv/Scripts/python.exe prepare_regions.py --config configs/blip.yaml
+bash scripts/run_blip_vqa.sh          # needs outputs/blip/captions/captions_blip.json
 ```
-
-Train both models only after the captions are in place: the shared word vocabulary includes the caption
-words, so both models start identical.
 
 ### Output
 

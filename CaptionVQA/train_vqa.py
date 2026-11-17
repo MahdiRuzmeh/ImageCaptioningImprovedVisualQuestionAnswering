@@ -58,14 +58,20 @@ def caption_text(source: str, rec: dict, blip: Optional[Dict[int, str]]) -> str:
 
 
 class Vocab:
-    """Finglish: yek jadval-e kalame baraye soal + caption (az train). Baraye har do model yeksan:
-    age captions_blip.json hast, kalamat-e caption-e train ham hast (hatta baraye baseline)."""
+    """Finglish: yek jadval-e kalame baraye soal + caption (az train). Aval kalamat-e soal (hamishe
+    yeksan), ba'd kalamat-e faghat-caption → baseline (bedoon caption, notebook-e joda) hamoon index
+    haye soal ro dare; row haye caption ro estefade nemikone."""
 
-    def __init__(self, train: List[dict], blip: Optional[Dict[int, str]], min_count: int, answer_min: int) -> None:
-        wc = Counter(w for r in train for w in tok(r["question"]))
-        if blip is not None:
-            wc.update(w for r in train for w in tok(blip[r["question_id"]]))
-        self.itos = ["<pad>", "<unk>"] + sorted(w for w, c in wc.items() if c >= min_count)
+    def __init__(self, train: List[dict], blip: Optional[Dict[int, str]], min_count: int, answer_min: int,
+                 with_captions: bool) -> None:
+        qc = Counter(w for r in train for w in tok(r["question"]))
+        q_words = sorted(w for w, c in qc.items() if c >= min_count)
+        cap_words: List[str] = []
+        if with_captions and blip is not None:
+            cc = Counter(w for r in train for w in tok(blip[r["question_id"]]))
+            seen = set(q_words)
+            cap_words = sorted(w for w, c in (qc + cc).items() if c >= min_count and w not in seen)
+        self.itos = ["<pad>", "<unk>"] + q_words + cap_words
         self.stoi = {w: i for i, w in enumerate(self.itos)}
         ac = Counter(majority_answer(r["answers"]) for r in train)
         self.answers = sorted(a for a, c in ac.items() if c >= answer_min and a)
@@ -189,8 +195,10 @@ def main() -> None:
     if args.captions != "none" and blip is None:
         p.error(f"{work / 'captions' / 'captions_blip.json'} not found (generate it on Kaggle first)")
     train_recs = read_json(work / "split" / "train.json")
-    vocab = Vocab(train_recs, blip, int(cfg["word_min_count"]), int(cfg["answer_min_count"]))
-    print(f"[{name}] vocab {len(vocab.itos)} words (captions in vocab: {blip is not None}), {len(vocab.answers)} answers")
+    vocab = Vocab(train_recs, blip, int(cfg["word_min_count"]), int(cfg["answer_min_count"]),
+                  with_captions=args.captions != "none")
+    print(f"[{name}] vocab {len(vocab.itos)} words (caption words added: {args.captions != 'none'}), "
+          f"{len(vocab.answers)} answers")
     train, dev, test = (Split(s, cfg, vocab, args.captions, blip) for s in ("train", "dev", "test"))
     use_caption = args.captions != "none"
     model = UpDnVQA(len(vocab.itos), len(vocab.answers), int(cfg["word_dim"]), int(cfg["hidden_dim"]),
