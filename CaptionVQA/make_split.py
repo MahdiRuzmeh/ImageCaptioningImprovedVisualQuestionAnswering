@@ -34,6 +34,29 @@ def load_split(questions_json: str, annotations_json: str) -> tuple:
     return qs, anns, by_image
 
 
+def captioner_images(cfg: dict) -> set:
+    """Finglish: image haye ke captioner roshon train shode → az VQA train hazf.
+
+    ``captioner_train_row_range`` (BLIP, configs/blip.yaml): faghat row haye train-e captioner
+    (ba'd az filter-e verdict == ok, snap be marz-e image) — image haye val/test-e captioner
+    va image haye bedoon QD row baraye VQA train azad hastan. Bedoon in key: kol-e QD JSON (raftar-e ghadimi).
+    """
+    rows = read_json(cfg["qd_captions_json"])["annotations"]
+    rng = cfg.get("captioner_train_row_range")
+    if not rng:
+        return {int(r["image_id"]) for r in rows}
+    if rows and "caption_quality_verdict" in rows[0]:
+        rows = [r for r in rows if r.get("caption_quality_verdict") == "ok"]
+
+    def snap(i: int) -> int:
+        while 0 < i < len(rows) and rows[i]["image_id"] == rows[i - 1]["image_id"]:
+            i += 1
+        return i
+
+    s, e = snap(int(rng[0])), snap(int(rng[1]))
+    return {int(r["image_id"]) for r in rows[s:e]}
+
+
 def records(qids: List[int], qmap: Dict[int, dict], anns: Dict[int, dict], split: str) -> List[dict]:
     out = []
     for qid in qids:
@@ -57,12 +80,13 @@ def main() -> None:
     cfg = load_config(args.config)
     rng = random.Random(int(cfg["seed"]))
 
-    qd_images = {int(r["image_id"]) for r in read_json(cfg["qd_captions_json"])["annotations"]}
+    qd_images = captioner_images(cfg)
 
     tr_qs, tr_anns, tr_by_img = load_split(cfg["train_questions_json"], cfg["train_annotations_json"])
     tr_imgs = sorted(i for i in tr_by_img if i not in qd_images)
     rng.shuffle(tr_imgs)
-    tr_qids = take_images(tr_by_img, tr_imgs, int(cfg["num_train_questions"]))
+    n_train = cfg.get("num_train_questions")
+    tr_qids = take_images(tr_by_img, tr_imgs, int(n_train) if n_train else 10 ** 9)
 
     va_qs, va_anns, va_by_img = load_split(cfg["val_questions_json"], cfg["val_annotations_json"])
     va_imgs = sorted(va_by_img)
@@ -84,6 +108,12 @@ def main() -> None:
         write_json(work / "split" / f"{name}.json", recs)
         n_img = len({r["image_id"] for r in recs})
         print(f"{name}: {len(recs)} questions, {n_img} images")
+    if cfg.get("caption_requests_json"):
+        # Finglish: liste-ye kochik-e (soal, tasvir) baraye tolid-e caption roye Kaggle (bedoon javab)
+        req = [{"question_id": r["question_id"], "image_id": r["image_id"], "image_split": r["image_split"],
+                "question": r["question"], "vqa_split": name} for name, recs in split_recs.items() for r in recs]
+        write_json(cfg["caption_requests_json"], req)
+        print(f"caption requests: {len(req)} → {cfg['caption_requests_json']}")
     tr_img = {r["image_id"] for r in split_recs["train"]}
     print(f"train overlap with QD-captioner images = {len(tr_img & qd_images)} (must be 0)")
 

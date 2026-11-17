@@ -1,0 +1,49 @@
+# VQA baseline (Bottom-Up Top-Down) vs the same model + BLIP question-dependent captions.
+# Run from CaptionVQA/ (see BLIP_VQA.md for the full steps):
+#   python make_split.py --config configs/blip.yaml
+#   python prepare_regions.py --config configs/blip.yaml          # BUTD 36+1 regions × 2048
+#   (Kaggle) BLIP captions → outputs/blip/captions/captions_blip.json
+#   python train_vqa.py --config configs/blip.yaml --seed 0                 # baseline (no caption)
+#   python train_vqa.py --config configs/blip.yaml --seed 0 --captions blip # + BLIP captions
+
+seed: 0
+train_questions_json: ../dataset/v2_OpenEnded_mscoco_train2014_questions.json
+train_annotations_json: ../dataset/v2_mscoco_train2014_annotations.json
+val_questions_json: ../dataset/v2_OpenEnded_mscoco_val2014_questions.json
+val_annotations_json: ../dataset/v2_mscoco_val2014_annotations.json
+train_images_dir: ../dataset/train2014
+val_images_dir: ../dataset/val2014
+
+# --- VQA train = only train2014 images the BLIP captioner was NOT trained on ---
+# The captioner's training rows = [captioner_train_row_range) of this file (after the verdict == ok filter).
+qd_captions_json: ../dataset/vqa_v2_qd_captions_full_train2014.json
+captioner_train_row_range: [0, 264318]
+num_train_questions: null      # null = every question on those images (30,952)
+num_dev_questions: 5000        # val2014, image-disjoint from test
+num_test_questions: 10000
+
+work_dir: outputs/blip
+# (question, image) list for BLIP caption generation on Kaggle (committed; no answers inside)
+caption_requests_json: data/blip_caption_requests.json
+answer_min_count: 3            # answer vocabulary: answers seen >= 3 times in train
+word_min_count: 2              # word vocabulary (question + caption words) from train
+max_question_len: 14
+max_caption_len: 24
+
+# --- image features: BUTD Faster R-CNN (same frozen detector as captioner A) ---
+butd_config: ../QuestionDependentImageCaptioner/configs/eval_local.yaml
+max_regions: 37                # 36 detections + 1 mean token
+region_dim: 2048
+
+# --- model (identical for both runs; only the caption branch differs) ---
+word_dim: 300
+hidden_dim: 512
+dropout: 0.2
+
+# --- training ---
+epochs: 20
+batch_size: 128
+learning_rate: 0.001          # same as the earlier CaptionVQA benchmark (AdamW, cosine, 1 warmup epoch)
+weight_decay: 0.0001
+warmup_epochs: 1
+grad_clip: 20.0
