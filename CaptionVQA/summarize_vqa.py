@@ -4,6 +4,7 @@ Finglish: hame ``work_dir/runs/*/results.json`` → Markdown: overall + answer t
 other) + question type (65 VQA v2 type), shuffled-caption test, gate. Group = caption source.
 
     python summarize_vqa.py --config configs/blip.yaml        # → work_dir/summary.md
+    python summarize_vqa.py --runs vqa_baseline vqa_blip --out vqa_summary.md   # two Kaggle notebooks combined
 """
 
 from __future__ import annotations
@@ -28,16 +29,24 @@ def ms(xs):
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--config", default="configs/blip.yaml")
+    p.add_argument("--runs", nargs="*", help="Folders holding <run>/results.json (e.g. the Kaggle outputs)")
+    p.add_argument("--out", default=None, help="Markdown output (default work_dir/summary.md)")
     args = p.parse_args()
-    cfg = load_config(args.config)
-    work = Path(cfg["work_dir"])
+    if args.runs:
+        dirs = [Path(d) for d in args.runs]
+        out_md = Path(args.out or "vqa_summary.md")
+    else:
+        work = Path(load_config(args.config)["work_dir"])
+        dirs, out_md = [work / "runs"], Path(args.out or work / "summary.md")
     runs = defaultdict(list)
-    for f in sorted((work / "runs").glob("*/results.json")):
-        r = read_json(f)
-        runs[r["captions"]].append(r)
+    # Finglish: results.json (ya result.json age download esm ro avaz karde), har jaye folder
+    for d in dirs:
+        for f in sorted(list(d.rglob("results.json")) + list(d.rglob("result.json"))):
+            r = read_json(f)
+            runs[r["captions"]].append(r)
     groups = [g for g in ORDER if g in runs]
     if not groups:
-        raise SystemExit(f"no results under {work / 'runs'}")
+        raise SystemExit(f"no results under {dirs}")
 
     L = ["# VQA: baseline vs + BLIP captions", "",
          f"Train {runs[groups[0]][0]['train_questions']:,} questions (train2014 images the captioner never saw), "
@@ -78,10 +87,10 @@ def main() -> None:
             row += f" | {v['blip'] - v['none']:+.1f}"
         L.append(row + " |")
     text = "\n".join(L) + "\n"
-    (work / "summary.md").write_text(text, encoding="utf-8")
-    write_json(work / "summary.json", {g: {"runs": [r["name"] for r in runs[g]], **summary[g]} for g in groups})
+    out_md.write_text(text, encoding="utf-8")
+    write_json(out_md.with_suffix(".json"), {g: {"runs": [r["name"] for r in runs[g]], **summary[g]} for g in groups})
     print(text)
-    print(f"-> {work / 'summary.md'}")
+    print(f"-> {out_md}")
 
 
 if __name__ == "__main__":

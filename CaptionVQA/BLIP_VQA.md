@@ -104,3 +104,42 @@ bash scripts/run_blip_vqa.sh          # needs outputs/blip/captions/captions_bli
 
 The **shuffled-caption** test gives each test question the caption of another image's question. If accuracy
 drops, the model really uses the caption. The **gate** shows how much it relies on the image (1) vs the caption (0).
+
+## Results (2026-11-17, two Kaggle notebooks, test = 10,001 val2014 questions)
+
+Full table, including all 65 question types: [vqa_summary.md](vqa_summary.md) (`python summarize_vqa.py --runs vqa_baseline vqa_blip`).
+
+| Model | Seeds | Overall | Yes/no | Number | Other | Shuffled captions | Gate (1 = image) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Baseline (no caption) | 3 | **46.56 ± 0.44** | 67.80 ± 0.40 | 28.31 ± 0.50 | 35.53 ± 0.55 | — | — |
+| + BLIP captions | 3 | **59.79 ± 0.50** | 78.49 ± 0.82 | 45.03 ± 1.82 | 49.73 ± 1.01 | 32.30 ± 0.04 | 0.55 |
+| + oracle captions (ceiling) | 1 | **83.30** | 100.00 | 86.44 | 69.82 | 18.60 | 0.47 |
+
+**Gain of BLIP captions:** +13.2 overall: yes/no +10.7, number +16.7, other +14.2. The largest gains are on colors
+("what color is the" +28.9) and counting ("how many" +19.6).
+
+### Checks
+
+- **The model reads the captions.** With another image's caption, accuracy falls to 32.3%, far below the baseline.
+  The gate (0.55) uses image and caption about equally.
+- **No image leakage.** All test questions are on val2014 images; none is in the captioner's data.
+- **Caption quality on the VQA test:** the answer is in the BLIP caption for 49.6% of the non-yes/no questions, and
+  the polarity is right for 69.6% of the yes/no questions. This is lower than on the QD test (59% / 76%), because VQA
+  also contains questions that aren't directly visual.
+- **Where the gain comes from** (seed 0):
+
+| Test questions | n | Baseline | + BLIP | Δ |
+|---|---:|---:|---:|---:|
+| non-yes/no, caption contains the answer | 3,111 | 48.7 | 79.7 | **+31.0** |
+| non-yes/no, caption doesn't | 3,158 | 19.6 | 17.7 | −1.9 |
+| yes/no, caption polarity right | 2,595 | 67.0 | 90.5 | **+23.5** |
+| yes/no, caption polarity wrong | 1,136 | 69.4 | 53.5 | **−15.9** |
+
+  Correct captions help a lot. Wrong yes/no captions hurt: the model trusts them too much.
+
+### Caveat: amount of supervision
+
+The BLIP captioner was trained on 264k train2014 question–answer pairs (as captions). The VQA models only see 30,952
+questions. Part of the gain may therefore be knowledge transferred from the captioner's larger training data, not
+only from the captions as a representation. A fair control is a baseline trained on all of train2014 (~443k
+questions, no captions needed), compared with a caption model whose captions come from cross-fitted captioners.
