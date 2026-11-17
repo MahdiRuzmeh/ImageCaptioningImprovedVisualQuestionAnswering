@@ -52,8 +52,14 @@ BLIP_STD = (0.26862954, 0.26130258, 0.27577711)
 def ddp_setup(cfg: Dict[str, Any]) -> Tuple[bool, int, int]:
     if not cfg.get("ddp", False) or "RANK" not in os.environ:
         return False, 0, 1
-    dist.init_process_group(backend=str(cfg.get("ddp_backend", "nccl")))
+    backend = str(cfg.get("ddp_backend", "nccl"))
+    if backend == "nccl" and not dist.is_nccl_available():
+        # Finglish: ba'zi image haye Kaggle torch-e bedoon NCCL daran → gloo (kondtar, vali kar mikone)
+        if os.environ.get("RANK") == "0":
+            print("WARNING: this PyTorch has no NCCL -> using the gloo backend for DDP", flush=True)
+        backend = "gloo"
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+    dist.init_process_group(backend=backend)
     return True, dist.get_rank(), dist.get_world_size()
 
 

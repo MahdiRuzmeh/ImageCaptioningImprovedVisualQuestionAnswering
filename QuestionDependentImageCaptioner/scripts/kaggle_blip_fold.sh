@@ -15,6 +15,14 @@ mkdir -p "$OUT" "$W/configs"
 export PYTHONIOENCODING=utf-8
 export HF_HOME=$W/hf_cache
 
+# Finglish: aval GPU ha ro check kon (accelerator-e ghalat = CPU image, torch bedoon CUDA/NCCL)
+read -r NGPU NCCL TV <<<"$(python -c "import torch, torch.distributed as d; print(torch.cuda.device_count(), d.is_nccl_available(), torch.__version__)")"
+echo "torch $TV | GPUs: $NGPU | NCCL available: $NCCL"
+if [ "$NGPU" -lt 1 ]; then
+  echo "No GPU in this session: set Settings → Accelerator → GPU T4 x2, then run again."; exit 1
+fi
+[ "$NGPU" -lt 2 ] && echo "WARNING: only $NGPU GPU → training on 1 GPU (about 2× slower)"
+
 QD=$(python scripts/kaggle_find_qd.py configs/b_blip_full.yaml)
 IMG=$(python -c "import yaml; print(yaml.safe_load(open('configs/b_blip_full.yaml'))['train_images_dir'])")
 if [ ! -f "$IMG/COCO_train2014_000000000009.jpg" ]; then
@@ -36,7 +44,7 @@ cfg = yaml.safe_load(open(p)); cfg["train_images_dir"] = img
 yaml.safe_dump(cfg, open(p, "w"), sort_keys=False)
 EOF
 
-torchrun --nproc_per_node=2 train_blip.py --config "$W/configs/$RUN.yaml" --continue 2>&1 \
+torchrun --nproc_per_node=$NGPU train_blip.py --config "$W/configs/$RUN.yaml" --continue 2>&1 \
   | stdbuf -oL tr '\r' '\n' | grep --line-buffered -v -E 'it/s\]|s/it\]|it/s, |s/it, |^\s*$' | tee -a "$OUT/train.log"
 rm -f "$W/qd_fold$FOLD.json"
 rm -rf "$HF_HOME"
