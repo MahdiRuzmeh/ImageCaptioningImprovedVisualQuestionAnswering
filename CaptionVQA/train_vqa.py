@@ -23,6 +23,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 
@@ -37,7 +38,8 @@ def set_seed(seed: int) -> None:
 
 
 def load_captions(cfg: dict) -> Optional[Dict[int, str]]:
-    p = Path(cfg["work_dir"]) / "captions" / "captions_blip.json"
+    # Finglish: configs/blip_full.yaml → captions_json (cross-fitted); vagarna captions/captions_blip.json
+    p = Path(cfg["captions_json"]) if cfg.get("captions_json") else Path(cfg["work_dir"]) / "captions" / "captions_blip.json"
     if not p.exists():
         return None
     return {int(k): v for k, v in read_json(p).items()}
@@ -87,9 +89,19 @@ class Split:
     def __init__(self, name: str, cfg: dict, vocab: Vocab, source: str, blip: Optional[Dict[int, str]]) -> None:
         work = Path(cfg["work_dir"])
         self.recs = read_json(work / "split" / f"{name}.json")
-        reg = torch.load(work / "features" / f"regions_{name}.pt")
-        row = {iid: i for i, iid in enumerate(reg["image_ids"])}
-        self.regions = reg["feats"]
+        packed = work / "features" / f"regions_{name}"
+        if (packed / "meta.json").exists():
+            # Finglish: packed memmap (prepare_regions.py) — az disk/page cache, beyn-e process ha share
+            meta = read_json(packed / "meta.json")
+            ids, t, d = meta["ids"], int(meta["tokens"]), int(meta["feat_dim"])
+            done = np.memmap(packed / "done.u8", np.uint8, "r", shape=(len(ids),))
+            assert int(done.sum()) == len(ids), f"{packed}: {len(ids) - int(done.sum())} images not extracted"
+            self.regions_mm = np.memmap(packed / "feats.f16", np.float16, "r", shape=(len(ids), t, d))
+            self.regions = None
+        else:
+            reg = torch.load(work / "features" / f"regions_{name}.pt")
+            ids, self.regions, self.regions_mm = reg["image_ids"], reg["feats"], None
+        row = {iid: i for i, iid in enumerate(ids)}
         n, lq, lc = len(self.recs), int(cfg["max_question_len"]), int(cfg["max_caption_len"])
         self.img = torch.tensor([row[r["image_id"]] for r in self.recs])
         self.q = torch.zeros((n, lq), dtype=torch.long)
@@ -128,8 +140,12 @@ class Split:
         for k, i in enumerate(idx.tolist()):
             for a, s in self.targets[i].items():
                 tgt[k, a] = s
-        out = {"q": self.q[idx], "regions": self.regions[self.img[idx]], "cap": self.cap[self.perm[idx]],
-               "target": tgt}
+        rows = self.img[idx]
+        if self.regions_mm is not None:
+            regions = torch.from_numpy(np.ascontiguousarray(self.regions_mm[rows.numpy()]))
+        else:
+            regions = self.regions[rows]
+        out = {"q": self.q[idx], "regions": regions, "cap": self.cap[self.perm[idx]], "target": tgt}
         return {k: v.to(device, non_blocking=True) for k, v in out.items()}
 
 
@@ -182,10 +198,13 @@ def main() -> None:
     p.add_argument("--captions", choices=["none", "blip", "oracle"], default="none")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--epochs", type=int, default=None)
+    p.add_argument("--device", default=None, help="e.g. cuda:1 (Kaggle: one seed per GPU)")
     args = p.parse_args()
     cfg = load_config(args.config)
     set_seed(args.seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    if device.type == "cuda":
+        torch.cuda.set_device(device)
     work = Path(cfg["work_dir"])
     name = f"{'nocap' if args.captions == 'none' else args.captions}_s{args.seed}"
     run_dir = work / "runs" / name
@@ -193,7 +212,7 @@ def main() -> None:
 
     blip = load_captions(cfg)
     if args.captions != "none" and blip is None:
-        p.error(f"{work / 'captions' / 'captions_blip.json'} not found (generate it on Kaggle first)")
+        p.error("captions file not found (generate it on Kaggle first)")
     train_recs = read_json(work / "split" / "train.json")
     vocab = Vocab(train_recs, blip, int(cfg["word_min_count"]), int(cfg["answer_min_count"]),
                   with_captions=args.captions != "none")
@@ -244,7 +263,7 @@ def main() -> None:
                        run_dir / "best.pt")
         write_json(run_dir / "history.json", history)
 
-    state = torch.load(run_dir / "best.pt")
+    state = torch.load(run_dir / "best.pt", map_location=device)
     model.load_state_dict(state["model"])
     res = {"name": name, "captions": args.captions, "seed": args.seed, "params_M": n_params / 1e6,
            "best_epoch": state["epoch"], "n_answers": K, "vocab_size": len(vocab.itos),

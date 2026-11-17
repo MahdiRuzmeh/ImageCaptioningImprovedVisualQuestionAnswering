@@ -1,0 +1,47 @@
+# Fair control: VQA on ALL of train2014 (443,757 questions), baseline vs + cross-fitted BLIP captions.
+# Same test as configs/blip.yaml (10,001 val2014 questions). See BLIP_VQA_FULL.md.
+#   python make_split.py --config configs/blip_full.yaml
+#   python make_crossfit_folds.py --config configs/blip_full.yaml      # once, committed: data/crossfit_folds.json
+#   (Kaggle) scripts/kaggle_vqa_full.sh MODE=baseline | MODE=crossfit
+
+seed: 0
+train_questions_json: ../dataset/v2_OpenEnded_mscoco_train2014_questions.json
+train_annotations_json: ../dataset/v2_mscoco_train2014_annotations.json
+val_questions_json: ../dataset/v2_OpenEnded_mscoco_val2014_questions.json
+val_annotations_json: ../dataset/v2_mscoco_val2014_annotations.json
+train_images_dir: ../dataset/train2014
+val_images_dir: ../dataset/val2014
+
+# --- VQA train = every train2014 question (no image is excluded) ---
+exclude_captioner_images: false
+qd_captions_json: ../dataset/vqa_v2_qd_captions_full_train2014.json
+num_train_questions: null
+# dev/test identical to configs/blip.yaml: the random generator replays that config's train-image shuffle first
+val_rng_replay_row_range: [0, 264318]
+num_dev_questions: 5000
+num_test_questions: 10000
+
+work_dir: outputs/blip_full
+# Cross-fitting: image → fold; a question's caption comes from the fold model that did NOT see its image
+crossfit_folds_json: data/crossfit_folds.json
+caption_requests_json: outputs/blip_full/caption_requests.json
+captions_json: outputs/blip_full/captions/captions_crossfit.json
+answer_min_count: 3
+word_min_count: 2
+max_question_len: 14
+max_caption_len: 24
+
+max_regions: 37
+region_dim: 2048
+
+word_dim: 300
+hidden_dim: 512
+dropout: 0.2
+
+# --- training: 14× more data than configs/blip.yaml → fewer epochs, larger batch ---
+epochs: 12
+batch_size: 256
+learning_rate: 0.001
+weight_decay: 0.0001
+warmup_epochs: 1
+grad_clip: 20.0

@@ -1,10 +1,17 @@
-"""BUTD Faster R-CNN region features for the VQA split → work_dir/features/regions_{split}.pt.
+"""BUTD Faster R-CNN region features for a VQA split → work_dir/features/regions_{split}/ (packed memmap).
 
-Finglish: hamoon detector-e frozen-e captioner A (Visual Genome, 36 detection + 1 mean token, 2048-D),
-standard-e Bottom-Up Top-Down VQA. Khorooji: {"image_ids": [...], "feats": (N, 37, 2048) fp16, "boxes": (N, 37, 4)}.
-Pad token = 0 (mask = abs-sum == 0). Har split joda save mishe → resume (split-e tamoom shode skip).
+Finglish: hamoon detector-e frozen-e captioner A (Visual Genome, 36 detection + 1 mean token, 2048-D).
+Format = packed cache-e captioner (QuestionDependentImageCaptioner/packed_cache.py): feats.f16 (N, 37, 2048)
+memmap + done flag → chand process (2 GPU) mitoonan hamzaman benevisan, train_vqa.py mostaghim az memmap
+mikhoone (RAM-e process ha share mishe).
 
-    python prepare_regions.py --config configs/blip.yaml
+  --packed-dir <butd_packed>  : feature haye mojood (cache-e model A, 79,568 image) copy mishan, extract nemishan
+  --shard i/n --device cuda:i : extract-e image haye baghi mande (har GPU yek shard)
+
+    python prepare_regions.py --config configs/blip.yaml                               # local, 1 GPU
+    python prepare_regions.py --config C --init-only --packed-dir /kaggle/input/.../butd_packed   # 1) init + copy
+    python prepare_regions.py --config C --shard 0/2 --device cuda:0 &                                # 2) GPU 0
+    python prepare_regions.py --config C --shard 1/2 --device cuda:1 &                                #    GPU 1
 """
 
 from __future__ import annotations
@@ -13,6 +20,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
@@ -22,7 +30,7 @@ from common import CAPTIONER_ROOT, load_config, read_json
 
 # Finglish: captioner bayad aval-e sys.path bashe (train.py / models/ ba CaptionVQA esm-e moshtarak daran)
 sys.path.insert(0, str(CAPTIONER_ROOT))
-from scripts.extract_visual import build_butd  # noqa: E402
+from packed_cache import PackedWriter, init_packed, is_packed  # noqa: E402
 
 TEMPLATE = {"train": "COCO_train2014_{:012d}.jpg", "val": "COCO_val2014_{:012d}.jpg"}
 
@@ -44,42 +52,68 @@ def collate(batch):
     return [x[0] for x in batch], [x[1] for x in batch]
 
 
+def copy_from_packed(src_dir: Path, writer: PackedWriter, ids) -> int:
+    """Finglish: feature haye cache-e model A (hamoon detector) → bedoon extract-e dobare."""
+    import json
+    meta = json.loads((src_dir / "meta.json").read_text())
+    n, t, d = len(meta["ids"]), int(meta["tokens"]), int(meta["feat_dim"])
+    feats = np.memmap(src_dir / "feats.f16", np.float16, "r", shape=(n, t, d))
+    boxes = np.memmap(src_dir / "boxes.f16", np.float16, "r", shape=(n, t, 4))
+    ntok = np.memmap(src_dir / "ntok.i16", np.int16, "r", shape=(n,))
+    done = np.memmap(src_dir / "done.u8", np.uint8, "r", shape=(n,))
+    src = {int(i): k for k, i in enumerate(meta["ids"])}
+    todo = [i for i in writer.todo(ids) if i in src and done[src[i]]]
+    for iid in tqdm(todo, desc="copy from packed cache", mininterval=30):
+        k = src[iid]
+        m = int(ntok[k])
+        writer.write(iid, np.asarray(feats[k, :m]), np.asarray(boxes[k, :m]))
+    writer.flush()
+    return len(todo)
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--config", default="configs/blip.yaml")
     p.add_argument("--splits", default="train,dev,test")
     p.add_argument("--num-workers", type=int, default=2)
-    p.add_argument("--device", default=None, help="e.g. cuda:1 (Kaggle: one split per GPU)")
+    p.add_argument("--device", default=None, help="e.g. cuda:1")
+    p.add_argument("--shard", default="0/1", help="i/n: this process extracts the i-th of n parts")
+    p.add_argument("--packed-dir", default=None, help="existing BUTD packed cache to copy from (model A)")
+    p.add_argument("--init-only", action="store_true", help="create the files (+ copy from --packed-dir) and exit")
     args = p.parse_args()
     cfg = load_config(args.config)
     work = Path(cfg["work_dir"])
-    (work / "features").mkdir(parents=True, exist_ok=True)
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     T, D = int(cfg["max_regions"]), int(cfg["region_dim"])
+    si, sn = (int(x) for x in args.shard.split("/"))
     run = None
     for split in args.splits.split(","):
-        out = work / "features" / f"regions_{split}.pt"
-        if out.exists():
-            print(f"{out} exists, skip")
-            continue
+        out = work / "features" / f"regions_{split}"
         recs = read_json(work / "split" / f"{split}.json")
-        ids = sorted({(r["image_id"], r["image_split"]) for r in recs})
-        items = [(iid, Path(cfg[f"{sp}_images_dir"]) / TEMPLATE[sp].format(iid)) for iid, sp in ids]
+        ids_sp = sorted({(int(r["image_id"]), r["image_split"]) for r in recs})
+        sp_of = dict(ids_sp)
+        ids = [i for i, _ in ids_sp]
+        init_packed(out, ids, T, D)  # Finglish: age hast va yeksan-e → resume
+        writer = PackedWriter(out)
+        if args.packed_dir and is_packed(args.packed_dir):
+            print(f"{split}: copied {copy_from_packed(Path(args.packed_dir), writer, ids)} images from {args.packed_dir}")
+        if args.init_only:
+            print(f"{split}: {len(ids)} images, still to extract {len(writer.todo(ids))}")
+            continue
+        todo = writer.todo(ids[si::sn])
+        print(f"{split} shard {si}/{sn}: {len(ids[si::sn])} images, to extract {len(todo)} on {device}")
+        if not todo:
+            continue
         if run is None:
+            from scripts.extract_visual import build_butd
             run = build_butd({"max_regions": T, "visual_model": str(CAPTIONER_ROOT / "outputs" / "butd_weights")}, device)
-        feats = torch.zeros(len(items), T, D, dtype=torch.float16)
-        boxes = torch.zeros(len(items), T, 4, dtype=torch.float16)
-        dl = DataLoader(Images(items), batch_size=1, num_workers=args.num_workers,
-                        collate_fn=collate)
-        k = 0
-        for imgs, _ in tqdm(dl, desc=split, mininterval=30):
+        items = [(iid, Path(cfg[f"{sp_of[iid]}_images_dir"]) / TEMPLATE[sp_of[iid]].format(iid)) for iid in todo]
+        dl = DataLoader(Images(items), batch_size=1, num_workers=args.num_workers, collate_fn=collate)
+        for imgs, chunk in tqdm(dl, desc=f"{split} shard {si}", mininterval=30):
             f, b = run(imgs)
-            n = min(len(f[0]), T)
-            feats[k, :n] = f[0][:n].half().cpu()
-            boxes[k, :n] = b[0][:n].half().cpu()
-            k += 1
-        torch.save({"image_ids": [iid for iid, _ in items], "feats": feats, "boxes": boxes}, out)
-        print(f"{split}: {len(items)} images → {out} ({out.stat().st_size / 1e9:.2f} GB)")
+            writer.write(chunk[0], f[0][:T].half().cpu().numpy(), b[0][:T].half().cpu().numpy())
+        writer.flush()
+        print(f"{split} shard {si}/{sn}: done -> {out}")
 
 
 if __name__ == "__main__":

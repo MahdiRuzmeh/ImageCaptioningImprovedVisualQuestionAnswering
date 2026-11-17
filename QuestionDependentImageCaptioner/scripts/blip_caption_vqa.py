@@ -62,6 +62,9 @@ def main() -> None:
     p.add_argument("--device", default="cuda")
     p.add_argument("--beam", type=int, default=3)
     p.add_argument("--limit", type=int, default=None)
+    p.add_argument("--chunk", type=int, default=10000, help="save after every N captions (resume)")
+    p.add_argument("--caption-model", type=int, default=None,
+                   help="cross-fitting: only requests with caption_model == k (this fold model never saw their images)")
     p.add_argument("--merge", nargs="*")
     p.add_argument("--out", required=True)
     args = p.parse_args()
@@ -74,6 +77,8 @@ def main() -> None:
     if cfg.get("blip_model") and not str(cfg["blip_model"]).startswith("Salesforce/"):
         resolve_path_fields(cfg, ("blip_model",))
     reqs = json.loads(Path(args.requests).read_text(encoding="utf-8"))
+    if args.caption_model is not None:
+        reqs = [r for r in reqs if int(r["caption_model"]) == args.caption_model]
     i, n = (int(x) for x in args.shard.split("/"))
     rows = [{**r, "caption": ""} for r in reqs[i::n]]
     if args.limit:
@@ -88,11 +93,24 @@ def main() -> None:
         if any(r["image_split"] == sp for r in rows):
             first = next(r for r in rows if r["image_split"] == sp)
             assert (d / tmpl.format(image_id=int(first["image_id"]))).exists(), f"{sp} images not found in {d}"
-    ds = VqaImages(rows, cfg, tokenizer, model.bos, model.sep, dirs)
+    # Finglish: chunk be chunk + save ba'd az har chunk → resume age session ghat beshe (khorooji ro attach kon)
+    out_path = Path(args.out)
+    out = json.loads(out_path.read_text(encoding="utf-8")) if out_path.exists() else {}
+    todo = [r for r in rows if str(r["question_id"]) not in out]
+    print(f"shard {i}/{n}: {len(rows)} requests, {len(out)} already captioned, {len(todo)} to do", flush=True)
     t0 = time.time()
-    preds = decode_split(model, ds, tokenizer, cfg, device, args.beam, 0, 1, False)
-    out = {str(r["question_id"]): c for r, c in zip(rows, preds)}
-    Path(args.out).write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+    for k in range(0, len(todo), args.chunk):
+        part = todo[k : k + args.chunk]
+        ds = VqaImages(part, cfg, tokenizer, model.bos, model.sep, dirs)
+        preds = decode_split(model, ds, tokenizer, cfg, device, args.beam, 0, 1, False)
+        out.update({str(r["question_id"]): c for r, c in zip(part, preds)})
+        tmp = out_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(out_path)
+        done = k + len(part)
+        rate = done / max(time.time() - t0, 1e-9)
+        print(f"  {done}/{len(todo)} captions ({rate:.1f}/s, ~{(len(todo) - done) / max(rate, 1e-9) / 60:.0f} min left)",
+              flush=True)
     print(f"shard {i}/{n}: {len(out)} captions in {time.time() - t0:.0f}s -> {args.out}")
     for r in rows[:5]:
         print(f"  Q: {r['question']}  ->  {out[str(r['question_id'])]}")
