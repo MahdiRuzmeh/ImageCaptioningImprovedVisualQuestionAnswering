@@ -83,7 +83,7 @@ Inputs:
 
 Inputs: the same five as notebook 1, **plus**:
 - the two fold notebooks' outputs (`model_b/b_blip_fold0/best.pt`, `model_b/b_blip_fold1/best.pt`);
-- the previous crossfit VQA notebook's output, holding `vqa_full_crossfit/captions/captions_crossfit.json`. Without it, all 658k questions are captioned again (+3 h).
+- **`captions_crossfit.json`** (458,758 captions from the previous crossfit run), as any input: e.g. upload the local file `CaptionVQA/vqa_full_crossfit/captions/captions_crossfit.json` (21 MB) as a new dataset. Without it, all 658k questions are captioned again (+3 h).
 
 Same cells, with `!MODE=crossfit bash scripts/kaggle_vqa_strong.sh`.
 

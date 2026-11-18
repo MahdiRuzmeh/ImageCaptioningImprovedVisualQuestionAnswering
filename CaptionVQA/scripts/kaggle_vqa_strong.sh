@@ -93,7 +93,8 @@ if [ "$MODE" = "crossfit" ]; then
   C0=$(find -L /kaggle/input -path '*model_b/b_blip_fold0/best.pt' 2>/dev/null | head -1 || true)
   C1=$(find -L /kaggle/input -path '*model_b/b_blip_fold1/best.pt' 2>/dev/null | head -1 || true)
   [ -n "$C0" ] && [ -n "$C1" ] || { echo "attach both fold notebook outputs (b_blip_fold0/best.pt, b_blip_fold1/best.pt)"; exit 1; }
-  OLD=$(find -L /kaggle/input -path '*captions/captions_crossfit.json' 2>/dev/null | head -1 || true)
+  # Finglish: file-e caption haye ghabli har ja-ye input (khorooji-e notebook ya dataset-e upload shode)
+  OLD=$(find -L /kaggle/input -name 'captions_crossfit.json' -type f 2>/dev/null | head -1 || true)
   echo "earlier captions: ${OLD:-none (all 658k questions will be captioned, ~4 h)}"
   python - "$WORK" "${OLD:-}" <<'EOF'
 import json, sys
