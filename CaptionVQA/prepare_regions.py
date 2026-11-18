@@ -71,6 +71,11 @@ def copy_from_packed(src_dir: Path, writer: PackedWriter, ids) -> int:
     return len(todo)
 
 
+def features_root(cfg) -> Path:
+    """Finglish: features_dir (config) — Kaggle: /tmp (feature haye Stage B ~18 GB, /kaggle/working 20 GB dare)."""
+    return Path(cfg["features_dir"]) if cfg.get("features_dir") else Path(cfg["work_dir"]) / "features"
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--config", default="configs/blip.yaml")
@@ -78,7 +83,8 @@ def main() -> None:
     p.add_argument("--num-workers", type=int, default=2)
     p.add_argument("--device", default=None, help="e.g. cuda:1")
     p.add_argument("--shard", default="0/1", help="i/n: this process extracts the i-th of n parts")
-    p.add_argument("--packed-dir", default=None, help="existing BUTD packed cache to copy from (model A)")
+    p.add_argument("--packed-dir", nargs="*", default=None,
+                   help="existing BUTD packed caches to copy from (e.g. qd-butd-packed and a val2014 cache)")
     p.add_argument("--init-only", action="store_true", help="create the files (+ copy from --packed-dir) and exit")
     args = p.parse_args()
     cfg = load_config(args.config)
@@ -88,15 +94,16 @@ def main() -> None:
     si, sn = (int(x) for x in args.shard.split("/"))
     run = None
     for split in args.splits.split(","):
-        out = work / "features" / f"regions_{split}"
+        out = features_root(cfg) / f"regions_{split}"
         recs = read_json(work / "split" / f"{split}.json")
         ids_sp = sorted({(int(r["image_id"]), r["image_split"]) for r in recs})
         sp_of = dict(ids_sp)
         ids = [i for i, _ in ids_sp]
         init_packed(out, ids, T, D)  # Finglish: age hast va yeksan-e → resume
         writer = PackedWriter(out)
-        if args.packed_dir and is_packed(args.packed_dir):
-            print(f"{split}: copied {copy_from_packed(Path(args.packed_dir), writer, ids)} images from {args.packed_dir}")
+        for src in args.packed_dir or []:
+            if is_packed(src):
+                print(f"{split}: copied {copy_from_packed(Path(src), writer, ids)} images from {src}", flush=True)
         if args.init_only:
             print(f"{split}: {len(ids)} images, still to extract {len(writer.todo(ids))}")
             continue

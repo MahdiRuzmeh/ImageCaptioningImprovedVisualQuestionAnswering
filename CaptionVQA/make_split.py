@@ -115,6 +115,14 @@ def main() -> None:
         "dev": records(dev_qids, qmap_va, va_anns, "val"),
         "test": records(test_qids, qmap_va, va_anns, "val"),
     }
+    if cfg.get("train_include_val"):
+        # Finglish: Stage B — hame soal haye val2014 roye image haye kharej az dev/test ham train (standard
+        # ghabl az test-std). Dev/test aval hesab shodan → dagighan hamoon ghabli mimoonan.
+        test_img_set = {int(qmap_va[qid]["image_id"]) for qid in test_qids}
+        extra = [qid for i in sorted(va_by_img) if i not in dev_img_set and i not in test_img_set
+                 for qid in (int(q["question_id"]) for q in va_by_img[i])]
+        split_recs["train"] += records(extra, qmap_va, va_anns, "val")
+        print(f"train += {len(extra)} val2014 questions (images outside dev/test)")
     for name, recs in split_recs.items():
         write_json(work / "split" / f"{name}.json", recs)
         n_img = len({r["image_id"] for r in recs})

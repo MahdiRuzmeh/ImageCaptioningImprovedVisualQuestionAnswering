@@ -28,7 +28,7 @@ import torch
 import torch.nn.functional as F
 
 from common import load_config, normalize_answer, read_json, soft_targets, tok, vqa_score, write_json
-from models_vqa import UpDnVQA
+from models_vqa import MCANVQA, UpDnVQA
 
 
 def set_seed(seed: int) -> None:
@@ -43,6 +43,35 @@ def load_captions(cfg: dict) -> Optional[Dict[int, str]]:
     if not p.exists():
         return None
     return {int(k): v for k, v in read_json(p).items()}
+
+
+def load_glove(path: Optional[str], itos: List[str], dim: int, name: str) -> Optional[torch.Tensor]:
+    """Finglish: GloVe (text: 'word v1 … vD') → jadval-e embedding baraye vocab; kalame-ye bedoon vector → random kochik.
+    Path nabashe → None (embedding random, mesl-e qabl)."""
+    if not path:
+        return None
+    p = Path(path)
+    if not p.exists():
+        print(f"[{name}] WARNING: GloVe file {p} not found -> random word embeddings")
+        return None
+    want = {w: i for i, w in enumerate(itos)}
+    g = torch.Generator().manual_seed(0)
+    emb = torch.randn(len(itos), dim, generator=g) * 0.1
+    emb[0].zero_()
+    hit = 0
+    with p.open("r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            w, _, rest = line.rstrip().partition(" ")
+            i = want.get(w)
+            if i is None or i == 0:
+                continue
+            v = rest.split(" ")
+            if len(v) != dim:
+                continue
+            emb[i] = torch.tensor([float(x) for x in v])
+            hit += 1
+    print(f"[{name}] GloVe: {hit}/{len(itos) - 2} vocabulary words found in {p.name}")
+    return emb
 
 
 def majority_answer(answers: List[str]) -> str:
@@ -89,7 +118,7 @@ class Split:
     def __init__(self, name: str, cfg: dict, vocab: Vocab, source: str, blip: Optional[Dict[int, str]]) -> None:
         work = Path(cfg["work_dir"])
         self.recs = read_json(work / "split" / f"{name}.json")
-        packed = work / "features" / f"regions_{name}"
+        packed = (Path(cfg["features_dir"]) if cfg.get("features_dir") else work / "features") / f"regions_{name}"
         if (packed / "meta.json").exists():
             # Finglish: packed memmap (prepare_regions.py) — az disk/page cache, beyn-e process ha share
             meta = read_json(packed / "meta.json")
@@ -203,7 +232,7 @@ def main() -> None:
     cfg = load_config(args.config)
     set_seed(args.seed)
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
-    if device.type == "cuda":
+    if device.type == "cuda" and device.index is not None:
         torch.cuda.set_device(device)
     work = Path(cfg["work_dir"])
     name = f"{'nocap' if args.captions == 'none' else args.captions}_s{args.seed}"
@@ -220,12 +249,28 @@ def main() -> None:
           f"{len(vocab.answers)} answers")
     train, dev, test = (Split(s, cfg, vocab, args.captions, blip) for s in ("train", "dev", "test"))
     use_caption = args.captions != "none"
-    model = UpDnVQA(len(vocab.itos), len(vocab.answers), int(cfg["word_dim"]), int(cfg["hidden_dim"]),
-                    int(cfg["region_dim"]), float(cfg["dropout"]), use_caption).to(device)
+    emb_init = load_glove(cfg.get("glove_path"), vocab.itos, int(cfg["word_dim"]), name)
+    if cfg.get("model", "updn") == "mcan":
+        model = MCANVQA(len(vocab.itos), len(vocab.answers), int(cfg["word_dim"]), int(cfg["hidden_dim"]),
+                        int(cfg.get("num_heads", 8)), int(cfg.get("ff_dim", 2048)), int(cfg.get("num_layers", 6)),
+                        int(cfg["region_dim"]), float(cfg["dropout"]), use_caption, emb_init).to(device)
+    else:
+        model = UpDnVQA(len(vocab.itos), len(vocab.answers), int(cfg["word_dim"]), int(cfg["hidden_dim"]),
+                        int(cfg["region_dim"]), float(cfg["dropout"]), use_caption).to(device)
+        if emb_init is not None:
+            model.emb.weight.data.copy_(emb_init)
     n_params = sum(q.numel() for q in model.parameters() if q.requires_grad)
-    print(f"[{name}] {n_params / 1e6:.2f}M params, train {len(train)} / dev {len(dev)} / test {len(test)}")
+    print(f"[{name}] {cfg.get('model', 'updn')}: {n_params / 1e6:.2f}M params, "
+          f"train {len(train)} / dev {len(dev)} / test {len(test)}")
 
-    opt = torch.optim.AdamW(model.parameters(), lr=float(cfg["learning_rate"]), weight_decay=float(cfg["weight_decay"]))
+    if cfg.get("optimizer", "adamw") == "adam":
+        # Finglish: MCAN — Adam(0.9, 0.98), bedoon weight decay
+        opt = torch.optim.Adam(model.parameters(), lr=float(cfg["learning_rate"]), betas=(0.9, 0.98), eps=1e-9)
+    else:
+        opt = torch.optim.AdamW(model.parameters(), lr=float(cfg["learning_rate"]),
+                                weight_decay=float(cfg["weight_decay"]))
+    decay_epochs = [int(e) for e in cfg.get("lr_decay_epochs", [])]
+    decay_factor = float(cfg.get("lr_decay_factor", 0.2))
     scaler = torch.amp.GradScaler(enabled=device.type == "cuda")
     epochs = args.epochs or int(cfg["epochs"])
     bs = int(cfg["batch_size"])
@@ -238,7 +283,12 @@ def main() -> None:
         t0, run_loss = time.time(), 0.0
         order = torch.randperm(len(train))
         for s in range(0, len(train), bs):
-            f = (step + 1) / warm if step < warm else 0.5 * (1 + math.cos(math.pi * (step - warm) / max(1, total - warm)))
+            if step < warm:
+                f = (step + 1) / warm
+            elif decay_epochs:  # Finglish: MCAN — step decay (× factor dar har epoch-e lr_decay_epochs)
+                f = decay_factor ** sum(epoch >= e for e in decay_epochs)
+            else:
+                f = 0.5 * (1 + math.cos(math.pi * (step - warm) / max(1, total - warm)))
             for g in opt.param_groups:
                 g["lr"] = base_lr * f
             b = train.batch(order[s : s + bs], K, device)
