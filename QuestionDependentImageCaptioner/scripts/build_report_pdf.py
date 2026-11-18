@@ -125,7 +125,7 @@ def lists(lines: list[str]) -> str:
     return "".join(out)
 
 
-def convert(md: str, base: Path) -> str:
+def convert(md: str, base: Path, subtitle: str = "Stage 1 report") -> str:
     lines = md.splitlines()
     out, i = [], 0
     while i < len(lines):
@@ -143,7 +143,7 @@ def convert(md: str, base: Path) -> str:
             out.append(f"<h{n}>{inline(m.group(2))}</h{n}>")
             if n == 1:
                 out.append(f'<div class="meta">Master thesis: image captioning improved visual question answering · '
-                           f'Stage 1 report · {date.today().strftime("%d %B %Y")}</div>')
+                           f'{html.escape(subtitle)} · {date.today().strftime("%d %B %Y")}</div>')
             i += 1
             continue
         m = re.match(r"^!\[([^\]]*)\]\(([^)]+)\)\s*$", ln)
@@ -195,11 +195,12 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--md", default=str(ROOT / "CAPTIONER_COMPARISON.md"))
     p.add_argument("--out", default=None)
+    p.add_argument("--subtitle", default="Stage 1 report", help="text in the line under the title")
     args = p.parse_args()
     md = Path(args.md)
     out = Path(args.out) if args.out else md.with_suffix(".pdf")
     title = re.search(r"^#\s+(.*)$", md.read_text(encoding="utf-8"), re.M).group(1)
-    body = convert(md.read_text(encoding="utf-8"), md.parent)
+    body = convert(md.read_text(encoding="utf-8"), md.parent, args.subtitle)
     page = (f"<!doctype html><html><head><meta charset='utf-8'><title>{html.escape(title)}</title>"
             f"<style>{CSS}</style></head><body>{body}</body></html>")
     html_path = md.with_suffix(".html")

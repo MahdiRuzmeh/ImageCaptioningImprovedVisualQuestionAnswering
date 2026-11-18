@@ -49,7 +49,7 @@ def main() -> None:
         raise SystemExit(f"no results under {dirs}")
 
     L = ["# VQA: baseline vs + BLIP captions", "",
-         f"Train {runs[groups[0]][0]['train_questions']:,} questions (train2014 images the captioner never saw), "
+         f"Train {runs[groups[0]][0]['train_questions']:,} questions (train2014), "
          f"test {runs[groups[0]][0]['test']['n']:,} questions (val2014). Official VQA v2 accuracy (%), "
          "mean ± std over seeds, best dev epoch.", "",
          "## Overall and by answer type", "",
