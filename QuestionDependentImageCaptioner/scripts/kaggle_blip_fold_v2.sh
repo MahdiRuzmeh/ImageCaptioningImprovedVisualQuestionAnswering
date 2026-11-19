@@ -5,7 +5,6 @@
 # Then scores the new captioner on 10,000 QD rows of the OTHER fold (images it never saw), beam 3.
 #   cd <repo>/QuestionDependentImageCaptioner && VARIANT=A FOLD=0 bash scripts/kaggle_blip_fold_v2.sh
 # Inputs: questiondependentcaptions, mnhlfuch/vqa-v2. Internet on. GPU T4 x2.
-# Short GPU quota: MAX_HOURS=4.6 → training stops cleanly between epochs before that (last.pt kept).
 # Resumable: attach this notebook's earlier output → continues from last.pt.
 # Output: /kaggle/working/model_b/b_blip_fold<FOLD>_v2<VARIANT>/{best.pt,train.log,fold_eval.json}
 set -euo pipefail
@@ -41,16 +40,14 @@ if [ -n "$prev" ] && [ ! -f "$OUT/last.pt" ]; then echo "resume from $prev"; cp 
 python scripts/make_fold_qd.py --qd "$QD" --folds ../CaptionVQA/data/crossfit_folds.json --fold "$FOLD" \
   --base-config configs/b_blip_fold_v2.yaml \
   --out-json "$W/qd_fold$FOLD.json" --out-config "$W/configs/$RUN.yaml" --save-dir "$OUT"
-python - "$W/configs/$RUN.yaml" "$IMG" "$VARIANT" "${MAX_HOURS:-}" <<'PYEOF'
+python - "$W/configs/$RUN.yaml" "$IMG" "$VARIANT" <<'PYEOF'
 import sys, yaml
-p, img, variant, max_hours = sys.argv[1:]
+p, img, variant = sys.argv[1:]
 cfg = yaml.safe_load(open(p)); cfg["train_images_dir"] = img
 cfg["answer_weight"] = 3.0 if variant == "B" else 1.0
-if max_hours:
-    cfg["max_hours"] = float(max_hours)  # Finglish: quota-ye kam → ghabl az tamoom shodan tamiz stop (last.pt)
 yaml.safe_dump(cfg, open(p, "w"), sort_keys=False)
 print(f"config: unfreeze_vision_layers={cfg['unfreeze_vision_layers']} vision_lr_scale={cfg['vision_lr_scale']} "
-      f"epochs={cfg['epochs']} answer_weight={cfg['answer_weight']} max_hours={cfg['max_hours']}")
+      f"epochs={cfg['epochs']} answer_weight={cfg['answer_weight']}")
 PYEOF
 
 FILTER='it/s\]|s/it\]|it/s, |s/it, |^\s*$'
