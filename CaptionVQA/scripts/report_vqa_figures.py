@@ -24,11 +24,12 @@ sys.path.insert(1, str(ROOT.parent / "QuestionDependentImageCaptioner"))
 from metrics import answer_in_caption, caption_negated  # noqa: E402
 from train import tok  # noqa: E402
 
-OUT = ROOT / "report_figs_vqa"
+OUT = ROOT / "report_figs_vqa"  # --out
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
 C = {"nocap": "#2a78d6", "blip": "#eb6834"}
 LABEL = {"nocap": "Baseline (no caption)", "blip": "+ cross-fitted BLIP captions"}
-DIR = {"nocap": ROOT / "vqa_full_baseline", "blip": ROOT / "vqa_full_crossfit"}
+DIR = {"nocap": ROOT / "vqa_full_baseline", "blip": ROOT / "vqa_full_crossfit"}  # --baseline / --caption
+SEEDS = [0, 1, 2]  # --seeds
 plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 9, "axes.edgecolor": GRID, "axes.labelcolor": INK2,
                      "xtick.color": INK2, "ytick.color": INK2, "axes.titlesize": 10.5, "axes.titleweight": "bold",
                      "axes.titlecolor": INK, "figure.facecolor": SURFACE, "axes.facecolor": SURFACE,
@@ -40,7 +41,7 @@ def load(p):
 
 
 def runs(m):
-    return [load(DIR[m] / "runs" / f"{m}_s{k}" / "results.json") for k in range(3)]
+    return [load(DIR[m] / "runs" / f"{m}_s{k}" / "results.json") for k in SEEDS]
 
 
 def style(ax, ylabel, ymin=0, ymax=100, grid_axis="y"):
@@ -74,7 +75,7 @@ def fig_overall(R):
             ax.errorbar(x, mu, yerr=sd, color=INK2, capsize=2.5, linewidth=0.9)
             ax.text(x, mu + sd + 1.2, f"{mu:.1f}", ha="center", va="bottom", fontsize=7.6, color=INK)
     ax.set_xticks(range(len(cats)), [c[0] for c in cats])
-    ax.set_title("Test accuracy, mean ± std over 3 seeds (10,001 val2014 questions)", loc="left")
+    ax.set_title(f"Test accuracy, mean ± std over {len(SEEDS)} seeds (10,001 val2014 questions)", loc="left")
     ax.legend(frameon=False, ncol=2, loc="upper right", fontsize=7.8)
     ax.set_ylim(0, 108)
     save(fig, "fig1_overall.png")
@@ -97,7 +98,7 @@ def fig_types(R):
         ax.text(max(v["blip"], v["nocap"]) + 1.5, i, f"{d:+.1f}", va="center", fontsize=7.2,
                 color=INK if d >= 0 else "#b3261e")
     ax.set_yticks(range(len(top)), [f"{t}  (n={v['n']})" for t, v in top], fontsize=7.6)
-    ax.set_title("Accuracy per question type: 30 most frequent types (mean of 3 seeds)", loc="left")
+    ax.set_title(f"Accuracy per question type: 30 most frequent types (mean of {len(SEEDS)} seeds)", loc="left")
     ax.legend(frameon=False, ncol=2, loc="upper left", fontsize=7.6, bbox_to_anchor=(0, -0.06))
     save(fig, "fig2_question_types.png")
 
@@ -106,7 +107,7 @@ def fig_curves():
     fig, ax = plt.subplots(figsize=(7.2, 2.7))
     style(ax, "dev accuracy (%)", 40, 70)
     for m in ("nocap", "blip"):
-        hs = [load(DIR[m] / "runs" / f"{m}_s{k}" / "history.json") for k in range(3)]
+        hs = [load(DIR[m] / "runs" / f"{m}_s{k}" / "history.json") for k in SEEDS]
         n = min(len(h) for h in hs)
         mu = [statistics.mean(h[e]["dev"]["acc"] for h in hs) for e in range(n)]
         ax.plot(range(1, n + 1), mu, color=C[m], linewidth=2, marker="o", markersize=3.5,
@@ -115,7 +116,7 @@ def fig_curves():
     ax.set_xlim(0.5, n + 1.2)
     ax.set_xticks(range(1, n + 1))
     ax.set_xlabel("epoch")
-    ax.set_title("Dev accuracy per epoch (mean of 3 seeds, 5,000 val2014 questions)", loc="left")
+    ax.set_title(f"Dev accuracy per epoch (mean of {len(SEEDS)} seeds, 5,000 val2014 questions)", loc="left")
     ax.legend(frameon=False, loc="lower right", fontsize=7.8)
     save(fig, "fig3_training_curves.png")
 
@@ -123,7 +124,7 @@ def fig_curves():
 def fig_right_wrong():
     caps_rows = {}
     P = {m: [{p["question_id"]: p for p in load(DIR[m] / "runs" / f"{m}_s{k}" / "test_predictions.json")}
-             for k in range(3)] for m in ("nocap", "blip")}
+             for k in SEEDS] for m in ("nocap", "blip")}
     names = {"lex_ok": "open question,\ncaption has the answer", "lex_bad": "open question,\ncaption doesn't",
              "yn_ok": "yes/no,\ncaption polarity right", "yn_bad": "yes/no,\ncaption polarity wrong"}
     keyed = {k: [] for k in names}
@@ -140,18 +141,29 @@ def fig_right_wrong():
     w = 0.36
     for k, (lab, ids) in enumerate(groups.items()):
         for j, m in enumerate(("nocap", "blip")):
-            v = 100 * statistics.mean(statistics.mean(P[m][s][q]["score"] for q in ids) for s in range(3))
+            v = 100 * statistics.mean(statistics.mean(P[m][s][q]["score"] for q in ids) for s in range(len(SEEDS)))
             x = k + (j - 0.5) * w
             ax.bar(x, v, w * 0.92, color=C[m], label=LABEL[m] if k == 0 else None, edgecolor=SURFACE, linewidth=1.2)
             ax.text(x, v + 1.2, f"{v:.1f}", ha="center", va="bottom", fontsize=7.6, color=INK)
         caps_rows[lab] = len(ids)
     ax.set_xticks(range(4), [f"{lab}\n(n={caps_rows[lab]:,})" for lab in groups], fontsize=7.6)
-    ax.set_title("Accuracy when the caption is right vs wrong (test, mean of 3 seeds)", loc="left")
+    ax.set_title(f"Accuracy when the caption is right vs wrong (test, mean of {len(SEEDS)} seeds)", loc="left")
     ax.legend(frameon=False, ncol=2, loc="upper right", fontsize=7.8)
     save(fig, "fig4_caption_right_wrong.png")
 
 
 def main():
+    import argparse
+    global OUT, SEEDS
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--baseline", default=str(DIR["nocap"]))
+    ap.add_argument("--caption", default=str(DIR["blip"]))
+    ap.add_argument("--seeds", default="0,1,2")
+    ap.add_argument("--out", default=str(OUT))
+    ap.add_argument("--note", default="", help="text for figure titles, e.g. 'MCAN, train+val'")
+    a = ap.parse_args()
+    DIR["nocap"], DIR["blip"], OUT = Path(a.baseline), Path(a.caption), Path(a.out)
+    SEEDS = [int(x) for x in a.seeds.split(",")]
     R = {m: runs(m) for m in ("nocap", "blip")}
     fig_overall(R)
     fig_types(R)
