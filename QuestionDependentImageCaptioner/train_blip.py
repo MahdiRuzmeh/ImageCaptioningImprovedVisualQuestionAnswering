@@ -39,11 +39,15 @@ from torchvision import transforms
 from tqdm import tqdm
 
 from benchmark import score_block
+from metrics import _NUM_WORDS, NEGATION_WORDS
 from train import PROJECT_ROOT, assert_disjoint_splits, load_config, resolve_path_fields, set_seed, split_rows, tok
 
 # Finglish: BlipImageProcessor (blip-image-captioning-base): 384x384 bicubic + CLIP mean/std
 BLIP_MEAN = (0.48145466, 0.4578275, 0.40821073)
 BLIP_STD = (0.26862954, 0.26130258, 0.27577711)
+# Finglish: answer-weighted loss: adad ↔ kalame (2 ↔ two), har do taraf
+ANSWER_STOPWORDS = {"a", "an", "the", "and", "or", "of", "on", "in", "to", "is", "it", "with", "for", "at", "by"}
+NUM_WORDS = {**{str(i): w for i, w in enumerate(_NUM_WORDS)}, **{w: str(i) for i, w in enumerate(_NUM_WORDS)}}
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +92,10 @@ class QdBlipDataset(Dataset):
         self.prompt_fmt = str(cfg.get("prompt", "question: {question} caption:"))
         self.max_q = int(cfg.get("max_prompt_tokens", 32))
         self.max_c = int(cfg.get("max_caption_tokens", 32))
+        # Finglish: answer-weighted loss — token haye javab dar caption wazn-e answer_weight migiran (1 = khamoosh)
+        self.answer_weight = float(cfg.get("answer_weight", 1.0))
+        self._neg_ids = [tokenizer.encode(w, add_special_tokens=False) for w in sorted(NEGATION_WORDS)]
+        self._neg_ids.append(tokenizer.encode("'t", add_special_tokens=False))  # isn't → isn ' t
         # Finglish: prompt ids yek bar hesab mishan (baraye bucket-e tool dar generate ham lazem)
         self.prompt_ids = [
             [self.bos] + tokenizer.encode(self.prompt_fmt.format(question=r["question"]),
@@ -102,7 +110,38 @@ class QdBlipDataset(Dataset):
         r = self.rows[i]
         img = Image.open(self.dir / self.template.format(image_id=int(r["image_id"]))).convert("RGB")
         cap = self.tokenizer.encode(str(r["caption"]), add_special_tokens=False)[: self.max_c - 1] + [self.sep]
-        return {"pixel_values": self.tf(img), "prompt": self.prompt_ids[i], "caption": cap, "idx": i}
+        item = {"pixel_values": self.tf(img), "prompt": self.prompt_ids[i], "caption": cap, "idx": i}
+        if self.answer_weight != 1.0:
+            item["weights"] = self.answer_weights(cap, str(r.get("answer", "")))
+        return item
+
+    def answer_weights(self, cap: List[int], answer: str) -> List[float]:
+        """Finglish: wazn-e har token-e caption: answer_weight baraye token haye javab, 1 baraye baghie.
+
+        - javab-e matni/adadi: har jaye caption ke token haye javab (ya shekl-e kalame-ye adad: 2 → two) miad;
+        - javab "no": kalame-ye manfi (not / no / none / …) ke polarity ro migeh;
+        - javab "yes": hich token-e khassi nist → hame 1.
+        """
+        w = [1.0] * len(cap)
+        a = answer.strip().lower()
+        if not a or a == "yes":
+            return w
+        if a == "no":
+            cands = self._neg_ids
+        else:
+            # Finglish: kol-e javab + har kalame-ye mohem-e javab-e chand kalame-i ("near tree" → near, tree)
+            forms = {a} | {x for x in a.split() if x not in ANSWER_STOPWORDS}
+            forms |= {NUM_WORDS[x] for x in list(forms) if x in NUM_WORDS}
+            cands = [self.tokenizer.encode(f, add_special_tokens=False) for f in forms]
+        for c in cands:
+            n = len(c)
+            if n == 0:
+                continue
+            for s in range(len(cap) - n + 1):
+                if cap[s : s + n] == c:
+                    for k in range(s, s + n):
+                        w[k] = self.answer_weight
+        return w
 
 
 def collate_train(batch: List[Dict[str, Any]], pad_id: int) -> Dict[str, torch.Tensor]:
@@ -112,13 +151,19 @@ def collate_train(batch: List[Dict[str, Any]], pad_id: int) -> Dict[str, torch.T
     ids = torch.full((len(batch), t), pad_id, dtype=torch.long)
     mask = torch.zeros((len(batch), t), dtype=torch.long)
     labels = torch.full((len(batch), t), -100, dtype=torch.long)
+    weights = torch.zeros((len(batch), t), dtype=torch.float) if "weights" in batch[0] else None
     for k, (b, s) in enumerate(zip(batch, seqs)):
         ids[k, : len(s)] = torch.tensor(s)
         mask[k, : len(s)] = 1
         p = len(b["prompt"])
         labels[k, p : len(s)] = torch.tensor(b["caption"])
-    return {"pixel_values": torch.stack([b["pixel_values"] for b in batch]), "input_ids": ids,
-            "attention_mask": mask, "labels": labels, "idx": torch.tensor([b["idx"] for b in batch])}
+        if weights is not None:
+            weights[k, p : len(s)] = torch.tensor(b["weights"])
+    out = {"pixel_values": torch.stack([b["pixel_values"] for b in batch]), "input_ids": ids,
+           "attention_mask": mask, "labels": labels, "idx": torch.tensor([b["idx"] for b in batch])}
+    if weights is not None:
+        out["weights"] = weights
+    return out
 
 
 def collate_gen(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
@@ -153,15 +198,24 @@ class LengthBucketSampler(Sampler[List[int]]):
 # Model
 # ---------------------------------------------------------------------------
 class BlipQD(nn.Module):
-    """Wrapper: vision (optional freeze) → text decoder ba prompt-e soal."""
+    """Wrapper: vision (freeze, ya faghat N layer-e balaye ViT train) → text decoder ba prompt-e soal."""
 
-    def __init__(self, blip, freeze_vision: bool) -> None:
+    def __init__(self, blip, freeze_vision: bool, unfreeze_vision_layers: int = 0) -> None:
         super().__init__()
         self.blip = blip
-        self.freeze_vision = freeze_vision
+        vm = blip.vision_model
         if freeze_vision:
-            for p in self.blip.vision_model.parameters():
+            for p in vm.parameters():
                 p.requires_grad_(False)
+            # Finglish: N layer-e akhar-e ViT + post_layernorm dobare train mishan (lr-e kamtar, train())
+            if unfreeze_vision_layers > 0:
+                for layer in vm.encoder.layers[-unfreeze_vision_layers:]:
+                    for p in layer.parameters():
+                        p.requires_grad_(True)
+                for p in vm.post_layernorm.parameters():
+                    p.requires_grad_(True)
+        # Finglish: kamelan freeze → no_grad (sari). Ghesmati → graph faghat baraye layer haye bala sakhte mishe
+        self.freeze_vision = not any(p.requires_grad for p in vm.parameters())
         tc = blip.config.text_config
         self.bos, self.sep, self.pad = int(tc.bos_token_id), int(tc.sep_token_id), int(tc.pad_token_id)
 
@@ -172,14 +226,23 @@ class BlipQD(nn.Module):
                 return self.blip.vision_model(pixel_values=pixel_values).last_hidden_state
         return self.blip.vision_model(pixel_values=pixel_values).last_hidden_state
 
-    def forward(self, pixel_values, input_ids, attention_mask, labels) -> torch.Tensor:
+    def forward(self, pixel_values, input_ids, attention_mask, labels, weights=None) -> torch.Tensor:
         emb = self.image_embeds(pixel_values)
-        out = self.blip.text_decoder(
-            input_ids=input_ids, attention_mask=attention_mask, encoder_hidden_states=emb,
-            encoder_attention_mask=torch.ones(emb.shape[:2], dtype=torch.long, device=emb.device),
-            labels=labels, reduction="mean",
-        )
-        return out.loss
+        enc_mask = torch.ones(emb.shape[:2], dtype=torch.long, device=emb.device)
+        if weights is None:
+            out = self.blip.text_decoder(input_ids=input_ids, attention_mask=attention_mask,
+                                         encoder_hidden_states=emb, encoder_attention_mask=enc_mask,
+                                         labels=labels, reduction="mean")
+            return out.loss
+        # Finglish: weighted loss — hamoon shift + label smoothing-e BLIP, vali miangin-e wazn dar (token-e javab ×w)
+        logits = self.blip.text_decoder(input_ids=input_ids, attention_mask=attention_mask,
+                                        encoder_hidden_states=emb, encoder_attention_mask=enc_mask).logits
+        logits, tgt, w = logits[:, :-1].float(), labels[:, 1:], weights[:, 1:]
+        ce = nn.functional.cross_entropy(logits.reshape(-1, logits.size(-1)), tgt.reshape(-1), ignore_index=-100,
+                                         reduction="none",
+                                         label_smoothing=float(getattr(self.blip.text_decoder, "label_smoothing", 0.0)))
+        w = w.reshape(-1) * (tgt.reshape(-1) != -100)
+        return (ce * w).sum() / w.sum().clamp_min(1.0)
 
     @torch.no_grad()
     def generate(self, pixel_values, prompt_ids, beam: int, max_new_tokens: int) -> torch.Tensor:
@@ -209,7 +272,7 @@ def build_model(cfg: Dict[str, Any], device: torch.device, state: Optional[Dict[
     blip = BlipForConditionalGeneration.from_pretrained(name)
     if cfg.get("label_smoothing") is not None:
         blip.text_decoder.label_smoothing = float(cfg["label_smoothing"])
-    model = BlipQD(blip, bool(cfg.get("freeze_vision", True)))
+    model = BlipQD(blip, bool(cfg.get("freeze_vision", True)), int(cfg.get("unfreeze_vision_layers", 0)))
     if state is not None:
         missing, unexpected = model.blip.load_state_dict(state, strict=False)
         assert not unexpected, f"unexpected keys in checkpoint: {unexpected[:5]}"
@@ -295,7 +358,13 @@ def train(cfg: Dict[str, Any], cli: argparse.Namespace) -> None:
                     persistent_workers=nw > 0, collate_fn=functools.partial(collate_train, pad_id=model.pad))
 
     params = [p for p in model.parameters() if p.requires_grad]
-    opt = torch.optim.AdamW(params, lr=float(cfg["learning_rate"]), weight_decay=float(cfg.get("weight_decay", 0.05)))
+    # Finglish: layer haye unfreeze-e ViT ba lr × vision_lr_scale (pretrained feature ha kharab nashan)
+    lr = float(cfg["learning_rate"])
+    vis = {id(p) for p in model.blip.vision_model.parameters() if p.requires_grad}
+    groups = [{"params": [p for p in params if id(p) not in vis], "lr": lr}]
+    if vis:
+        groups.append({"params": [p for p in params if id(p) in vis], "lr": lr * float(cfg.get("vision_lr_scale", 0.1))})
+    opt = torch.optim.AdamW(groups, lr=lr, weight_decay=float(cfg.get("weight_decay", 0.05)))
     epochs = int(cfg["epochs"])
     accum = max(1, int(cfg.get("grad_accum_steps", 1)))
     total = epochs * math.ceil(len(dl) / accum)
@@ -315,7 +384,9 @@ def train(cfg: Dict[str, Any], cli: argparse.Namespace) -> None:
         from torch.nn.parallel import DistributedDataParallel as DDP
         net = DDP(model, device_ids=[local_rank],
                   find_unused_parameters=bool(cfg.get("ddp_find_unused_parameters", False)))
-    log(rank, f"BLIP-QD: trainable={n_train:,} train_rows={len(ds_tr)} val_rows={len(ds_va)} "
+    n_vis = sum(p.numel() for p in model.blip.vision_model.parameters() if p.requires_grad)
+    log(rank, f"BLIP-QD: trainable={n_train:,} (vision {n_vis:,}, lr x{cfg.get('vision_lr_scale', 0.1) if n_vis else 0}) "
+              f"answer_weight={ds_tr.answer_weight} train_rows={len(ds_tr)} val_rows={len(ds_va)} "
               f"world={world} batch/gpu={cfg['batch_size']} steps/epoch={len(dl)} epochs={epochs}")
 
     max_secs = float(cfg.get("max_hours", 1e9)) * 3600
@@ -335,7 +406,8 @@ def train(cfg: Dict[str, Any], cli: argparse.Namespace) -> None:
         for step, b in enumerate(bar, 1):
             with torch.autocast(device.type, dtype=torch.float16, enabled=use_amp):
                 loss = net(b["pixel_values"].to(device, non_blocking=True), b["input_ids"].to(device),
-                           b["attention_mask"].to(device), b["labels"].to(device))
+                           b["attention_mask"].to(device), b["labels"].to(device),
+                           b["weights"].to(device) if "weights" in b else None)
             scaler.scale(loss / accum).backward()
             if step % accum == 0:
                 scaler.unscale_(opt)
