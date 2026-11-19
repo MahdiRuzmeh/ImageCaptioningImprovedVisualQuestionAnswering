@@ -183,6 +183,20 @@ def mean(xs: List[float]) -> float:
 
 
 @torch.no_grad()
+def predict_scores(model, ds: Split, n_answers: int, device, bs: int = 512) -> np.ndarray:
+    """Finglish: sigmoid score-e har javab baraye har soal (N, K) fp16 — baraye ensemble."""
+    model.eval()
+    out = []
+    for s in range(0, len(ds), bs):
+        idx = torch.arange(s, min(s + bs, len(ds)))
+        b = ds.batch(idx, n_answers, device)
+        with torch.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
+            logits = model(b)
+        out.append(torch.sigmoid(logits.float()).half().cpu().numpy())
+    return np.concatenate(out)
+
+
+@torch.no_grad()
 def evaluate(model, ds: Split, vocab: Vocab, device, keep_preds: bool = False, bs: int = 512) -> dict:
     model.eval()
     K = len(vocab.answers)
@@ -228,6 +242,8 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--epochs", type=int, default=None)
     p.add_argument("--device", default=None, help="e.g. cuda:1 (Kaggle: one seed per GPU)")
+    p.add_argument("--caption-dropout", type=float, default=None,
+                   help="share of training questions whose caption is hidden (default: config caption_dropout, else 0)")
     args = p.parse_args()
     cfg = load_config(args.config)
     set_seed(args.seed)
@@ -249,6 +265,9 @@ def main() -> None:
           f"{len(vocab.answers)} answers")
     train, dev, test = (Split(s, cfg, vocab, args.captions, blip) for s in ("train", "dev", "test"))
     use_caption = args.captions != "none"
+    cap_drop = float(args.caption_dropout if args.caption_dropout is not None else cfg.get("caption_dropout", 0.0))
+    if use_caption and cap_drop > 0:
+        print(f"[{name}] caption dropout {cap_drop}: captions hidden for that share of training questions")
     emb_init = load_glove(cfg.get("glove_path"), vocab.itos, int(cfg["word_dim"]), name)
     if cfg.get("model", "updn") == "mcan":
         model = MCANVQA(len(vocab.itos), len(vocab.answers), int(cfg["word_dim"]), int(cfg["hidden_dim"]),
@@ -292,6 +311,11 @@ def main() -> None:
             for g in opt.param_groups:
                 g["lr"] = base_lr * f
             b = train.batch(order[s : s + bs], K, device)
+            if use_caption and cap_drop > 0:
+                # Finglish: caption dropout — baraye ye sahm az soal ha caption pak mishe (hame PAD) →
+                # model yad migire bedoon caption ham az tasvir javab bede va be caption kur-kurane etemad nakone
+                drop = torch.rand(b["cap"].size(0), device=device) < cap_drop
+                b["cap"] = b["cap"].masked_fill(drop[:, None], 0)
             with torch.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
                 logits = model(b)
             # Finglish: soft-score BCE (Teney et al. 2018), × tedad-e javab (scaling-e standard)
@@ -324,7 +348,13 @@ def main() -> None:
     if use_caption:
         test.shuffle_captions(seed=123)
         res["test_shuffled_captions"] = evaluate(model, test, vocab, device)
+    res["caption_dropout"] = cap_drop if use_caption else None
     write_json(run_dir / "results.json", res)
+    # Finglish: score ha baraye ensemble (bedoon inference-e dobare); caption-e test be halat-e normal bar migarde
+    test.perm = torch.arange(len(test))
+    for nm, ds in (("dev", dev), ("test", test)):
+        np.save(run_dir / f"{nm}_scores.npy", predict_scores(model, ds, K, device))
+    write_json(run_dir / "answers.json", vocab.answers)
     print(f"[{name}] best epoch {state['epoch']}  dev {fmt(res['dev'])}")
     print(f"[{name}] TEST {fmt(t)}")
     if use_caption:

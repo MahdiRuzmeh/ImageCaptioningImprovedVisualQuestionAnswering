@@ -114,3 +114,33 @@ The MCAN model is ~4× larger than UpDn and the data 1.45× larger, so one seed 
 | 2 | `/kaggle/working/vqa_strong_crossfit/` | the same, plus `captions/captions_crossfit.json` |
 
 `best.pt` files (~210 MB each) are not needed. The features are kept in `/tmp` and are not part of the output.
+
+## Round 1b: batch 64 + GloVe 840B (+ caption dropout)
+
+Config `configs/blip_strong_b64.yaml`: identical to `blip_strong.yaml` except **batch 64**. The runner prefers
+`glove.840B.300d.txt` when a GloVe 840B dataset is attached. Caption dropout hides the caption for a share of the
+training questions (caption model only; test questions always get their caption).
+
+| Notebook | Inputs | Command (after the clone + `%cd /kaggle/working/repo/CaptionVQA` cells) | Time (estimate) |
+|---|---|---|---|
+| **1b-A** baseline | vqa-v2, questiondependentcaptions, qd-butd-packed, qd-butd-val2014, **GloVe 840B** | `!CONFIG=configs/blip_strong_b64.yaml RUN=vqa_b64_baseline SEEDS="0 1" MODE=baseline bash scripts/kaggle_vqa_strong.sh` | ~4.5 h |
+| **1b-B** + captions, dropout 0.3 | the same 5 + **the 658k captions** (`captions_crossfit.json`) | `!CONFIG=configs/blip_strong_b64.yaml RUN=vqa_b64_crossfit_drop CAPTION_DROPOUT=0.3 SEEDS="0 1" MODE=crossfit bash scripts/kaggle_vqa_strong.sh` | ~5.5–6 h |
+| **1b-C** + captions, no dropout | the same as 1b-B | `!CONFIG=configs/blip_strong_b64.yaml RUN=vqa_b64_crossfit SEEDS="0 1" MODE=crossfit bash scripts/kaggle_vqa_strong.sh` | ~5.5–6 h |
+
+- **The 658k captions:** upload `CaptionVQA/vqa_strong_crossfit/captions/` (the folder) as a dataset. With all
+  captions present, the fold captioner models are **not** needed: the log shows `reused 658111 captions, 0 to generate`.
+- **Outputs:** `/kaggle/working/<RUN>/`, holding `runs/*/results.json`, `history.json`, `test_predictions.json` and now
+  also `dev_scores.npy`, `test_scores.npy`, `answers.json` (for the ensemble), plus `summary.md` and logs.
+
+## Ensemble (local)
+
+`ensemble_vqa.py` averages the answer scores of several trained models. The caption-vs-baseline weight is chosen on
+dev; test is only reported. Result for the 4 Stage A+B models (`vqa_ensemble.md`):
+
+| Combination | Dev | Test |
+|---|---:|---:|
+| best single caption model (blip_s1) | 69.26 | 67.81 |
+| baseline seeds averaged | 66.80 | 66.82 |
+| caption-model seeds averaged | 69.64 | 68.57 |
+| all 4 models, equal weight | 69.76 | 68.99 |
+| **0.7 × caption models + 0.3 × baselines** | **70.26** | **69.11** |

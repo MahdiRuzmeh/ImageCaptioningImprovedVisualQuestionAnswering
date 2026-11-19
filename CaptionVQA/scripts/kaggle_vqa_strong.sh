@@ -4,22 +4,28 @@
 # Run from the checkout:  cd <repo>/CaptionVQA && MODE=baseline bash scripts/kaggle_vqa_strong.sh
 #   MODE=baseline : stronger baseline, no captions
 #   MODE=crossfit : the same model + cross-fitted BLIP captions
-# Env: SEEDS="0 1 2" (seeds 0 and 1 run in parallel on the 2 GPUs; seed 2 only if time allows)
+# Env: SEEDS="0 1 2"   seeds 0 and 1 run in parallel on the 2 GPUs; seed 2 only if time allows
+#      CONFIG=configs/blip_strong.yaml   round 1b: configs/blip_strong_b64.yaml (batch 64)
+#      CAPTION_DROPOUT=0.3               crossfit only: share of training questions whose caption is hidden
+#      RUN=vqa_strong_<MODE>             output folder name, e.g. RUN=vqa_b64_crossfit_drop
 #
 # Inputs (Add Input):
 #   - mnhlfuch/vqa-v2, questiondependentcaptions
 #   - qd-butd-packed (train2014 features) and the val2014 cache from notebook 0 (butd_val2014/)
-#   - a GloVe dataset with glove.*.300d.txt (e.g. glove.6B.300d.txt or glove.840B.300d.txt)
-#   - MODE=crossfit: the fold notebooks' outputs (model_b/b_blip_fold0/best.pt, b_blip_fold1/best.pt) and the
-#     earlier crossfit notebook's output (vqa_full_crossfit/captions/captions_crossfit.json: 458,758 captions reused)
-# Internet on. Output: /kaggle/working/vqa_strong_<MODE>/ (runs/, summary.md, captions/, logs).
+#   - a GloVe dataset with glove.*.300d.txt (glove.840B.300d.txt is preferred when both are attached)
+#   - MODE=crossfit: a captions_crossfit.json from an earlier run (the largest one found is reused).
+#     Only if some questions still have no caption: the fold notebooks' outputs (b_blip_fold0/1/best.pt).
+# Internet on. Output: /kaggle/working/<RUN>/ (runs/, summary.md, captions/, logs).
 set -euo pipefail
 MODE=${MODE:-baseline}
 SEEDS=${SEEDS:-"0 1 2"}
+CONFIG=${CONFIG:-configs/blip_strong.yaml}
+CAPTION_DROPOUT=${CAPTION_DROPOUT:-0}
+RUN=${RUN:-vqa_strong_$MODE}
 [[ "$MODE" == "baseline" || "$MODE" == "crossfit" ]] || { echo "MODE must be baseline or crossfit"; exit 1; }
 W=/kaggle/working
-WORK=$W/vqa_strong_$MODE
-CFG=$W/configs/vqa_strong_$MODE.yaml
+WORK=$W/$RUN
+CFG=$W/configs/$RUN.yaml
 CAP_ROOT=../QuestionDependentImageCaptioner
 mkdir -p "$WORK/captions" "$W/configs"
 export PYTHONIOENCODING=utf-8
@@ -32,27 +38,34 @@ TRQ=$(find1 v2_OpenEnded_mscoco_train2014_questions.json); TRA=$(find1 v2_mscoco
 VAQ=$(find1 v2_OpenEnded_mscoco_val2014_questions.json);   VAA=$(find1 v2_mscoco_val2014_annotations.json)
 TRIMG=$(dirname "$(find1 COCO_train2014_000000000009.jpg)"); VAIMG=$(dirname "$(find1 COCO_val2014_000000000042.jpg)")
 QD=$(cd "$CAP_ROOT" && python scripts/kaggle_find_qd.py configs/b_blip_full.yaml)
-GLOVE=$(find -L /kaggle/input -type f -iname 'glove*300d*.txt' 2>/dev/null | head -1 || true)
+# Finglish: GloVe 840B (vocab-e bozorgtar) age attach shode, vagarna har glove*300d*.txt
+GLOVE=$(find -L /kaggle/input -type f -iname 'glove.840B*300d*.txt' 2>/dev/null | head -1 || true)
+[ -n "$GLOVE" ] || GLOVE=$(find -L /kaggle/input -type f -iname 'glove*300d*.txt' 2>/dev/null | head -1 || true)
 CACHES=()
 while IFS= read -r m; do CACHES+=("$(dirname "$m")"); done < <(find -L /kaggle/input -name meta.json -path '*butd_*' 2>/dev/null)
 for v in TRQ TRA VAQ VAA; do [ -n "${!v}" ] || { echo "VQA v2 file missing ($v)"; exit 1; }; done
 [ "$TRIMG" != "." ] && [ "$VAIMG" != "." ] || { echo "COCO train2014/val2014 images not found"; exit 1; }
 [ -n "$GLOVE" ] || echo "WARNING: no glove*300d*.txt attached -> random word embeddings (weaker model)"
+[ ${#CACHES[@]} -ge 2 ] || echo "WARNING: fewer than 2 BUTD caches attached (qd-butd-packed + qd-butd-val2014) -> extra extraction time"
 # Finglish: feature ha (~18 GB) → /tmp age ja dare (/kaggle/working faghat 20 GB)
 FREE_TMP=$(df -BG --output=avail /tmp | tail -1 | tr -dc '0-9')
 FEAT=$([ "$FREE_TMP" -ge 30 ] && echo /tmp/vqa_strong_features || echo "$WORK/features")
-printf 'MODE %s | seeds %s\nQD %s\nGloVe %s\nfeature caches: %s\nfeatures -> %s (/tmp free %s GB)\n' \
-  "$MODE" "$SEEDS" "$QD" "${GLOVE:-none}" "${CACHES[*]:-none}" "$FEAT" "$FREE_TMP"
+echo "RUN $RUN | MODE $MODE | config $CONFIG | caption dropout $CAPTION_DROPOUT | seeds $SEEDS"
+echo "QD $QD"
+echo "GloVe ${GLOVE:-none}"
+echo "feature caches: ${CACHES[*]:-none}"
+echo "features -> $FEAT (/tmp free $FREE_TMP GB)"
 
-python - "$CFG" "$WORK" "$QD" "$TRQ" "$TRA" "$VAQ" "$VAA" "$TRIMG" "$VAIMG" "$FEAT" "$GLOVE" <<'EOF'
+python - "$CFG" "$WORK" "$QD" "$TRQ" "$TRA" "$VAQ" "$VAA" "$TRIMG" "$VAIMG" "$FEAT" "$GLOVE" "$CONFIG" "$CAPTION_DROPOUT" <<'EOF'
 import sys, yaml
-dst, work, qd, trq, tra, vaq, vaa, trimg, vaimg, feat, glove = sys.argv[1:]
-cfg = yaml.safe_load(open("configs/blip_strong.yaml"))
+dst, work, qd, trq, tra, vaq, vaa, trimg, vaimg, feat, glove, base, drop = sys.argv[1:]
+cfg = yaml.safe_load(open(base))
 cfg.update(work_dir=work, qd_captions_json=qd, train_questions_json=trq, train_annotations_json=tra,
            val_questions_json=vaq, val_annotations_json=vaa, train_images_dir=trimg, val_images_dir=vaimg,
-           features_dir=feat, glove_path=glove or None,
+           features_dir=feat, glove_path=glove or None, caption_dropout=float(drop),
            caption_requests_json=f"{work}/caption_requests.json", captions_json=f"{work}/captions/captions_crossfit.json")
 yaml.safe_dump(cfg, open(dst, "w"), sort_keys=False)
+print(f"config {dst}: batch {cfg['batch_size']}, epochs {cfg['epochs']}, caption_dropout {cfg['caption_dropout']}")
 EOF
 
 echo "== 1. split (train2014 + val2014) =="
@@ -89,12 +102,9 @@ echo "features ready after $(( (SECONDS - START) / 60 )) min"
 CAPS=none
 if [ "$MODE" = "crossfit" ]; then
   CAPS=blip
-  echo "== 3. captions: reuse the 458,758 earlier ones, caption only the new val2014 questions =="
-  C0=$(find -L /kaggle/input -path '*model_b/b_blip_fold0/best.pt' 2>/dev/null | head -1 || true)
-  C1=$(find -L /kaggle/input -path '*model_b/b_blip_fold1/best.pt' 2>/dev/null | head -1 || true)
-  [ -n "$C0" ] && [ -n "$C1" ] || { echo "attach both fold notebook outputs (b_blip_fold0/best.pt, b_blip_fold1/best.pt)"; exit 1; }
-  # Finglish: file-e caption haye ghabli har ja-ye input (khorooji-e notebook ya dataset-e upload shode)
-  OLD=$(find -L /kaggle/input -name 'captions_crossfit.json' -type f 2>/dev/null | head -1 || true)
+  echo "== 3. captions: reuse earlier captions, caption only what is missing =="
+  # Finglish: bozorgtarin captions_crossfit.json dar input ha (e.g. 658k-e run-e ghabli)
+  OLD=$(find -L /kaggle/input -name 'captions_crossfit.json' -type f -printf '%s %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2- || true)
   echo "earlier captions: ${OLD:-none (all 658k questions will be captioned, ~4 h)}"
   python - "$WORK" "${OLD:-}" <<'EOF'
 import json, sys
@@ -107,30 +117,41 @@ json.dump({str(r["question_id"]): have[str(r["question_id"])] for r in req if st
           open(f"{work}/captions/captions_reused.json", "w"))
 print(f"reused {len(req) - len(todo)} captions, {len(todo)} to generate "
       f"(model 0: {sum(r['caption_model'] == 0 for r in todo)}, model 1: {sum(r['caption_model'] == 1 for r in todo)})")
+open(f"{work}/n_todo.txt", "w").write(str(len(todo)))
 EOF
-  for k in 0 1; do
-    prev=$(find -L /kaggle/input -path "*vqa_strong_crossfit/captions/captions_model$k.json" 2>/dev/null | head -1 || true)
-    [ -n "$prev" ] && [ ! -f "$WORK/captions/captions_model$k.json" ] && cp "$prev" "$WORK/captions/" && echo "resume captions_model$k.json"
-  done
-  python - "$TRIMG" "$W/configs/b_captions.yaml" <<'EOF'
+  NTODO=$(cat "$WORK/n_todo.txt")
+  if [ "$NTODO" = "0" ]; then
+    # Finglish: hame caption ha az ghabl hastan → model haye fold lazem nistan
+    cp "$WORK/captions/captions_reused.json" "$WORK/captions/captions_crossfit.json"
+  else
+    C0=$(find -L /kaggle/input -path '*model_b/b_blip_fold0/best.pt' 2>/dev/null | head -1 || true)
+    C1=$(find -L /kaggle/input -path '*model_b/b_blip_fold1/best.pt' 2>/dev/null | head -1 || true)
+    [ -n "$C0" ] && [ -n "$C1" ] || { echo "attach both fold notebook outputs (b_blip_fold0/best.pt, b_blip_fold1/best.pt)"; exit 1; }
+    for k in 0 1; do
+      prev=$(find -L /kaggle/input -path "*$RUN/captions/captions_model$k.json" 2>/dev/null | head -1 || true)
+      [ -n "$prev" ] && [ ! -f "$WORK/captions/captions_model$k.json" ] && cp "$prev" "$WORK/captions/" && echo "resume captions_model$k.json"
+    done
+    python - "$TRIMG" "$W/configs/b_captions.yaml" <<'EOF'
 import sys, yaml
 img, dst = sys.argv[1:]
 cfg = yaml.safe_load(open("../QuestionDependentImageCaptioner/configs/b_blip_full.yaml"))
 cfg.update(train_images_dir=img, ddp=False, num_workers=2, eval_batch_size=96)
 yaml.safe_dump(cfg, open(dst, "w"), sort_keys=False)
 EOF
-  export HF_HOME=$W/hf_cache
-  for k in 0 1; do
-    CK=$([ $k = 0 ] && echo "$C0" || echo "$C1")
-    (cd "$CAP_ROOT" && python scripts/blip_caption_vqa.py --config "$W/configs/b_captions.yaml" --ckpt "$CK" \
-      --requests "$WORK/caption_requests_todo.json" --val-images-dir "$VAIMG" --caption-model $k --device cuda:$k \
-      --out "$WORK/captions/captions_model$k.json") > "$WORK/captions_gpu$k.log" 2>&1 &
-    eval "P$k=\$!"
-  done
-  wait $P0; wait $P1
-  tail -n 2 "$WORK"/captions_gpu*.log
-  (cd "$CAP_ROOT" && python scripts/blip_caption_vqa.py --merge "$WORK/captions/captions_reused.json" \
-    "$WORK/captions/captions_model0.json" "$WORK/captions/captions_model1.json" --out "$WORK/captions/captions_crossfit.json")
+    export HF_HOME=$W/hf_cache
+    for k in 0 1; do
+      CK=$([ $k = 0 ] && echo "$C0" || echo "$C1")
+      (cd "$CAP_ROOT" && python scripts/blip_caption_vqa.py --config "$W/configs/b_captions.yaml" --ckpt "$CK" \
+        --requests "$WORK/caption_requests_todo.json" --val-images-dir "$VAIMG" --caption-model $k --device cuda:$k \
+        --out "$WORK/captions/captions_model$k.json") > "$WORK/captions_gpu$k.log" 2>&1 &
+      eval "P$k=\$!"
+    done
+    wait $P0; wait $P1
+    tail -n 2 "$WORK"/captions_gpu*.log
+    (cd "$CAP_ROOT" && python scripts/blip_caption_vqa.py --merge "$WORK/captions/captions_reused.json" \
+      "$WORK/captions/captions_model0.json" "$WORK/captions/captions_model1.json" --out "$WORK/captions/captions_crossfit.json")
+    rm -rf "$HF_HOME"
+  fi
   python - "$WORK" <<'EOF'
 import json, sys
 w = sys.argv[1]; req = json.load(open(f"{w}/caption_requests.json")); cap = json.load(open(f"{w}/captions/captions_crossfit.json"))
@@ -138,7 +159,7 @@ miss = sum(str(r["question_id"]) not in cap for r in req)
 print(f"captions: {len(cap)} for {len(req)} questions, missing {miss}")
 sys.exit(1 if miss else 0)
 EOF
-  rm -rf "$HF_HOME" "$WORK/captions/captions_reused.json" "$WORK/caption_requests_todo.json"
+  rm -f "$WORK/captions/captions_reused.json" "$WORK/caption_requests_todo.json" "$WORK/n_todo.txt"
   echo "captions ready after $(( (SECONDS - START) / 60 )) min"
 fi
 
@@ -157,4 +178,4 @@ grep -h -E "^\[" "$WORK"/train_s*.log
 python summarize_vqa.py --runs "$WORK/runs" --out "$WORK/summary.md"
 rm -rf "$FEAT" "$WORK/features"
 echo "total $(( (SECONDS - START) / 60 )) min"
-echo "VQA_STRONG_${MODE^^}_DONE"
+echo "VQA_STRONG_${MODE^^}_DONE ($RUN)"
