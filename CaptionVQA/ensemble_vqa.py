@@ -43,10 +43,16 @@ class CkptVocab:
 def run_scores(run: Path, cfg: dict, blip, device) -> Dict[str, object]:
     res = read_json(run / "results.json")
     source = res["captions"]
-    state = torch.load(run / "best.pt", map_location="cpu", weights_only=False)
-    vocab = CkptVocab(state["vocab"], state["answers"])
-    out = {"name": res["name"], "captions": source, "answers": vocab.answers}
     todo = [s for s in ("dev", "test") if not (run / f"{s}_scores.npy").exists()]
+    # Finglish: score ha + answers.json hast → best.pt lazem nist (run haye jadid-e Kaggle)
+    if not todo and (run / "answers.json").exists():
+        answers = read_json(run / "answers.json")
+    else:
+        state = torch.load(run / "best.pt", map_location="cpu", weights_only=False)
+        vocab = CkptVocab(state["vocab"], state["answers"])
+        answers = vocab.answers
+    # Finglish: esm = <experiment>/<run> (blip_s0 dar chand experiment hast)
+    out = {"name": f"{run.parent.parent.name}/{res['name']}", "captions": source, "answers": answers}
     if todo:
         use_caption = source != "none"
         if cfg.get("model", "updn") == "mcan":
