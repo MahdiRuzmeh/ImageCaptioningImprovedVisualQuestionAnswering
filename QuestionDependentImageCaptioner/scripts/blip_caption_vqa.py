@@ -9,6 +9,9 @@ Khorooji: {question_id: caption} JSON (har shard joda; --merge hame ro yeki miko
         --requests ../CaptionVQA/data/blip_caption_requests.json --val-images-dir <val2014> \
         --shard 0/2 --device cuda:0 --out captions_shard0.json
     python scripts/blip_caption_vqa.py --merge captions_shard0.json captions_shard1.json --out captions_blip.json
+
+--with-scores (captioner confidence, round 3): har soal → {"c": [3 caption-e beam], "s": [score-e beam search],
+"mean": [miangin-e log-prob-e token ha], "min": [kamtarin log-prob-e token]} — beam 1 = caption-e mamooli.
 """
 
 from __future__ import annotations
@@ -27,7 +30,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from train import load_config, resolve_path_fields  # noqa: E402
-from train_blip import QdBlipDataset, build_model, decode_split  # noqa: E402
+from torch.utils.data import DataLoader  # noqa: E402
+from tqdm import tqdm  # noqa: E402
+
+from train_blip import LengthBucketSampler, QdBlipDataset, build_model, collate_gen, decode_split  # noqa: E402
 
 
 class VqaImages(QdBlipDataset):
@@ -42,6 +48,28 @@ class VqaImages(QdBlipDataset):
         d, tmpl = self.dirs[r["image_split"]]
         img = Image.open(d / tmpl.format(image_id=int(r["image_id"]))).convert("RGB")
         return {"pixel_values": self.tf(img), "prompt": self.prompt_ids[i], "caption": [self.sep], "idx": i}
+
+
+@torch.no_grad()
+def decode_beams(model, ds, tokenizer, cfg, device, beam: int):
+    """Finglish: hame beam ha + score → list-e dict be tartib-e ds (yek GPU)."""
+    sampler = LengthBucketSampler([len(p) for p in ds.prompt_ids], int(cfg.get("eval_batch_size", 64)))
+    dl = DataLoader(ds, batch_sampler=sampler, num_workers=int(cfg.get("num_workers", 2)), collate_fn=collate_gen)
+    model.eval()
+    out = {}
+    use_amp = bool(cfg.get("use_amp", True)) and device.type == "cuda"
+    for b in tqdm(dl, desc=f"beams({beam})", mininterval=60):
+        with torch.autocast(device.type, dtype=torch.float16, enabled=use_amp):
+            seqs, score, lp, n = model.generate_beams(b["pixel_values"].to(device), b["input_ids"].to(device), beam,
+                                                      int(cfg.get("max_caption_tokens", 32)))
+        for k, i in enumerate(b["idx"].tolist()):
+            nk = n[k].clamp_min(1)
+            lpk = lp[k].masked_fill(lp[k] == 0, float("inf"))  # Finglish: PAD (0) dar min hesab nashe
+            out[i] = {"c": [tokenizer.decode(x, skip_special_tokens=True).strip() for x in seqs[k].tolist()],
+                      "s": [round(float(v), 4) for v in score[k]],
+                      "mean": [round(float(v), 4) for v in lp[k].sum(-1) / nk],
+                      "min": [round(float(v), 4) for v in lpk.min(-1).values]}
+    return [out[i] for i in range(len(ds))]
 
 
 def merge(paths, out) -> None:
@@ -65,6 +93,7 @@ def main() -> None:
     p.add_argument("--chunk", type=int, default=10000, help="save after every N captions (resume)")
     p.add_argument("--caption-model", type=int, default=None,
                    help="cross-fitting: only requests with caption_model == k (this fold model never saw their images)")
+    p.add_argument("--with-scores", action="store_true", help="save all beams + scores (captioner confidence)")
     p.add_argument("--merge", nargs="*")
     p.add_argument("--out", required=True)
     args = p.parse_args()
@@ -102,7 +131,10 @@ def main() -> None:
     for k in range(0, len(todo), args.chunk):
         part = todo[k : k + args.chunk]
         ds = VqaImages(part, cfg, tokenizer, model.bos, model.sep, dirs)
-        preds = decode_split(model, ds, tokenizer, cfg, device, args.beam, 0, 1, False)
+        if args.with_scores:
+            preds = decode_beams(model, ds, tokenizer, cfg, device, args.beam)
+        else:
+            preds = decode_split(model, ds, tokenizer, cfg, device, args.beam, 0, 1, False)
         out.update({str(r["question_id"]): c for r, c in zip(part, preds)})
         tmp = out_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")

@@ -203,6 +203,38 @@ class BlipQD(nn.Module):
         )
         return out[:, prompt_ids.size(1):]
 
+    @torch.no_grad()
+    def generate_beams(self, pixel_values, prompt_ids, beam: int, max_new_tokens: int):
+        """Finglish: hamoon beam search-e generate(), vali hame `beam` caption + score (baraye confidence-e captioner).
+
+        → (seqs (B, beam, T) faghat token haye caption, seq_score (B, beam) = score-e beam search (log-prob / tool),
+           token_lp (B, beam, T) log-prob-e har token (PAD/ba'd az [SEP] = 0), n_tok (B, beam) tedad-e token ha)
+        Caption-e 1 (bozorgtarin score) hamoon caption-e generate() ba hamin beam-e.
+        """
+        emb = self.image_embeds(pixel_values)
+        out = self.blip.text_decoder.generate(
+            input_ids=prompt_ids, attention_mask=torch.ones_like(prompt_ids),
+            encoder_hidden_states=emb,
+            encoder_attention_mask=torch.ones(emb.shape[:2], dtype=torch.long, device=emb.device),
+            eos_token_id=self.sep, pad_token_id=self.pad, num_beams=beam, num_return_sequences=beam,
+            max_new_tokens=max_new_tokens, do_sample=False, output_scores=True, return_dict_in_generate=True,
+        )
+        b = prompt_ids.size(0)
+        lp = self.blip.text_decoder.compute_transition_scores(out.sequences, out.scores, out.beam_indices,
+                                                              normalize_logits=False)
+        seqs = out.sequences[:, prompt_ids.size(1):]
+        t = min(seqs.size(1), lp.size(1))
+        seqs, lp = seqs[:, :t], lp[:, :t].float()
+        # Finglish: token-e motabar = ta [SEP] (shamel), ba'd PAD
+        valid = torch.ones_like(seqs, dtype=torch.bool)
+        ended = torch.zeros(seqs.size(0), dtype=torch.bool, device=seqs.device)
+        for k in range(t):
+            valid[:, k] = ~ended
+            ended |= seqs[:, k] == self.sep
+        lp = lp.masked_fill(~valid, 0.0)
+        return (seqs.view(b, beam, -1), out.sequences_scores.float().view(b, beam), lp.view(b, beam, -1),
+                valid.sum(1).view(b, beam))
+
 
 def trainable_state(model: BlipQD) -> Dict[str, torch.Tensor]:
     """Finglish: faghat param haye train shode (vision-e freeze az base model load mishe)."""
