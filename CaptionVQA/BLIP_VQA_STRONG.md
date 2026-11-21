@@ -144,3 +144,28 @@ dev; test is only reported. Result for the 4 Stage A+B models (`vqa_ensemble.md`
 | caption-model seeds averaged | 69.64 | 68.57 |
 | all 4 models, equal weight | 69.76 | 68.99 |
 | **0.7 × caption models + 0.3 × baselines** | **70.26** | **69.11** |
+
+## Round 3: caption gate v1
+
+Config `configs/blip_strong_gate.yaml`: the 1b-B model (batch 64, GloVe 840B, caption dropout 0.3) plus a
+**per-question caption gate**.
+- **The gate:** a small network reads the question (after the encoder), the image (question-guided pooling of the regions) and the caption. It outputs r ∈ (0, 1), the reliability of the caption.
+- **How r acts:** log r is added to the attention on the caption tokens (decoder self-attention and the final AttFlat).
+  - r ≈ 1: the caption is used as before.
+  - r ≈ 0: the caption is effectively hidden, and the answer comes from question + image.
+- **Reliability loss** (weight `gate_aux_weight`): r is also trained to predict whether the caption is right.
+  - Label 1: the caption contains the majority gold answer, or has the right yes/no polarity. Otherwise 0.
+  - The gold answer is only this training target, never a model input.
+- **Gate warm-up:** during the 2 LR warm-up epochs the gate is trained but not applied. This stops it from closing before the model has learned to use captions.
+- **New outputs:**
+  - `results.json` → `test.cases`: accuracy and mean r for open/yes-no × caption right/wrong.
+  - `results.json` → `test.gate`: AUC of r for right vs wrong captions, and mean r for each.
+  - `test_predictions.json`: `r` and `reliable` for each question.
+
+| Notebook | Inputs | Command (after the clone + `%cd /kaggle/working/repo/CaptionVQA` cells) | Time (estimate) |
+|---|---|---|---|
+| **G1** gate + reliability loss | vqa-v2, questiondependentcaptions, qd-butd-packed (v1), qd-butd-val2014, GloVe 840B, the 658k captions | `!CONFIG=configs/blip_strong_gate.yaml RUN=vqa_gate_aux SEEDS="0 1" MODE=crossfit bash scripts/kaggle_vqa_strong.sh` | ~5.5–6 h |
+| **G2** gate, VQA loss only (ablation) | the same | `!CONFIG=configs/blip_strong_gate.yaml GATE_AUX=0 RUN=vqa_gate_noaux SEEDS="0 1" MODE=crossfit bash scripts/kaggle_vqa_strong.sh` | ~5.5–6 h |
+
+Compare with 1b-B (`vqa_b64_crossfit_drop`: the same model without the gate). The log prints the 4 cases for each
+seed, e.g. `[blip_s0]   open, caption wrong   n= 3263  acc 33.5  r 0.412`, and `r-AUC` on every dev line.

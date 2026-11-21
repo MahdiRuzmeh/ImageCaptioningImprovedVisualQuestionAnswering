@@ -14,6 +14,7 @@ Finglish:
 
 from __future__ import annotations
 
+import math
 from typing import Dict, Optional
 
 import torch
@@ -124,10 +125,42 @@ class _AttFlat(nn.Module):
         self.mlp = nn.Sequential(nn.Linear(d, d), nn.ReLU(), nn.Dropout(dropout), nn.Linear(d, 1))
         self.proj = nn.Linear(d, out)
 
-    def forward(self, x, pad):
-        a = self.mlp(x).squeeze(-1).float().masked_fill(pad, float("-inf"))
-        a = torch.nan_to_num(torch.softmax(a, dim=-1), nan=0.0).to(x.dtype)
+    def forward(self, x, pad, bias=None):
+        a = self.mlp(x).squeeze(-1).float()
+        if bias is not None:
+            a = a + bias  # Finglish: caption gate — log r roye token haye caption
+        a = torch.nan_to_num(torch.softmax(a.masked_fill(pad, float("-inf")), dim=-1), nan=0.0).to(x.dtype)
         return self.proj(torch.einsum("bl,bld->bd", a, x))
+
+
+class _CaptionGate(nn.Module):
+    """Caption reliability r ∈ (0, 1), per question, from question + image + caption (round 3, gate v1).
+
+    Finglish:
+        q  = AttFlat(soal ba'd az encoder)            — question representation
+        v  = attention-e q roye region ha             — image representation (question-guided)
+        c  = AttFlat(token haye caption)              — caption representation
+        logit = MLP([q; v; c; q ⊙ c; v ⊙ c])          (⊙ → "caption ba soal/tasvir mikhoone?")
+        r = σ(logit). log r be attention-e token haye caption ezafe mishe (decoder + AttFlat-e akhar):
+        r → 1: caption mesl-e qabl;  r → 0: caption namaree → javab faghat az soal + tasvir (halat-e caption dropout).
+    Bias-e akhar = +3 → r ≈ 0.95 dar shoroo (aval mesl-e model-e bedoon gate).
+    """
+
+    def __init__(self, d: int, dropout: float) -> None:
+        super().__init__()
+        self.q_flat, self.c_flat = _AttFlat(d, dropout, d), _AttFlat(d, dropout, d)
+        self.v_key = nn.Linear(d, d)
+        self.mlp = nn.Sequential(nn.Linear(5 * d, d), nn.ReLU(), nn.Dropout(dropout), nn.Linear(d, 1))
+        nn.init.constant_(self.mlp[-1].bias, 3.0)
+        self.scale = 1.0 / math.sqrt(d)
+
+    def forward(self, y, y_pad, v, v_pad, c, c_pad):
+        q = self.q_flat(y, y_pad)
+        s = torch.einsum("bld,bd->bl", self.v_key(v), q).float() * self.scale
+        a = torch.softmax(s.masked_fill(v_pad, float("-inf")), dim=-1).to(v.dtype)
+        vg = torch.einsum("bl,bld->bd", a, v)
+        cg = self.c_flat(c, c_pad)
+        return self.mlp(torch.cat([q, vg, cg, q * cg, vg * cg], dim=-1)).squeeze(-1).float()
 
 
 class MCANVQA(nn.Module):
@@ -142,9 +175,11 @@ class MCANVQA(nn.Module):
 
     def __init__(self, vocab_size: int, n_answers: int, word_dim: int = 300, d: int = 512, heads: int = 8,
                  ff: int = 2048, layers: int = 6, region_dim: int = 2048, dropout: float = 0.1,
-                 use_caption: bool = False, emb_init: Optional[torch.Tensor] = None) -> None:
+                 use_caption: bool = False, emb_init: Optional[torch.Tensor] = None,
+                 caption_gate: bool = False) -> None:
         super().__init__()
         self.use_caption = use_caption
+        self.caption_gate = caption_gate and use_caption
         self.emb = nn.Embedding(vocab_size, word_dim, padding_idx=0)
         if emb_init is not None:
             self.emb.weight.data.copy_(emb_init)
@@ -153,12 +188,17 @@ class MCANVQA(nn.Module):
         if use_caption:
             self.c_lstm = nn.LSTM(word_dim, d, batch_first=True)
             self.type_emb = nn.Embedding(2, d)  # 0 = region, 1 = caption word
+        if self.caption_gate:
+            self.gate = _CaptionGate(d, dropout)
         self.enc = nn.ModuleList(_SA(d, heads, ff, dropout) for _ in range(layers))
         self.dec = nn.ModuleList(_SGA(d, heads, ff, dropout) for _ in range(layers))
         self.flat_q, self.flat_x = _AttFlat(d, dropout, 2 * d), _AttFlat(d, dropout, 2 * d)
         self.norm = nn.LayerNorm(2 * d)
         self.classifier = nn.Linear(2 * d, n_answers)
-        self.last_gate = None  # (UpDn interface) — MCAN has no gate
+        self.last_gate = None  # caption gate: r per question (None without gate)
+        self.last_gate_logit = None
+        # Finglish: gate warm-up (train_vqa): False → r hesab/train mishe (reliability loss) vali roye attention asar nadare
+        self.gate_active = True
 
     def _lstm(self, lstm, tokens):
         out, _ = lstm(self.emb(tokens))
@@ -169,12 +209,26 @@ class MCANVQA(nn.Module):
         y, y_pad = self._lstm(self.q_lstm, q_tok), q_tok == 0
         regions = b["regions"].float()
         x, x_pad = self.v_proj(regions), regions.abs().sum(-1) == 0
-        if self.use_caption:
-            c = self._lstm(self.c_lstm, b["cap"]) + self.type_emb.weight[1]
-            x = torch.cat([x + self.type_emb.weight[0], c], dim=1)
-            x_pad = torch.cat([x_pad, b["cap"] == 0], dim=1)
         for layer in self.enc:
             y = layer(y, y_pad)
+        bias = None
+        if self.use_caption:
+            v_pad, c_pad = x_pad, b["cap"] == 0
+            c = self._lstm(self.c_lstm, b["cap"]) + self.type_emb.weight[1]
+            v = x + self.type_emb.weight[0]
+            x = torch.cat([v, c], dim=1)
+            x_pad = torch.cat([v_pad, c_pad], dim=1)
+            if self.caption_gate:
+                logit = self.gate(y, y_pad, v, v_pad, c, c_pad)
+                self.last_gate_logit, self.last_gate = logit, torch.sigmoid(logit)
+                # Finglish: log r roye kelid haye caption, 0 roye region ha → mask-e float. Kaf-e narm (1e-4 + …) be
+                # jaye clamp: gradient hichvaght sefr nemishe → gate age baste shod mitoone dobare baz beshe
+                if self.gate_active:
+                    log_r = torch.log(1e-4 + (1 - 1e-4) * self.last_gate)
+                    bias = torch.cat([torch.zeros_like(v_pad, dtype=torch.float),
+                                      log_r[:, None].expand(-1, c_pad.size(1))], dim=1)
+        # Finglish: decoder self-attention: bool pad, ya (ba gate) float mask = −inf roye PAD + log r roye caption
+        att_mask = x_pad if bias is None else bias.masked_fill(x_pad, float("-inf"))
         for layer in self.dec:
-            x = layer(x, x_pad, y, y_pad)
-        return self.classifier(self.norm(self.flat_q(y, y_pad) + self.flat_x(x, x_pad)))
+            x = layer(x, att_mask, y, y_pad)
+        return self.classifier(self.norm(self.flat_q(y, y_pad) + self.flat_x(x, x_pad, bias)))

@@ -3,6 +3,7 @@
     python train_vqa.py --config configs/blip.yaml --seed 0                       # baseline
     python train_vqa.py --config configs/blip.yaml --seed 0 --captions blip       # + BLIP captions
     python train_vqa.py --config configs/blip.yaml --seed 0 --captions oracle     # ceiling (gold answer in caption)
+    python train_vqa.py --config configs/blip_strong_gate.yaml --seed 0 --captions blip   # + caption gate (MCAN)
 
 Natije: work_dir/runs/<captions>_s<seed>/
     results.json          dev (best epoch) + test: overall, per answer type (yes/no, number, other),
@@ -18,6 +19,7 @@ from __future__ import annotations
 import argparse
 import math
 import random
+import sys
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -29,6 +31,12 @@ import torch.nn.functional as F
 
 from common import load_config, normalize_answer, read_json, soft_targets, tok, vqa_score, write_json
 from models_vqa import MCANVQA, UpDnVQA
+
+# Finglish: hamoon ta'rif-e "caption dorost" ke dar report ha (AnswerHit / polarity-e captioner)
+sys.path.insert(1, str(Path(__file__).resolve().parent.parent / "QuestionDependentImageCaptioner"))
+from metrics import answer_in_caption, caption_negated  # noqa: E402
+
+CASES = ("open, caption right", "open, caption wrong", "yes/no, polarity right", "yes/no, polarity wrong")
 
 
 def set_seed(seed: int) -> None:
@@ -76,6 +84,41 @@ def load_glove(path: Optional[str], itos: List[str], dim: int, name: str) -> Opt
 
 def majority_answer(answers: List[str]) -> str:
     return Counter(normalize_answer(a) for a in answers).most_common(1)[0][0]
+
+
+def caption_reliable(caption: str, gt: str) -> int:
+    """Finglish: label-e gate: 1 = caption javab-e dorost (majority) ro dare / polarity-e dorost, 0 = na,
+    -1 = ta'rif nashode (bedoon caption, ya javab-e bedoon token). Faghat target-e training + tahlil; voroodi-e model nist."""
+    c = tok(caption)
+    if not c:
+        return -1
+    if gt in ("yes", "no"):
+        return int(caption_negated(c) == (gt == "no"))
+    a = tok(gt)
+    return int(answer_in_caption(a, c)) if a else -1
+
+
+def auc(scores: List[float], labels: List[int]) -> float:
+    """Finglish: ROC AUC = ehtemal-e inke caption-e dorost r-e bozorgtar az caption-e ghalat begire (tie = 1/2)."""
+    s, y = np.asarray(scores, dtype=np.float64), np.asarray(labels)
+    order = np.argsort(s, kind="mergesort")
+    ranks = np.empty(len(s))
+    ss = s[order]
+    i = 0
+    while i < len(s):  # average rank baraye tie ha
+        j = i
+        while j + 1 < len(s) and ss[j + 1] == ss[i]:
+            j += 1
+        ranks[order[i : j + 1]] = (i + j) / 2 + 1
+        i = j + 1
+    npos, nneg = int((y == 1).sum()), int((y == 0).sum())
+    if not npos or not nneg:
+        return float("nan")
+    return float((ranks[y == 1].sum() - npos * (npos + 1) / 2) / (npos * nneg))
+
+
+def list_mean(xs: List[float]) -> float:
+    return sum(xs) / len(xs) if xs else float("nan")
 
 
 def caption_text(source: str, rec: dict, blip: Optional[Dict[int, str]]) -> str:
@@ -146,6 +189,9 @@ class Split:
                 self.cap[i, : len(ids)] = torch.tensor(ids)
         self.targets = [{vocab.a_stoi[a]: s for a, s in soft_targets(r["answers"]).items() if a in vocab.a_stoi}
                         for r in self.recs]
+        # Finglish: label-e reliability-e caption (gate); -1 = bedoon label
+        self.reliable = torch.tensor([caption_reliable(t, majority_answer(r["answers"])) if source == "blip" else -1
+                                      for t, r in zip(self.cap_text, self.recs)], dtype=torch.float)
         self.perm = torch.arange(n)  # caption source row (shuffle diagnostic)
 
     def __len__(self) -> int:
@@ -174,7 +220,8 @@ class Split:
             regions = torch.from_numpy(np.ascontiguousarray(self.regions_mm[rows.numpy()]))
         else:
             regions = self.regions[rows]
-        out = {"q": self.q[idx], "regions": regions, "cap": self.cap[self.perm[idx]], "target": tgt}
+        out = {"q": self.q[idx], "regions": regions, "cap": self.cap[self.perm[idx]], "target": tgt,
+               "rel": self.reliable[self.perm[idx]]}
         return {k: v.to(device, non_blocking=True) for k, v in out.items()}
 
 
@@ -206,7 +253,7 @@ def evaluate(model, ds: Split, vocab: Vocab, device, keep_preds: bool = False, b
         b = ds.batch(idx, K, device)
         with torch.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
             logits = model(b)
-        if model.last_gate is not None:
+        if getattr(model, "last_gate", None) is not None:
             gates.append(model.last_gate.float().cpu())
         for i, a in zip(idx.tolist(), logits.float().argmax(-1).tolist()):
             preds.append(vocab.answers[a])
@@ -218,21 +265,45 @@ def evaluate(model, ds: Split, vocab: Vocab, device, keep_preds: bool = False, b
     out = {"acc": mean(scores), "n": len(scores),
            "answer_type": {t: {"acc": mean(v), "n": len(v)} for t, v in sorted(by_a.items())},
            "question_type": {t: {"acc": mean(v), "n": len(v)} for t, v in sorted(by_q.items())}}
-    if gates:
-        out["gate_mean"] = float(torch.cat(gates).mean())  # 1 = only image, 0 = only caption
+    g = torch.cat(gates).tolist() if gates else None
+    if g is not None:
+        # UpDn: 1 = only image; MCAN caption gate: r = caption reliability (1 = use the caption)
+        out["gate_mean"] = sum(g) / len(g)
+    shuffled = not torch.equal(ds.perm, torch.arange(len(ds)))
+    rel = ds.reliable.tolist()
+    if not shuffled and any(x >= 0 for x in rel):
+        # Finglish: 4 halat: open/yes-no x caption dorost/ghalat (+ miangin-e r har halat)
+        cases = defaultdict(list)
+        for i, r in enumerate(ds.recs):
+            if rel[i] < 0:
+                continue
+            yn = majority_answer(r["answers"]) in ("yes", "no")
+            cases[CASES[2 * int(yn) + int(rel[i] == 0)]].append(i)
+        out["cases"] = {k: {"acc": mean([scores[i] for i in cases[k]]), "n": len(cases[k]),
+                            **({"r_mean": list_mean([g[i] for i in cases[k]])} if g is not None else {})}
+                        for k in CASES}
+        if g is not None:
+            lab = [i for i in range(len(ds)) if rel[i] >= 0]
+            out["gate"] = {"auc": auc([g[i] for i in lab], [int(rel[i]) for i in lab]),
+                           "r_mean_reliable": list_mean([g[i] for i in lab if rel[i] == 1]),
+                           "r_mean_unreliable": list_mean([g[i] for i in lab if rel[i] == 0])}
     if keep_preds:
         out["predictions"] = [{"question_id": r["question_id"], "question": r["question"],
                                "answer_type": r["answer_type"], "question_type": r["question_type"],
                                "caption": ds.cap_text[int(ds.perm[i])], "pred": p,
-                               "gt": majority_answer(r["answers"]), "score": sc}
+                               "gt": majority_answer(r["answers"]), "score": sc,
+                               **({"r": round(g[i], 4), "reliable": int(rel[i])} if g is not None else {})}
                               for i, (r, p, sc) in enumerate(zip(ds.recs, preds, scores))]
     return out
 
 
 def fmt(ev: dict) -> str:
     a = ev["answer_type"]
-    return (f"{ev['acc']:.2f} (y/n {a.get('yes/no', {}).get('acc', 0):.1f} num {a.get('number', {}).get('acc', 0):.1f} "
-            f"other {a.get('other', {}).get('acc', 0):.1f})" + (f" gate {ev['gate_mean']:.3f}" if "gate_mean" in ev else ""))
+    s = (f"{ev['acc']:.2f} (y/n {a.get('yes/no', {}).get('acc', 0):.1f} num {a.get('number', {}).get('acc', 0):.1f} "
+         f"other {a.get('other', {}).get('acc', 0):.1f})" + (f" gate {ev['gate_mean']:.3f}" if "gate_mean" in ev else ""))
+    if "gate" in ev:
+        s += f" r-AUC {ev['gate']['auc']:.3f}"
+    return s
 
 
 def main() -> None:
@@ -244,6 +315,8 @@ def main() -> None:
     p.add_argument("--device", default=None, help="e.g. cuda:1 (Kaggle: one seed per GPU)")
     p.add_argument("--caption-dropout", type=float, default=None,
                    help="share of training questions whose caption is hidden (default: config caption_dropout, else 0)")
+    p.add_argument("--gate-aux-weight", type=float, default=None,
+                   help="caption gate: weight of the reliability loss (default: config gate_aux_weight, else 0)")
     args = p.parse_args()
     cfg = load_config(args.config)
     set_seed(args.seed)
@@ -268,11 +341,18 @@ def main() -> None:
     cap_drop = float(args.caption_dropout if args.caption_dropout is not None else cfg.get("caption_dropout", 0.0))
     if use_caption and cap_drop > 0:
         print(f"[{name}] caption dropout {cap_drop}: captions hidden for that share of training questions")
+    gate = use_caption and bool(cfg.get("caption_gate", False))
+    aux_w = float(args.gate_aux_weight if args.gate_aux_weight is not None else cfg.get("gate_aux_weight", 0.0))
+    gate_warm = int(cfg.get("gate_warmup_epochs", cfg.get("warmup_epochs", 0)))
+    if gate:
+        lab = train.reliable[train.reliable >= 0]
+        print(f"[{name}] caption gate on (acts from epoch {gate_warm + 1}); reliability loss weight {aux_w}; "
+              f"train captions reliable: {100 * lab.mean().item():.1f}% of {len(lab)}")
     emb_init = load_glove(cfg.get("glove_path"), vocab.itos, int(cfg["word_dim"]), name)
     if cfg.get("model", "updn") == "mcan":
         model = MCANVQA(len(vocab.itos), len(vocab.answers), int(cfg["word_dim"]), int(cfg["hidden_dim"]),
                         int(cfg.get("num_heads", 8)), int(cfg.get("ff_dim", 2048)), int(cfg.get("num_layers", 6)),
-                        int(cfg["region_dim"]), float(cfg["dropout"]), use_caption, emb_init).to(device)
+                        int(cfg["region_dim"]), float(cfg["dropout"]), use_caption, emb_init, gate).to(device)
     else:
         model = UpDnVQA(len(vocab.itos), len(vocab.answers), int(cfg["word_dim"]), int(cfg["hidden_dim"]),
                         int(cfg["region_dim"]), float(cfg["dropout"]), use_caption).to(device)
@@ -299,7 +379,10 @@ def main() -> None:
     history, best, step = [], -1.0, 0
     for epoch in range(1, epochs + 1):
         model.train()
-        t0, run_loss = time.time(), 0.0
+        if gate:
+            # Finglish: gate warm-up — aval model yad migire caption ro estefade kone, ba'd gate asar mizare
+            model.gate_active = epoch > gate_warm
+        t0, run_loss, run_aux = time.time(), 0.0, 0.0
         order = torch.randperm(len(train))
         for s in range(0, len(train), bs):
             if step < warm:
@@ -316,10 +399,18 @@ def main() -> None:
                 # model yad migire bedoon caption ham az tasvir javab bede va be caption kur-kurane etemad nakone
                 drop = torch.rand(b["cap"].size(0), device=device) < cap_drop
                 b["cap"] = b["cap"].masked_fill(drop[:, None], 0)
+                b["rel"] = b["rel"].masked_fill(drop, -1.0)  # Finglish: caption pak shode -> label nadare
             with torch.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
                 logits = model(b)
             # Finglish: soft-score BCE (Teney et al. 2018), × tedad-e javab (scaling-e standard)
             loss = F.binary_cross_entropy_with_logits(logits.float(), b["target"], reduction="sum") / logits.size(0)
+            if gate and aux_w > 0:
+                # Finglish: reliability loss: gate yad migire caption dorost-e ya na (label az javab-e gold, faghat target)
+                m = b["rel"] >= 0
+                if m.any():
+                    aux = F.binary_cross_entropy_with_logits(model.last_gate_logit[m], b["rel"][m])
+                    loss = loss + aux_w * aux
+                    run_aux += aux.item()
             opt.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
@@ -329,8 +420,10 @@ def main() -> None:
             run_loss += loss.item()
             step += 1
         ev = evaluate(model, dev, vocab, device)
-        history.append({"epoch": epoch, "train_loss": run_loss / spe, "secs": time.time() - t0, "dev": ev})
-        print(f"ep {epoch:2d} loss {run_loss / spe:.3f} dev {fmt(ev)} [{time.time() - t0:.0f}s]", flush=True)
+        history.append({"epoch": epoch, "train_loss": run_loss / spe, "secs": time.time() - t0, "dev": ev,
+                        **({"train_aux_loss": run_aux / spe} if gate and aux_w > 0 else {})})
+        aux_s = f" (reliability {run_aux / spe:.3f})" if gate and aux_w > 0 else ""
+        print(f"ep {epoch:2d} loss {run_loss / spe:.3f}{aux_s} dev {fmt(ev)} [{time.time() - t0:.0f}s]", flush=True)
         if ev["acc"] > best:
             best = ev["acc"]
             torch.save({"model": model.state_dict(), "epoch": epoch, "vocab": vocab.itos, "answers": vocab.answers},
@@ -339,6 +432,8 @@ def main() -> None:
 
     state = torch.load(run_dir / "best.pt", map_location=device)
     model.load_state_dict(state["model"])
+    if gate:
+        model.gate_active = state["epoch"] > gate_warm
     res = {"name": name, "captions": args.captions, "seed": args.seed, "params_M": n_params / 1e6,
            "best_epoch": state["epoch"], "n_answers": K, "vocab_size": len(vocab.itos),
            "train_questions": len(train), "dev": evaluate(model, dev, vocab, device)}
@@ -349,6 +444,8 @@ def main() -> None:
         test.shuffle_captions(seed=123)
         res["test_shuffled_captions"] = evaluate(model, test, vocab, device)
     res["caption_dropout"] = cap_drop if use_caption else None
+    res["caption_gate"] = gate
+    res["gate_aux_weight"] = aux_w if gate else None
     write_json(run_dir / "results.json", res)
     # Finglish: score ha baraye ensemble (bedoon inference-e dobare); caption-e test be halat-e normal bar migarde
     test.perm = torch.arange(len(test))
@@ -357,6 +454,8 @@ def main() -> None:
     write_json(run_dir / "answers.json", vocab.answers)
     print(f"[{name}] best epoch {state['epoch']}  dev {fmt(res['dev'])}")
     print(f"[{name}] TEST {fmt(t)}")
+    for k, v in t.get("cases", {}).items():
+        print(f"[{name}]   {k:24s} n={v['n']:5d}  acc {v['acc']:.1f}" + (f"  r {v['r_mean']:.3f}" if "r_mean" in v else ""))
     if use_caption:
         print(f"[{name}] TEST with shuffled captions {fmt(res['test_shuffled_captions'])}")
 

@@ -53,7 +53,7 @@ def main() -> None:
          f"test {runs[groups[0]][0]['test']['n']:,} questions (val2014). Official VQA v2 accuracy (%), "
          "mean ± std over seeds, best dev epoch.", "",
          "## Overall and by answer type", "",
-         "| Model | Seeds | Overall | Yes/no | Number | Other | Shuffled captions | Gate (1 = image) |",
+         "| Model | Seeds | Overall | Yes/no | Number | Other | Shuffled captions | Gate (UpDn: 1 = image; MCAN: r, 1 = use caption) |",
          "|---|---:|---:|---:|---:|---:|---:|---:|"]
     summary = {}
     for g in groups:

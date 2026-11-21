@@ -1,0 +1,65 @@
+# Round 3, caption gate v1: configs/blip_strong_b64.yaml (batch 64, GloVe 840B) + caption dropout 0.3
+# + a per-question caption gate r = reliability of the caption, from question + image + caption.
+# log r is added to the attention on the caption tokens: r -> 0 hides the caption (answer from question + image).
+# The gate is also trained with a reliability loss: label 1 if the caption holds the (majority) gold answer or the
+# right yes/no polarity, else 0. The gold answer is only a training target, never a model input.
+#   (Kaggle) CONFIG=configs/blip_strong_gate.yaml MODE=crossfit bash scripts/kaggle_vqa_strong.sh   (GATE_AUX=0: no reliability loss)
+
+seed: 0
+train_questions_json: ../dataset/v2_OpenEnded_mscoco_train2014_questions.json
+train_annotations_json: ../dataset/v2_mscoco_train2014_annotations.json
+val_questions_json: ../dataset/v2_OpenEnded_mscoco_val2014_questions.json
+val_annotations_json: ../dataset/v2_mscoco_val2014_annotations.json
+train_images_dir: ../dataset/train2014
+val_images_dir: ../dataset/val2014
+
+# --- train = all train2014 + val2014 questions on images outside dev/test (643,110 questions) ---
+exclude_captioner_images: false
+train_include_val: true
+qd_captions_json: ../dataset/vqa_v2_qd_captions_full_train2014.json
+num_train_questions: null
+val_rng_replay_row_range: [0, 264318]   # dev/test identical to configs/blip.yaml and blip_full.yaml
+num_dev_questions: 5000
+num_test_questions: 10000
+
+work_dir: outputs/blip_strong_gate
+crossfit_folds_json: data/crossfit_folds.json
+caption_requests_json: outputs/blip_strong_gate/caption_requests.json
+captions_json: outputs/blip_strong_gate/captions/captions_crossfit.json
+answer_min_count: 9            # 3,092 answers (standard VQA v2 vocabulary is ~3,129)
+word_min_count: 1              # GloVe covers rare words
+max_question_len: 14
+max_caption_len: 24
+
+max_regions: 37
+region_dim: 2048
+
+# --- model: MCAN-style encoder–decoder co-attention (Yu et al. 2019, "small") ---
+model: mcan
+glove_path: null               # set by the Kaggle runner (glove.*.300d.txt); null → random embeddings
+word_dim: 300
+hidden_dim: 512
+num_heads: 8
+ff_dim: 2048
+num_layers: 6
+dropout: 0.1
+
+# --- training: MCAN schedule (Adam 0.9/0.98, warm-up, ×0.2 at epochs 10 and 12) ---
+optimizer: adam
+epochs: 13
+batch_size: 64
+learning_rate: 0.0001
+warmup_epochs: 2
+lr_decay_epochs: [10, 12]
+lr_decay_factor: 0.2
+weight_decay: 0.0
+grad_clip: 5.0
+
+
+# --- caption dropout (kept from round 1b) ---
+caption_dropout: 0.3
+
+# --- caption gate v1 ---
+caption_gate: true
+gate_aux_weight: 1.0          # reliability loss weight (0 = gate trained by the VQA loss only); runner: GATE_AUX
+gate_warmup_epochs: 2         # the gate acts from epoch 3 (during the 2 LR warm-up epochs it is trained but not applied)

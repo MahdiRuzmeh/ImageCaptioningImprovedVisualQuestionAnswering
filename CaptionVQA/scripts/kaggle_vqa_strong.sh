@@ -7,6 +7,8 @@
 # Env: SEEDS="0 1 2"   seeds 0 and 1 run in parallel on the 2 GPUs; seed 2 only if time allows
 #      CONFIG=configs/blip_strong.yaml   round 1b: configs/blip_strong_b64.yaml (batch 64)
 #      CAPTION_DROPOUT=0.3               crossfit only: share of training questions whose caption is hidden
+#                                        (unset: the config's caption_dropout)
+#      GATE_AUX=1.0                      caption gate configs only: reliability loss weight (unset: config's)
 #      RUN=vqa_strong_<MODE>             output folder name, e.g. RUN=vqa_b64_crossfit_drop
 #
 # Inputs (Add Input):
@@ -20,7 +22,8 @@ set -euo pipefail
 MODE=${MODE:-baseline}
 SEEDS=${SEEDS:-"0 1 2"}
 CONFIG=${CONFIG:-configs/blip_strong.yaml}
-CAPTION_DROPOUT=${CAPTION_DROPOUT:-0}
+CAPTION_DROPOUT=${CAPTION_DROPOUT:-}
+GATE_AUX=${GATE_AUX:-}
 RUN=${RUN:-vqa_strong_$MODE}
 [[ "$MODE" == "baseline" || "$MODE" == "crossfit" ]] || { echo "MODE must be baseline or crossfit"; exit 1; }
 W=/kaggle/working
@@ -50,22 +53,27 @@ for v in TRQ TRA VAQ VAA; do [ -n "${!v}" ] || { echo "VQA v2 file missing ($v)"
 # Finglish: feature ha (~18 GB) → /tmp age ja dare (/kaggle/working faghat 20 GB)
 FREE_TMP=$(df -BG --output=avail /tmp | tail -1 | tr -dc '0-9')
 FEAT=$([ "$FREE_TMP" -ge 30 ] && echo /tmp/vqa_strong_features || echo "$WORK/features")
-echo "RUN $RUN | MODE $MODE | config $CONFIG | caption dropout $CAPTION_DROPOUT | seeds $SEEDS"
+echo "RUN $RUN | MODE $MODE | config $CONFIG | caption dropout ${CAPTION_DROPOUT:-config} | gate aux ${GATE_AUX:-config} | seeds $SEEDS"
 echo "QD $QD"
 echo "GloVe ${GLOVE:-none}"
 echo "feature caches: ${CACHES[*]:-none}"
 echo "features -> $FEAT (/tmp free $FREE_TMP GB)"
 
-python - "$CFG" "$WORK" "$QD" "$TRQ" "$TRA" "$VAQ" "$VAA" "$TRIMG" "$VAIMG" "$FEAT" "$GLOVE" "$CONFIG" "$CAPTION_DROPOUT" <<'EOF'
+python - "$CFG" "$WORK" "$QD" "$TRQ" "$TRA" "$VAQ" "$VAA" "$TRIMG" "$VAIMG" "$FEAT" "$GLOVE" "$CONFIG" "$CAPTION_DROPOUT" "$GATE_AUX" <<'EOF'
 import sys, yaml
-dst, work, qd, trq, tra, vaq, vaa, trimg, vaimg, feat, glove, base, drop = sys.argv[1:]
+dst, work, qd, trq, tra, vaq, vaa, trimg, vaimg, feat, glove, base, drop, aux = sys.argv[1:]
 cfg = yaml.safe_load(open(base))
 cfg.update(work_dir=work, qd_captions_json=qd, train_questions_json=trq, train_annotations_json=tra,
            val_questions_json=vaq, val_annotations_json=vaa, train_images_dir=trimg, val_images_dir=vaimg,
-           features_dir=feat, glove_path=glove or None, caption_dropout=float(drop),
+           features_dir=feat, glove_path=glove or None,
            caption_requests_json=f"{work}/caption_requests.json", captions_json=f"{work}/captions/captions_crossfit.json")
+if drop:  # Finglish: faghat age env set shode, vagarna meghdar-e config
+    cfg["caption_dropout"] = float(drop)
+if aux:
+    cfg["gate_aux_weight"] = float(aux)
 yaml.safe_dump(cfg, open(dst, "w"), sort_keys=False)
-print(f"config {dst}: batch {cfg['batch_size']}, epochs {cfg['epochs']}, caption_dropout {cfg['caption_dropout']}")
+print(f"config {dst}: batch {cfg['batch_size']}, epochs {cfg['epochs']}, caption_dropout {cfg.get('caption_dropout', 0)}, "
+      f"caption_gate {cfg.get('caption_gate', False)}, gate_aux_weight {cfg.get('gate_aux_weight', 0)}")
 EOF
 
 echo "== 1. split (train2014 + val2014) =="
