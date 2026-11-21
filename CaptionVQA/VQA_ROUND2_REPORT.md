@@ -206,7 +206,18 @@ score files are needed (`dev_scores.npy`, `test_scores.npy`, `answers.json`), no
 | **4 round-1b caption models + 2 baselines, w = 0.9** | **70.70** | **69.56** | 85.55 | 51.63 | **62.42** |
 | All 6 caption models + 2 baselines, w = 0.9 | 70.83 | 69.49 | 85.28 | 51.48 | 62.52 |
 
-(The 2 baselines are the Stage A+B baselines; the 1b-A baseline scores are not downloaded yet.)
+(The 2 baselines are the Stage A+B baselines.)
+
+**Update: the 1b-A baselines** (66.39 instead of 65.74) do not help the ensemble:
+
+| 4 round-1b caption models + … | w (chosen on dev) | Dev | Test |
+|---|---:|---:|---:|
+| 2 Stage A+B baselines (above) | 0.9 | **70.70** | **69.56** |
+| 2 1b-A baselines | 0.9 | 70.66 | 69.47 |
+| all 4 baselines | 0.9 | 70.62 | 69.52 |
+
+With w = 0.9 the baselines carry only a tenth of the score, so a better baseline barely matters. The 0.1-point
+differences are within noise. 69.56 stays the reported ensemble (`vqa_ensemble_1b_newbase.md`, `vqa_ensemble_1b_allbase.md`).
 
 - **Mixing different models helps more than more seeds of one model.** The dropout pair alone gives 68.97 and the
   no-dropout pair 68.79. Together they give 69.37: the two training styles make different mistakes.
@@ -237,7 +248,7 @@ score files are needed (`dev_scores.npy`, `test_scores.npy`, `answers.json`), no
 
 | # | Step | Why | Expected gain | Cost |
 |---|---|---|---|---|
-| 1 | **Add the 1b-A baseline scores to the ensemble** | they are better baselines (66.39 vs 65.74) trained like the round-1b caption models | +0.1–0.3 | download 2 × 2 score files, no GPU |
+| 1 | ~~Add the 1b-A baseline scores to the ensemble~~ **done: no gain** (69.47 vs 69.56, section 4.2) | they are better baselines (66.39 vs 65.74) | — | — |
 | 2 | **Caption confidence:** keep the beam score of each caption and let the VQA model see it (or skip captions below a threshold) | wrong captions still cost 3–5 points (section 2.3) | +0.3–1 | re-caption 658k questions with scores (~4–5 h), retrain 1 model |
 | 3 | **More diverse ensemble members:** caption dropout 0.5, a third seed, the UpDn caption model | diversity, not seeds, gave the ensemble gain (section 4.2) | +0.2–0.5 | ~4–5 h per model |
 | 4 | **A stronger captioner** (BLIP-large) instead of more training of BLIP-base | round 2 showed BLIP-base has reached its limit on these captions | +0.5–1.5 (if AnswerHit +3–5) | 2 fold captioners + re-captioning (~15 h) |
