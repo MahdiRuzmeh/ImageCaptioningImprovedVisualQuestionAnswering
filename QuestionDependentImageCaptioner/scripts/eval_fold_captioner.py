@@ -102,7 +102,6 @@ def main() -> None:
         resolve_path_fields(cfg, ("train_images_dir",))
         if cfg.get("blip_model") and not str(cfg["blip_model"]).startswith("Salesforce/"):
             resolve_path_fields(cfg, ("blip_model",))
-        cfg["answer_weight"] = 1.0  # Finglish: inja faghat generate → wazn lazem nist
         state = torch.load(args.ckpt, map_location="cpu", weights_only=False)
         model, tokenizer = build_model(cfg, device, state["model"])
         model.eval()

@@ -1,5 +1,5 @@
-# Round 2 fold captioner (cross-fitting): b_blip_full + top 4 ViT layers trained (lr x0.1) + 6 epochs
-# (+ answer-weighted loss for variant B: scripts/kaggle_blip_fold_v2.sh sets answer_weight: 3.0).
+# Round 2 fold captioner (cross-fitting): b_blip_full + top 4 ViT layers trained (lr x0.1) + 6 epochs.
+# (The answer-weighted loss tried in round 2 was removed: it biased yes/no captions towards negation.)
 # Kaggle 2x T4; scripts/make_fold_qd.py fills the fold's data, rows and save_dir.
 seed: 42
 blip_model: Salesforce/blip-image-captioning-base
@@ -18,7 +18,6 @@ image_size: 384
 freeze_vision: true
 unfreeze_vision_layers: 4    # top 4 of 12 ViT layers + post_layernorm are trained
 vision_lr_scale: 0.1         # their lr = 0.1 x learning_rate
-answer_weight: 1.0           # 1 = plain loss; variant B: 3.0 (answer words in the caption count x3)
 
 save_dir: /kaggle/working/model_b/b_blip_fold_v2
 batch_size: 24           # per GPU; x2 accumulation x2 GPUs = 96 global, as before (ViT activations need memory)

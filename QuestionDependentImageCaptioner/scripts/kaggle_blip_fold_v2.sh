@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
-# Round 2: better fold captioner. Same data/fold as kaggle_blip_fold.sh, config configs/b_blip_fold_v2.yaml:
-#   VARIANT=A  top 4 ViT layers trained (lr x0.1) + 6 epochs
-#   VARIANT=B  A + answer-weighted loss (answer words in the caption x3)
+# Round 2: fold captioner with the top 4 ViT layers trained (lr x0.1) + 6 epochs. Same data/fold as kaggle_blip_fold.sh,
+# config configs/b_blip_fold_v2.yaml.
 # Then scores the new captioner on 10,000 QD rows of the OTHER fold (images it never saw), beam 3.
-#   cd <repo>/QuestionDependentImageCaptioner && VARIANT=A FOLD=0 bash scripts/kaggle_blip_fold_v2.sh
+#   cd <repo>/QuestionDependentImageCaptioner && FOLD=0 bash scripts/kaggle_blip_fold_v2.sh
 # Inputs: questiondependentcaptions, mnhlfuch/vqa-v2. Internet on. GPU T4 x2.
 # Resumable: attach this notebook's earlier output → continues from last.pt.
-# Output: /kaggle/working/model_b/b_blip_fold<FOLD>_v2<VARIANT>/{best.pt,train.log,fold_eval.json}
+# Output: /kaggle/working/model_b/b_blip_fold<FOLD>_v2/{best.pt,train.log,fold_eval.json}
 set -euo pipefail
 FOLD=${FOLD:?set FOLD=0 or FOLD=1}
-VARIANT=${VARIANT:?set VARIANT=A or VARIANT=B}
 EVAL_N=${EVAL_N:-10000}
 W=/kaggle/working
-RUN=b_blip_fold${FOLD}_v2${VARIANT}
+RUN=b_blip_fold${FOLD}_v2
 OUT=$W/model_b/$RUN
 mkdir -p "$OUT" "$W/configs"
 export PYTHONIOENCODING=utf-8
@@ -31,7 +29,7 @@ if [ ! -f "$IMG/COCO_train2014_000000000009.jpg" ]; then
   IMG=$(dirname "$(find -L /kaggle/input -name COCO_train2014_000000000009.jpg -type f 2>/dev/null | head -1)")
   [ "$IMG" = "." ] && { echo "COCO train2014 images not found under /kaggle/input"; exit 1; }
 fi
-echo "variant $VARIANT | fold $FOLD | QD $QD | images $IMG"
+echo "fold $FOLD | QD $QD | images $IMG"
 python -c "import nltk; nltk.download('wordnet', quiet=True); nltk.download('omw-1.4', quiet=True)"
 
 prev=$(find -L /kaggle/input -path "*model_b/$RUN/last.pt" 2>/dev/null | head -1 || true)
@@ -40,14 +38,13 @@ if [ -n "$prev" ] && [ ! -f "$OUT/last.pt" ]; then echo "resume from $prev"; cp 
 python scripts/make_fold_qd.py --qd "$QD" --folds ../CaptionVQA/data/crossfit_folds.json --fold "$FOLD" \
   --base-config configs/b_blip_fold_v2.yaml \
   --out-json "$W/qd_fold$FOLD.json" --out-config "$W/configs/$RUN.yaml" --save-dir "$OUT"
-python - "$W/configs/$RUN.yaml" "$IMG" "$VARIANT" <<'PYEOF'
+python - "$W/configs/$RUN.yaml" "$IMG" <<'PYEOF'
 import sys, yaml
-p, img, variant = sys.argv[1:]
+p, img = sys.argv[1:]
 cfg = yaml.safe_load(open(p)); cfg["train_images_dir"] = img
-cfg["answer_weight"] = 3.0 if variant == "B" else 1.0
 yaml.safe_dump(cfg, open(p, "w"), sort_keys=False)
 print(f"config: unfreeze_vision_layers={cfg['unfreeze_vision_layers']} vision_lr_scale={cfg['vision_lr_scale']} "
-      f"epochs={cfg['epochs']} answer_weight={cfg['answer_weight']}")
+      f"epochs={cfg['epochs']}")
 PYEOF
 
 FILTER='it/s\]|s/it\]|it/s, |s/it, |^\s*$'
@@ -67,4 +64,4 @@ fi
 rm -f "$W/qd_fold$FOLD.json"
 rm -rf "$HF_HOME"
 ls -la "$OUT"
-echo "BLIP_FOLD${FOLD}_V2${VARIANT}_DONE"
+echo "BLIP_FOLD${FOLD}_V2_DONE"
