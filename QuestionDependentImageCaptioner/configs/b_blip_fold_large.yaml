@@ -1,0 +1,37 @@
+# BLIP-large fold captioner (cross-fitting): identical to the current fold captioners (configs/b_blip_full.yaml:
+# frozen ViT, 4 epochs, batch 48 per GPU, lr 3e-5) except the pretrained model: ViT-L/16 instead of ViT-B/16.
+#   CONFIG=configs/b_blip_fold_large.yaml NAME=large FOLD=0 bash scripts/kaggle_blip_fold_v2.sh
+# Scored like round 2: 10,000 QD rows of the other fold (scripts/eval_fold_captioner.py).
+seed: 42
+blip_model: Salesforce/blip-image-captioning-large
+train_captions_json: /kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014.json
+train_images_dir: "/kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014"
+train_image_filename_template: "COCO_train2014_{image_id:012d}.jpg"
+
+train_row_range: [0, 264318]
+val_row_range: [264318, 267321]
+test_row_range: [267321, 277318]
+
+prompt: "question: {question} caption:"
+max_prompt_tokens: 32
+max_caption_tokens: 32
+image_size: 384
+freeze_vision: true
+
+save_dir: /kaggle/working/model_b/b_blip_fold_large
+batch_size: 48           # per GPU → 96 global (ViT is frozen and runs without gradients)
+eval_batch_size: 96
+num_workers: 2
+epochs: 4
+learning_rate: 0.00003
+weight_decay: 0.05
+warmup_steps: 1000
+grad_clip: 1.0
+grad_accum_steps: 1
+label_smoothing: 0.1
+use_amp: true
+val_beam_size: 1
+max_hours: 10.5          # stop cleanly before Kaggle 12 h; resume with --continue
+ddp: true
+ddp_backend: nccl
+ddp_find_unused_parameters: false

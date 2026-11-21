@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Round 2: fold captioner with the top 4 ViT layers trained (lr x0.1) + 6 epochs. Same data/fold as kaggle_blip_fold.sh,
 # config configs/b_blip_fold_v2.yaml.
+# Other fold configs: CONFIG=configs/b_blip_fold_large.yaml NAME=large FOLD=0 bash scripts/kaggle_blip_fold_v2.sh
 # Then scores the new captioner on 10,000 QD rows of the OTHER fold (images it never saw), beam 3.
 #   cd <repo>/QuestionDependentImageCaptioner && FOLD=0 bash scripts/kaggle_blip_fold_v2.sh
 # Inputs: questiondependentcaptions, mnhlfuch/vqa-v2. Internet on. GPU T4 x2.
@@ -10,7 +11,9 @@ set -euo pipefail
 FOLD=${FOLD:?set FOLD=0 or FOLD=1}
 EVAL_N=${EVAL_N:-10000}
 W=/kaggle/working
-RUN=b_blip_fold${FOLD}_v2
+CONFIG=${CONFIG:-configs/b_blip_fold_v2.yaml}
+NAME=${NAME:-v2}
+RUN=b_blip_fold${FOLD}_${NAME}
 OUT=$W/model_b/$RUN
 mkdir -p "$OUT" "$W/configs"
 export PYTHONIOENCODING=utf-8
@@ -24,7 +27,7 @@ fi
 [ "$NGPU" -lt 2 ] && echo "WARNING: only $NGPU GPU → training on 1 GPU (about 2× slower)"
 
 QD=$(python scripts/kaggle_find_qd.py configs/b_blip_full.yaml)
-IMG=$(python -c "import yaml; print(yaml.safe_load(open('configs/b_blip_fold_v2.yaml'))['train_images_dir'])")
+IMG=$(python -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['train_images_dir'])")
 if [ ! -f "$IMG/COCO_train2014_000000000009.jpg" ]; then
   IMG=$(dirname "$(find -L /kaggle/input -name COCO_train2014_000000000009.jpg -type f 2>/dev/null | head -1)")
   [ "$IMG" = "." ] && { echo "COCO train2014 images not found under /kaggle/input"; exit 1; }
@@ -36,14 +39,14 @@ prev=$(find -L /kaggle/input -path "*model_b/$RUN/last.pt" 2>/dev/null | head -1
 if [ -n "$prev" ] && [ ! -f "$OUT/last.pt" ]; then echo "resume from $prev"; cp "$(dirname "$prev")"/*.pt "$OUT"/; fi
 
 python scripts/make_fold_qd.py --qd "$QD" --folds ../CaptionVQA/data/crossfit_folds.json --fold "$FOLD" \
-  --base-config configs/b_blip_fold_v2.yaml \
+  --base-config "$CONFIG" \
   --out-json "$W/qd_fold$FOLD.json" --out-config "$W/configs/$RUN.yaml" --save-dir "$OUT"
 python - "$W/configs/$RUN.yaml" "$IMG" <<'PYEOF'
 import sys, yaml
 p, img = sys.argv[1:]
 cfg = yaml.safe_load(open(p)); cfg["train_images_dir"] = img
 yaml.safe_dump(cfg, open(p, "w"), sort_keys=False)
-print(f"config: unfreeze_vision_layers={cfg['unfreeze_vision_layers']} vision_lr_scale={cfg['vision_lr_scale']} "
+print(f"config: {cfg['blip_model']} unfreeze_vision_layers={cfg.get('unfreeze_vision_layers', 0)} batch={cfg['batch_size']} "
       f"epochs={cfg['epochs']}")
 PYEOF
 
@@ -64,4 +67,4 @@ fi
 rm -f "$W/qd_fold$FOLD.json"
 rm -rf "$HF_HOME"
 ls -la "$OUT"
-echo "BLIP_FOLD${FOLD}_V2_DONE"
+echo "BLIP_FOLD${FOLD}_${NAME^^}_DONE"
