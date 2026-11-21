@@ -22,12 +22,21 @@ START=$SECONDS
 read -r NGPU <<<"$(python -c "import torch; print(torch.cuda.device_count())")"
 [ "$NGPU" -ge 2 ] || { echo "Need 2 GPUs (found $NGPU): set Settings → Accelerator → GPU T4 x2"; exit 1; }
 find1() { find -L /kaggle/input -name "$1" -type f 2>/dev/null | head -1; }
+# Finglish: aval checkpoint ha (sari): hame best.pt ha, folder-e b_blip_fold0 / b_blip_fold1 (na _v2…).
+# Ya mostaghim: FOLD0_CKPT=/kaggle/input/... FOLD1_CKPT=/kaggle/input/... bash scripts/kaggle_caption_beams.sh
+mapfile -t BEST < <(find -L /kaggle/input -name 'best.pt' 2>/dev/null; find /kaggle/input -name 'best.pt' 2>/dev/null)
+C0=${FOLD0_CKPT:-$(printf '%s\n' "${BEST[@]}" | grep -E '/b_blip_fold0/best\.pt$' | head -1 || true)}
+C1=${FOLD1_CKPT:-$(printf '%s\n' "${BEST[@]}" | grep -E '/b_blip_fold1/best\.pt$' | head -1 || true)}
+if [ -z "$C0" ] || [ -z "$C1" ] || [ ! -f "$C0" ] || [ ! -f "$C1" ]; then
+  echo "fold captioners not found (need .../b_blip_fold0/best.pt and .../b_blip_fold1/best.pt)."
+  echo "best.pt files under /kaggle/input:"; printf '  %s\n' "${BEST[@]:-none}"
+  echo "input folders (depth 4):"; find /kaggle/input -maxdepth 4 -type d 2>/dev/null | head -40
+  echo "set the paths by hand: FOLD0_CKPT=<path> FOLD1_CKPT=<path> bash scripts/kaggle_caption_beams.sh"
+  exit 1
+fi
+echo "fold models: $C0 | $C1"
 TRIMG=$(dirname "$(find1 COCO_train2014_000000000009.jpg)"); VAIMG=$(dirname "$(find1 COCO_val2014_000000000042.jpg)")
 [ "$TRIMG" != "." ] && [ "$VAIMG" != "." ] || { echo "COCO train2014/val2014 images not found"; exit 1; }
-C0=$(find -L /kaggle/input -path '*model_b/b_blip_fold0/best.pt' 2>/dev/null | head -1 || true)
-C1=$(find -L /kaggle/input -path '*model_b/b_blip_fold1/best.pt' 2>/dev/null | head -1 || true)
-[ -n "$C0" ] && [ -n "$C1" ] || { echo "attach both fold notebook outputs (b_blip_fold0/best.pt, b_blip_fold1/best.pt)"; exit 1; }
-echo "fold models: $C0 | $C1"
 
 echo "== 1. caption requests (658,111 questions, which fold model captions which question) =="
 REQ=""
