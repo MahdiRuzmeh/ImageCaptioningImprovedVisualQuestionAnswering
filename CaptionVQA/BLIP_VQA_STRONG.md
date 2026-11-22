@@ -169,3 +169,20 @@ Config `configs/blip_strong_gate.yaml`: the 1b-B model (batch 64, GloVe 840B, ca
 
 Compare with 1b-B (`vqa_b64_crossfit_drop`: the same model without the gate). The log prints the 4 cases for each
 seed, e.g. `[blip_s0]   open, caption wrong   n= 3263  acc 33.5  r 0.412`, and `r-AUC` on every dev line.
+
+## Round 4: BLIP-large captions
+
+Same VQA model as 1b-B (batch 64, GloVe 840B, caption dropout 0.3, no gate); only the captioner changes to BLIP-large
+(`../QuestionDependentImageCaptioner/CAPTIONER_SCALE_REPORT.md`). The captioner's `best.pt` is chosen by the share of
+right captions on val (AnswerHit + yes/no polarity; `select_metric: answer`).
+
+| Step | Notebook | Command (after the clone cell) | Time (estimate) |
+|---|---|---|---|
+| 1 | BLIP-large fold-1 captioner | `%cd /kaggle/working/repo/QuestionDependentImageCaptioner` then `!CONFIG=configs/b_blip_fold_large.yaml NAME=large FOLD=1 bash scripts/kaggle_blip_fold_v2.sh` | ~6.5 h |
+| 2a | captions, train + val (658,111 questions) | `%cd /kaggle/working/repo/CaptionVQA` then `!CAPTIONER=large PART=trainval bash scripts/kaggle_caption_beams.sh` | ~7–9 h |
+| 2b | captions, test2015 (447,793 questions) | `!CAPTIONER=large PART=test2015 bash scripts/kaggle_caption_beams.sh` | ~5–6 h |
+| 3 | VQA + BLIP-large captions | `!CONFIG=configs/blip_strong_b64.yaml CAPTION_DROPOUT=0.3 CAPTIONS_FILE=captions_crossfit_large.json RUN=vqa_large_drop SEEDS="0 1" MODE=crossfit bash scripts/kaggle_vqa_strong.sh` | ~6 h |
+
+Step 2 needs both fold outputs (`model_b/b_blip_fold0_large/best.pt`, `model_b/b_blip_fold1_large/best.pt`);
+step 3 needs the output of 2a (`caption_beams_large/captions_crossfit_large.json`) plus the usual inputs of 1b-B.
+Step 2b needs the VQA v2 test2015 questions and images; its captions are used later for test-standard.

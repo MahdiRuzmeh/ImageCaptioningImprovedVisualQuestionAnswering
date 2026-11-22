@@ -9,6 +9,8 @@
 #      CAPTION_DROPOUT=0.3               crossfit only: share of training questions whose caption is hidden
 #                                        (unset: the config's caption_dropout)
 #      GATE_AUX=1.0                      caption gate configs only: reliability loss weight (unset: config's)
+#      CAPTIONS_FILE=captions_crossfit.json  name of the captions file to reuse from the inputs (largest one found);
+#                                        BLIP-large: CAPTIONS_FILE=captions_crossfit_large.json (must cover all questions)
 #      RUN=vqa_strong_<MODE>             output folder name, e.g. RUN=vqa_b64_crossfit_drop
 #
 # Inputs (Add Input):
@@ -24,6 +26,7 @@ SEEDS=${SEEDS:-"0 1 2"}
 CONFIG=${CONFIG:-configs/blip_strong.yaml}
 CAPTION_DROPOUT=${CAPTION_DROPOUT:-}
 GATE_AUX=${GATE_AUX:-}
+CAPTIONS_FILE=${CAPTIONS_FILE:-captions_crossfit.json}
 RUN=${RUN:-vqa_strong_$MODE}
 [[ "$MODE" == "baseline" || "$MODE" == "crossfit" ]] || { echo "MODE must be baseline or crossfit"; exit 1; }
 W=/kaggle/working
@@ -53,6 +56,7 @@ for v in TRQ TRA VAQ VAA; do [ -n "${!v}" ] || { echo "VQA v2 file missing ($v)"
 # Finglish: feature ha (~18 GB) → /tmp age ja dare (/kaggle/working faghat 20 GB)
 FREE_TMP=$(df -BG --output=avail /tmp | tail -1 | tr -dc '0-9')
 FEAT=$([ "$FREE_TMP" -ge 30 ] && echo /tmp/vqa_strong_features || echo "$WORK/features")
+echo "captions file: $CAPTIONS_FILE"
 echo "RUN $RUN | MODE $MODE | config $CONFIG | caption dropout ${CAPTION_DROPOUT:-config} | gate aux ${GATE_AUX:-config} | seeds $SEEDS"
 echo "QD $QD"
 echo "GloVe ${GLOVE:-none}"
@@ -112,8 +116,11 @@ if [ "$MODE" = "crossfit" ]; then
   CAPS=blip
   echo "== 3. captions: reuse earlier captions, caption only what is missing =="
   # Finglish: bozorgtarin captions_crossfit.json dar input ha (e.g. 658k-e run-e ghabli)
-  OLD=$(find -L /kaggle/input -name 'captions_crossfit.json' -type f -printf '%s %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2- || true)
-  echo "earlier captions: ${OLD:-none (all 658k questions will be captioned, ~4 h)}"
+  OLD=$(find -L /kaggle/input -name "$CAPTIONS_FILE" -type f -printf '%s %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2- || true)
+  echo "earlier captions ($CAPTIONS_FILE): ${OLD:-none (all 658k questions will be captioned, ~4 h)}"
+  if [ "$CAPTIONS_FILE" != "captions_crossfit.json" ] && [ -z "$OLD" ]; then
+    echo "$CAPTIONS_FILE not found in the inputs: attach the captioning notebook's output"; exit 1
+  fi
   python - "$WORK" "${OLD:-}" <<'EOF'
 import json, sys
 work, old = sys.argv[1], sys.argv[2]
@@ -128,6 +135,10 @@ print(f"reused {len(req) - len(todo)} captions, {len(todo)} to generate "
 open(f"{work}/n_todo.txt", "w").write(str(len(todo)))
 EOF
   NTODO=$(cat "$WORK/n_todo.txt")
+  # Finglish: caption haye ghair-e BLIP-base (e.g. BLIP-large) bayad kamel bashan: inja faghat model haye fold-e base hastan
+  if [ "$CAPTIONS_FILE" != "captions_crossfit.json" ] && [ "$NTODO" != "0" ]; then
+    echo "$CAPTIONS_FILE is missing $NTODO questions; this runner can only fill them with BLIP-base. Re-run the captioning."; exit 1
+  fi
   if [ "$NTODO" = "0" ]; then
     # Finglish: hame caption ha az ghabl hastan → model haye fold lazem nistan
     cp "$WORK/captions/captions_reused.json" "$WORK/captions/captions_crossfit.json"

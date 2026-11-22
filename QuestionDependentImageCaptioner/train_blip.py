@@ -302,6 +302,13 @@ def lr_lambda(cfg: Dict[str, Any], total_steps: int):
     return f
 
 
+def select_metric(cfg: Dict[str, Any]) -> str:
+    """Finglish: entekhab-e best.pt: "cider" (ghadimi, default) ya "answer" (AnswerHit + polarity-e yes/no)."""
+    m = str(cfg.get("select_metric", "cider")).lower()
+    assert m in ("cider", "answer"), f"select_metric must be cider or answer, not {m}"
+    return m
+
+
 def save(path: Path, obj: Dict[str, Any]) -> None:
     tmp = path.with_suffix(".tmp")
     torch.save(obj, tmp)
@@ -354,7 +361,7 @@ def train(cfg: Dict[str, Any], cli: argparse.Namespace) -> None:
         opt.load_state_dict(resume["optimizer"]); sched.load_state_dict(resume["scheduler"])
         scaler.load_state_dict(resume["scaler"])
         start_epoch, best, best_epoch = resume["epoch"] + 1, resume["best"], resume.get("best_epoch")
-        log(rank, f"resumed from {last} at epoch {resume['epoch']} (best CIDEr {best:.4f})")
+        log(rank, f"resumed from {last} at epoch {resume['epoch']} (best {select_metric(cfg)} {best:.4f})")
         del resume
 
     net = model
@@ -400,20 +407,26 @@ def train(cfg: Dict[str, Any], cli: argparse.Namespace) -> None:
         if rank == 0:
             sc = score(preds, rows_va)
             cider = sc["CIDEr"]
-            improved = cider > best
+            # Finglish: "answer" = sahm-e caption haye dorost: AnswerHit (open) + polarity (yes/no), vazn ba tedad
+            n_o, n_y = sc.get("AnswerHit_n", 0.0), sc.get("YesNo_n", 0.0)
+            answer = (sc["AnswerHit"] * n_o + sc.get("YesNoPolarity", 0.0) * n_y) / max(1.0, n_o + n_y)
+            metric = select_metric(cfg)
+            value = answer if metric == "answer" else cider
+            improved = value > best
             if improved:
-                best, best_epoch = cider, epoch
+                best, best_epoch = value, epoch
             state = trainable_state(model)
             if improved:
                 save(save_dir / "best.pt", {"model": state, "config": cfg, "epoch": epoch, "best_epoch": epoch,
-                                            "select_metric": "cider", "model_class": "BlipQD"})
+                                            "select_metric": metric, "model_class": "BlipQD"})
             save(last, {"model": state, "optimizer": opt.state_dict(), "scheduler": sched.state_dict(),
                         "scaler": scaler.state_dict(), "epoch": epoch, "best": best, "best_epoch": best_epoch,
                         "config": cfg})
             epoch_secs = time.time() - t0
             print(f"epoch {epoch}/{epochs} train_loss={train_loss:.4f} val_CIDEr={cider:.4f} "
                   f"val_BLEU-4={sc['BLEU-4']:.4f} val_METEOR={sc['METEOR']:.4f} val_ROUGE-L={sc['ROUGE-L']:.4f} "
-                  f"val_AnswerHit={sc['AnswerHit']:.4f} ({epoch_secs / 60:.1f} min)"
+                  f"val_AnswerHit={sc['AnswerHit']:.4f} val_YesNoPolarity={sc.get('YesNoPolarity', 0.0):.4f} "
+                  f"val_answer={answer:.4f} [select: {metric}] ({epoch_secs / 60:.1f} min)"
                   + ("  best.pt updated" if improved else ""), flush=True)
             for p, r in list(zip(preds, rows_va))[:3]:
                 print(f"  Q: {r['question']}\n    pred: {p}\n    gt:   {r['caption']}", flush=True)
@@ -446,7 +459,7 @@ def test(cfg: Dict[str, Any], cli: argparse.Namespace) -> None:
     per_rule = {k: score([preds[i] for i in v], [rows[i] for i in v]) for k, v in sorted(groups.items())}
     result = {
         "name": cli.name or Path(cfg["save_dir"]).name, "model_class": "BlipQD", "seed": cfg.get("seed"),
-        "ckpt": str(ckpt_path), "best_epoch": state.get("best_epoch"), "select_metric": "cider",
+        "ckpt": str(ckpt_path), "best_epoch": state.get("best_epoch"), "select_metric": state.get("select_metric", "cider"),
         "split": cli.split, "beam": cli.beam,
         "trainable_params": sum(v.numel() for v in state["model"].values()),
         "decode_secs": secs, "items_per_sec": len(rows) / max(secs, 1e-9),

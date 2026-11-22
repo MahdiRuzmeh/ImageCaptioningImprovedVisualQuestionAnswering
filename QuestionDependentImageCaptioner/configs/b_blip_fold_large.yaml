@@ -35,3 +35,6 @@ max_hours: 10.5          # stop cleanly before Kaggle 12 h; resume with --contin
 ddp: true
 ddp_backend: nccl
 ddp_find_unused_parameters: false
+
+# best.pt = epoch with the most right captions on val: AnswerHit (open) + polarity (yes/no), weighted by count.
+select_metric: answer

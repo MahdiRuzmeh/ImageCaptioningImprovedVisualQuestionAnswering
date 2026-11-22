@@ -86,6 +86,7 @@ def main() -> None:
     p.add_argument("--ckpt")
     p.add_argument("--requests")
     p.add_argument("--val-images-dir")
+    p.add_argument("--test-images-dir", help="test2015 images (requests with image_split == 'test')")
     p.add_argument("--shard", default="0/1")
     p.add_argument("--device", default="cuda")
     p.add_argument("--beam", type=int, default=3)
@@ -117,7 +118,8 @@ def main() -> None:
     model, tokenizer = build_model(cfg, device, state["model"])
     model.eval()
     dirs = {"train": (Path(cfg["train_images_dir"]), "COCO_train2014_{image_id:012d}.jpg"),
-            "val": (Path(args.val_images_dir), "COCO_val2014_{image_id:012d}.jpg")}
+            "val": (Path(args.val_images_dir or "."), "COCO_val2014_{image_id:012d}.jpg"),
+            "test": (Path(args.test_images_dir or "."), "COCO_test2015_{image_id:012d}.jpg")}
     for sp, (d, tmpl) in dirs.items():
         if any(r["image_split"] == sp for r in rows):
             first = next(r for r in rows if r["image_split"] == sp)
