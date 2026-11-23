@@ -123,6 +123,20 @@ def main() -> None:
                  for qid in (int(q["question_id"]) for q in va_by_img[i])]
         split_recs["train"] += records(extra, qmap_va, va_anns, "val")
         print(f"train += {len(extra)} val2014 questions (images outside dev/test)")
+    # Finglish: caption request ha az split-e asli (ghabl az final_train → har soal faghat yek bar)
+    req_recs = {k: list(v) for k, v in split_recs.items()}
+    if cfg.get("final_train"):
+        # Finglish: model-e nahaei (test-standard): train = hame-ye train2014 + val2014 (dev/test ham). dev/test file ha
+        # mimoonan vali dige "unseen" nistan (faghat baraye check).
+        split_recs["train"] = split_recs["train"] + split_recs["dev"] + split_recs["test"]
+        print(f"final_train: train = all train2014 + val2014 questions ({len(split_recs['train'])}); "
+              f"dev/test are now part of training (monitor only)")
+    if cfg.get("test2015_questions_json"):
+        # Finglish: test2015 (test-dev + test-standard): javab nadare → answers khali; faghat prediction
+        tq = read_json(cfg["test2015_questions_json"])["questions"]
+        split_recs["test2015"] = [{"question_id": int(q["question_id"]), "image_id": int(q["image_id"]),
+                                   "image_split": "test", "question": q["question"], "answers": [],
+                                   "answer_type": "", "question_type": ""} for q in tq]
     for name, recs in split_recs.items():
         write_json(work / "split" / f"{name}.json", recs)
         n_img = len({r["image_id"] for r in recs})
@@ -130,7 +144,7 @@ def main() -> None:
     if cfg.get("caption_requests_json"):
         # Finglish: liste-ye kochik-e (soal, tasvir) baraye tolid-e caption roye Kaggle (bedoon javab)
         req = [{"question_id": r["question_id"], "image_id": r["image_id"], "image_split": r["image_split"],
-                "question": r["question"], "vqa_split": name} for name, recs in split_recs.items() for r in recs]
+                "question": r["question"], "vqa_split": name} for name, recs in req_recs.items() for r in recs]
         folds_path = cfg.get("crossfit_folds_json")
         if folds_path and Path(folds_path).exists():
             # Finglish: caption_model = model-e fold-i ke in tasvir ro NADIDE (train2014: 1 − fold; val2014: fold)

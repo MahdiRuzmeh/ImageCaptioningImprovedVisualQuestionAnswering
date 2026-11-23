@@ -186,3 +186,22 @@ right captions on val (AnswerHit + yes/no polarity; `select_metric: answer`).
 Step 2 needs both fold outputs (`model_b/b_blip_fold0_large/best.pt`, `model_b/b_blip_fold1_large/best.pt`);
 step 3 needs the output of 2a (`caption_beams_large/captions_crossfit_large.json`) plus the usual inputs of 1b-B.
 Step 2b needs the VQA v2 test2015 questions and images; its captions are used later for test-standard.
+
+## Final model → official test-standard (VQA v2 test2015)
+
+Config `configs/blip_final.yaml`: the round-4 setup (BLIP-large captions, caption dropout 0.3, no gate), trained on
+**all** train2014 + val2014 questions (658,111, our dev/test included) for a fixed **10 epochs** (the best dev epoch of
+every MCAN run), then it answers all **447,793 test2015 questions**. The result files use the EvalAI format
+`[{"question_id": …, "answer": …}]` and cover test-dev and test-standard.
+
+| # | Notebook | Inputs | Command (after the clone cell + `%cd /kaggle/working/repo/CaptionVQA`) | Time |
+|---|---|---|---|---|
+| T1 | BUTD features, test2015 images | vqa-v2 | `!bash scripts/kaggle_test2015_cache.sh` → output **New Dataset** (e.g. `qd-butd-test2015`, ~12 GB) | ~4–5 h |
+| T2 | BLIP-large captions, test2015 (= step 2b) | see round 4 | `!CAPTIONER=large PART=test2015 bash scripts/kaggle_caption_beams.sh` | ~5–6 h |
+| T3 | **final model + captions** | vqa-v2, questiondependentcaptions, qd-butd-packed (v1), qd-butd-val2014, GloVe 840B, output of 2a (`captions_crossfit_large.json`), output of T2 (`captions_test2015_large.json`), `qd-butd-test2015` | `!CONFIG=configs/blip_final.yaml MODE=crossfit CAPTIONS_FILE=captions_crossfit_large.json CAPTIONS_TEST_FILE=captions_test2015_large.json RUN=vqa_final FINAL=1 SEEDS="0 1" bash scripts/kaggle_vqa_strong.sh` | ~5–6 h |
+| T4 | final **baseline** (no captions) | the same without the two caption outputs | `!CONFIG=configs/blip_final.yaml MODE=baseline RUN=vqa_final_baseline FINAL=1 SEEDS="0 1" bash scripts/kaggle_vqa_strong.sh` | ~5 h |
+
+Output of T3: `/kaggle/working/vqa_final/vqa_final_ensemble_test2015.json` (2-seed ensemble) and
+`vqa_final_blip_s0_test2015.json`, `vqa_final_blip_s1_test2015.json` (single models). Upload them on EvalAI
+(VQA Challenge): first the **test-dev** phase, then the chosen file once to **test-standard**. Dev/test accuracies in
+the final run's log are not meaningful (those questions are now training data).

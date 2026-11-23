@@ -50,7 +50,11 @@ def load_captions(cfg: dict) -> Optional[Dict[int, str]]:
     p = Path(cfg["captions_json"]) if cfg.get("captions_json") else Path(cfg["work_dir"]) / "captions" / "captions_blip.json"
     if not p.exists():
         return None
-    return {int(k): v for k, v in read_json(p).items()}
+    caps = {int(k): v for k, v in read_json(p).items()}
+    if cfg.get("captions_test2015_json") and Path(cfg["captions_test2015_json"]).exists():
+        # Finglish: caption haye test2015 (test-standard) — faghat baraye prediction-e nahaei
+        caps.update({int(k): v for k, v in read_json(cfg["captions_test2015_json"]).items()})
+    return caps
 
 
 def load_glove(path: Optional[str], itos: List[str], dim: int, name: str) -> Optional[torch.Tensor]:
@@ -162,6 +166,9 @@ class Split:
         work = Path(cfg["work_dir"])
         self.recs = read_json(work / "split" / f"{name}.json")
         packed = (Path(cfg["features_dir"]) if cfg.get("features_dir") else work / "features") / f"regions_{name}"
+        if cfg.get(f"{name}_features_dir"):
+            # Finglish: cache-e packed-e joda (e.g. test2015 mostaghim az dataset-e Kaggle, bedoon copy)
+            packed = Path(cfg[f"{name}_features_dir"])
         if (packed / "meta.json").exists():
             # Finglish: packed memmap (prepare_regions.py) — az disk/page cache, beyn-e process ha share
             meta = read_json(packed / "meta.json")
@@ -190,7 +197,8 @@ class Split:
         self.targets = [{vocab.a_stoi[a]: s for a, s in soft_targets(r["answers"]).items() if a in vocab.a_stoi}
                         for r in self.recs]
         # Finglish: label-e reliability-e caption (gate); -1 = bedoon label
-        self.reliable = torch.tensor([caption_reliable(t, majority_answer(r["answers"])) if source == "blip" else -1
+        self.reliable = torch.tensor([caption_reliable(t, majority_answer(r["answers"]))
+                                      if source == "blip" and r["answers"] else -1
                                       for t, r in zip(self.cap_text, self.recs)], dtype=torch.float)
         self.perm = torch.arange(n)  # caption source row (shuffle diagnostic)
 
@@ -223,6 +231,30 @@ class Split:
         out = {"q": self.q[idx], "regions": regions, "cap": self.cap[self.perm[idx]], "target": tgt,
                "rel": self.reliable[self.perm[idx]]}
         return {k: v.to(device, non_blocking=True) for k, v in out.items()}
+
+
+def predict_test2015(model, cfg, vocab, source, blip, device, run_dir: Path, name: str, bs: int = 512) -> None:
+    """Finglish: hame soal haye test2015 → test2015_scores.npy (fp16 memmap, baraye ensemble-e seed ha) +
+    test2015_results.json (format-e EvalAI: [{"question_id", "answer"}])."""
+    ds = Split("test2015", cfg, vocab, source, blip)
+    K = len(vocab.answers)
+    scores = np.lib.format.open_memmap(run_dir / "test2015_scores.npy", mode="w+", dtype=np.float16, shape=(len(ds), K))
+    model.eval()
+    results = []
+    with torch.no_grad():
+        for s in range(0, len(ds), bs):
+            idx = torch.arange(s, min(s + bs, len(ds)))
+            b = ds.batch(idx, K, device)
+            with torch.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
+                logits = model(b)
+            sc = torch.sigmoid(logits.float())
+            scores[s : s + len(idx)] = sc.half().cpu().numpy()
+            for i, a in zip(idx.tolist(), sc.argmax(-1).tolist()):
+                results.append({"question_id": ds.recs[i]["question_id"], "answer": vocab.answers[a]})
+    scores.flush()
+    write_json(run_dir / "test2015_results.json", results)
+    write_json(run_dir / "test2015_question_ids.json", [r["question_id"] for r in ds.recs])
+    print(f"[{name}] test2015: {len(results)} answers -> {run_dir / 'test2015_results.json'}", flush=True)
 
 
 def mean(xs: List[float]) -> float:
@@ -424,7 +456,8 @@ def main() -> None:
                         **({"train_aux_loss": run_aux / spe} if gate and aux_w > 0 else {})})
         aux_s = f" (reliability {run_aux / spe:.3f})" if gate and aux_w > 0 else ""
         print(f"ep {epoch:2d} loss {run_loss / spe:.3f}{aux_s} dev {fmt(ev)} [{time.time() - t0:.0f}s]", flush=True)
-        if ev["acc"] > best:
+        # Finglish: final_train: dev dar train-e → entekhab ba dev ma'na nadare; akharin epoch (tedad-e sabet) negah dashte mishe
+        if ev["acc"] > best or cfg.get("final_train"):
             best = ev["acc"]
             torch.save({"model": model.state_dict(), "epoch": epoch, "vocab": vocab.itos, "answers": vocab.answers},
                        run_dir / "best.pt")
@@ -452,6 +485,8 @@ def main() -> None:
     for nm, ds in (("dev", dev), ("test", test)):
         np.save(run_dir / f"{nm}_scores.npy", predict_scores(model, ds, K, device))
     write_json(run_dir / "answers.json", vocab.answers)
+    if (work / "split" / "test2015.json").exists():
+        predict_test2015(model, cfg, vocab, args.captions, blip, device, run_dir, name)
     print(f"[{name}] best epoch {state['epoch']}  dev {fmt(res['dev'])}")
     print(f"[{name}] TEST {fmt(t)}")
     for k, v in t.get("cases", {}).items():

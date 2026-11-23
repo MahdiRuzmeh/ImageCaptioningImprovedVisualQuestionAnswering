@@ -27,6 +27,10 @@ CONFIG=${CONFIG:-configs/blip_strong.yaml}
 CAPTION_DROPOUT=${CAPTION_DROPOUT:-}
 GATE_AUX=${GATE_AUX:-}
 CAPTIONS_FILE=${CAPTIONS_FILE:-captions_crossfit.json}
+# Finglish: FINAL=1 → model-e nahaei: train roye hame train+val (config final_train), javab-e hame soal haye test2015
+FINAL=${FINAL:-0}
+CAPTIONS_TEST_FILE=${CAPTIONS_TEST_FILE:-captions_test2015_large.json}
+KEEP_SCORES=${KEEP_SCORES:-0}
 RUN=${RUN:-vqa_strong_$MODE}
 [[ "$MODE" == "baseline" || "$MODE" == "crossfit" ]] || { echo "MODE must be baseline or crossfit"; exit 1; }
 W=/kaggle/working
@@ -48,7 +52,20 @@ QD=$(cd "$CAP_ROOT" && python scripts/kaggle_find_qd.py configs/b_blip_full.yaml
 GLOVE=$(find -L /kaggle/input -type f -iname 'glove.840B*300d*.txt' 2>/dev/null | head -1 || true)
 [ -n "$GLOVE" ] || GLOVE=$(find -L /kaggle/input -type f -iname 'glove*300d*.txt' 2>/dev/null | head -1 || true)
 CACHES=()
-while IFS= read -r m; do CACHES+=("$(dirname "$m")"); done < <(find -L /kaggle/input -name meta.json -path '*butd_*' 2>/dev/null)
+# Finglish: cache-e test2015 joda (mostaghim khoonde mishe), na baraye copy-e train/val
+while IFS= read -r m; do CACHES+=("$(dirname "$m")"); done < <(find -L /kaggle/input -name meta.json -path '*butd_*' 2>/dev/null | grep -v butd_test2015)
+TEQ=""; TECACHE=""; TECAP=""
+if [ "$FINAL" = "1" ]; then
+  TEQ=$(find1 v2_OpenEnded_mscoco_test2015_questions.json)
+  TECACHE=$(dirname "$(find -L /kaggle/input -name meta.json -path '*butd_test2015*' 2>/dev/null | head -1)")
+  [ -n "$TEQ" ] || { echo "FINAL: v2_OpenEnded_mscoco_test2015_questions.json not found"; exit 1; }
+  [ "$TECACHE" != "." ] || { echo "FINAL: test2015 BUTD cache (butd_test2015/meta.json) not found: attach the test2015 cache dataset"; exit 1; }
+  if [ "$MODE" = "crossfit" ]; then
+    TECAP=$(find -L /kaggle/input -name "$CAPTIONS_TEST_FILE" -type f -printf '%s %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2- || true)
+    [ -n "$TECAP" ] || { echo "FINAL: $CAPTIONS_TEST_FILE not found: attach the test2015 captioning output (step 2b)"; exit 1; }
+  fi
+  echo "FINAL: test2015 questions $TEQ | features $TECACHE | captions ${TECAP:-none (baseline)}"
+fi
 for v in TRQ TRA VAQ VAA; do [ -n "${!v}" ] || { echo "VQA v2 file missing ($v)"; exit 1; }; done
 [ "$TRIMG" != "." ] && [ "$VAIMG" != "." ] || { echo "COCO train2014/val2014 images not found"; exit 1; }
 [ -n "$GLOVE" ] || echo "WARNING: no glove*300d*.txt attached -> random word embeddings (weaker model)"
@@ -63,9 +80,9 @@ echo "GloVe ${GLOVE:-none}"
 echo "feature caches: ${CACHES[*]:-none}"
 echo "features -> $FEAT (/tmp free $FREE_TMP GB)"
 
-python - "$CFG" "$WORK" "$QD" "$TRQ" "$TRA" "$VAQ" "$VAA" "$TRIMG" "$VAIMG" "$FEAT" "$GLOVE" "$CONFIG" "$CAPTION_DROPOUT" "$GATE_AUX" <<'EOF'
+python - "$CFG" "$WORK" "$QD" "$TRQ" "$TRA" "$VAQ" "$VAA" "$TRIMG" "$VAIMG" "$FEAT" "$GLOVE" "$CONFIG" "$CAPTION_DROPOUT" "$GATE_AUX" "$FINAL" "$TEQ" "$TECACHE" "$TECAP" <<'EOF'
 import sys, yaml
-dst, work, qd, trq, tra, vaq, vaa, trimg, vaimg, feat, glove, base, drop, aux = sys.argv[1:]
+dst, work, qd, trq, tra, vaq, vaa, trimg, vaimg, feat, glove, base, drop, aux, final, teq, tecache, tecap = sys.argv[1:]
 cfg = yaml.safe_load(open(base))
 cfg.update(work_dir=work, qd_captions_json=qd, train_questions_json=trq, train_annotations_json=tra,
            val_questions_json=vaq, val_annotations_json=vaa, train_images_dir=trimg, val_images_dir=vaimg,
@@ -75,9 +92,15 @@ if drop:  # Finglish: faghat age env set shode, vagarna meghdar-e config
     cfg["caption_dropout"] = float(drop)
 if aux:
     cfg["gate_aux_weight"] = float(aux)
+if final == "1":
+    assert cfg.get("final_train"), "FINAL=1 needs a config with final_train: true (configs/blip_final.yaml)"
+    cfg.update(test2015_questions_json=teq, test2015_features_dir=tecache)
+    if tecap:
+        cfg["captions_test2015_json"] = tecap
 yaml.safe_dump(cfg, open(dst, "w"), sort_keys=False)
 print(f"config {dst}: batch {cfg['batch_size']}, epochs {cfg['epochs']}, caption_dropout {cfg.get('caption_dropout', 0)}, "
-      f"caption_gate {cfg.get('caption_gate', False)}, gate_aux_weight {cfg.get('gate_aux_weight', 0)}")
+      f"caption_gate {cfg.get('caption_gate', False)}, gate_aux_weight {cfg.get('gate_aux_weight', 0)}, "
+      f"final_train {cfg.get('final_train', False)}")
 EOF
 
 echo "== 1. split (train2014 + val2014) =="
@@ -195,6 +218,15 @@ if [ ${#S[@]} -ge 3 ]; then
 fi
 grep -h -E "^\[" "$WORK"/train_s*.log
 python summarize_vqa.py --runs "$WORK/runs" --out "$WORK/summary.md"
+if [ "$FINAL" = "1" ]; then
+  echo "== 5. EvalAI result files (test2015: test-dev + test-standard) =="
+  mapfile -t RDIRS < <(find "$WORK/runs" -name test2015_scores.npy -printf '%h\n' | sort)
+  for d in "${RDIRS[@]}"; do cp "$d/test2015_results.json" "$WORK/${RUN}_$(basename "$d")_test2015.json"; done
+  python scripts/test2015_results.py --runs "${RDIRS[@]}" --questions "$TEQ" --out "$WORK/${RUN}_ensemble_test2015.json"
+  # Finglish: score ha (~2.8 GB baraye har seed) faghat baraye ensemble — pak mishan (KEEP_SCORES=1 → nagah dar)
+  [ "$KEEP_SCORES" = "1" ] || find "$WORK/runs" -name test2015_scores.npy -delete
+  ls -la "$WORK"/*_test2015.json
+fi
 rm -rf "$FEAT" "$WORK/features"
 echo "total $(( (SECONDS - START) / 60 )) min"
 echo "VQA_STRONG_${MODE^^}_DONE ($RUN)"
