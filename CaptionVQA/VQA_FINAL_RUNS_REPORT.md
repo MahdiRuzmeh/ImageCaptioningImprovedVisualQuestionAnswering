@@ -135,17 +135,20 @@ Our val numbers, adjusted for the slightly larger training set (+0.0 to +0.1) an
 Expected by answer type for the caption ensemble: yes/no ~86.2, number ~52.5, other ~63.0. The paper reports 86.63 / 48.23 /
 59.98: we expect to be clearly ahead on number and "other" questions and slightly behind on yes/no.
 
-## 5. Official results (to fill in after EvalAI)
+## 5. Official results (EvalAI)
 
 | Submission | Phase | Overall | Yes/no | Number | Other |
 |---|---|---:|---:|---:|---:|
-| T3 ensemble | test-dev | | | | |
-| T3 seed 0 | test-dev | | | | |
-| T3 seed 1 | test-dev | | | | |
-| T4 ensemble (baseline) | test-dev | | | | |
-| **T3 ensemble** | **test-standard** | | | | |
-| T4 ensemble (baseline) | test-standard | | | | |
+| T3 ensemble | test-dev | 72.87 | 88.35 | 53.86 | 63.99 |
+| T3 seed 0 | test-dev | not submitted | | | |
+| T3 seed 1 | test-dev | not submitted | | | |
+| T4 ensemble (baseline) | test-dev | 69.28 | 85.94 | 49.99 | 59.43 |
+| **T3 ensemble** | **test-standard** | **73.16** | **88.33** | **54.41** | **64.25** |
+| T4 ensemble (baseline) | test-standard | 69.56 | 86.14 | 49.81 | 59.65 |
 | Base paper, Baseline + Att + Cap | test-standard | 70.67 | 86.63 | 48.23 | 59.98 |
+
+Both final models scored about 2.5 points above the expectation in section 4.3, with the caption gain unchanged
+(+3.6 on test-standard vs +3.0 on our val). Full discussion: `VQA_FINAL_REPORT.md`.
 
 **How to submit:**
 1. On eval.ai, open the VQA challenge → Participate (create a team).
