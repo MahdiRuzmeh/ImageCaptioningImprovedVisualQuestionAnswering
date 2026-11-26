@@ -1,4 +1,4 @@
-"""Two-layer caption validator: fast FAIL/UNKNOWN + batched LLM PASS/SUSPICIOUS judge.
+"""Two-layer caption validator: fast FAIL/NO_HARD_ERROR_FOUND + batched LLM PASS/SUSPICIOUS judge.
 
 Public API for :mod:`generate` and the standalone CLI.
 """
@@ -19,7 +19,11 @@ from validation.checks import (
     caption_hard_reject_reason,
     caption_soft_flags,
 )
-from validation.config import VALIDATOR_VERSION, ValidationConfig
+from validation.config import (
+    FAST_VALIDATOR_VERSION,
+    LLM_VALIDATOR_VERSION,
+    ValidationConfig,
+)
 from validation.details import rejection_detail
 from validation.fast_validator import FastResult, FastVerdict, fast_validate
 from validation.llm_validator import JudgeItem, JudgeResult, LlmVerdict, llm_validate_batch
@@ -37,7 +41,8 @@ VALIDATION_FAIL_REASONS = _VALIDATION_FAIL_REASONS
 RELATION_MIN_RATIO = 0.5
 
 __all__ = [
-    "VALIDATOR_VERSION",
+    "FAST_VALIDATOR_VERSION",
+    "LLM_VALIDATOR_VERSION",
     "ValidationConfig",
     "FastVerdict",
     "FastResult",

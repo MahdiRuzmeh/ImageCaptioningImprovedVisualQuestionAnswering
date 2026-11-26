@@ -9,10 +9,10 @@ Pipeline:
 1. VQA questions + annotations ro load mikone (`input_count`)
 2. OCR-dependent Q/A pair ha (`is_ocr_question`) — soal hayi ke javab-eshun faghat az ru-ye reading-e text/adad-e ru-ye tasvir mishe fahmid (sign, logo, brand, plate, jersey number, clock) — kollan hazf mishan, chon `QuestionDependentImageCaptioner` OCR nadare va nemitune in target ha ro yad begire; count-esh dar `info.ocr_excluded_count` save mishe
 3. Duplicate `(image_id, question, answer)` rows drop mishan (`info.duplicate_count`)
-4. Binary classifier (hamishe): `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. Cascade: high-precision **blacklist** → hard `NOT_DIRECTLY_VISUAL` (`visual_filter_source=blacklist`); else **UNKNOWN** → parallel per-question Qwen confirm with **chat-turn few-shots** (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, prompt `v19_chat_turn_fewshots`) → binary label (`visual_filter_source=llm_classifier`). Only the LLM asserts `DIRECTLY_VISUAL`. Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad). Ollama baraye in marhale lazem ast hata bedoon `--llm`.
+4. Binary classifier (hamishe): `DIRECTLY_VISUAL` / `NOT_DIRECTLY_VISUAL`. Cascade: high-precision **blacklist** → hard `NOT_DIRECTLY_VISUAL` (`visual_filter_source=blacklist`); else **UNKNOWN** → parallel per-question Qwen confirm with **chat-turn few-shots** (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, prompt `v20`) → binary label (`visual_filter_source=llm_classifier`). Only the LLM asserts `DIRECTLY_VISUAL`. Non-visual drops go to sidecar `*_not_directly_visual.json` (faghat baraye captioner train — VQA2 eval dastkhord nashavad). Ollama baraye in marhale lazem ast hata bedoon `--llm`.
 5. Rule engine try mikone (`caption_rules.py`) — faghat pattern haye daghigh va motmaen
 6. Age hich rule match nakone, row `rule="needs_llm"` va `caption=""` mishe
-7. Age `--llm` on bashe → Ollama ba packed batch + **two-layer validator** (`validation/`: fast FAIL/UNKNOWN → batched LLM judge) + **1 batched regenerate** then drop
+7. Age `--llm` on bashe → Ollama ba packed batch + **two-layer validator** (`validation/`: fast FAIL/NO_HARD_ERROR_FOUND → batched LLM judge) + **1 batched regenerate** then drop
 8. Validator ru **hame** caption ha (rule ham) run mishe; `final_validation_pass` log-e kamel toye `*_validation_log.jsonl` va row haye FAIL toye `*_validation_failed.json`. Har retry (validator ya generation) toye `*_validation_audit.jsonl` ham sabt mishe
 
 ## Files
@@ -22,8 +22,8 @@ Pipeline:
 | `caption_rules.py` | Rule engine + helper ha |
 | `generate.py` | CLI: rules + always-on classifier + optional LLM fallback |
 | `llm_prompts.py` | Packed prompt (chand Q+A toye yek request) |
-| `llm_client.py` | Ollama HTTP client + concurrent workers |
-| `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`validator_version: v10_soft_answer_negation_judge_shots`) |
+| `llm_client.py` | Ollama HTTP client + parallel caption batches (`--llm-parallel`) |
+| `validation/` | Two-layer caption validator — [validation/README.md](validation/README.md) (`fast_validator` `v11`, `llm_validator` `v10`) |
 | `question_classifier.py` | Binary DIRECTLY_VISUAL / NOT_DIRECTLY_VISUAL filter (blacklist → NDV; UNKNOWN → parallel chat-turn LLM) |
 | `audit/audit_captions.py` | DevAuditor caption scorer — fills `fast_validator_label` / `llm_judge_label` / `caption_status` ([audit/README.md](audit/README.md)) |
 | `audit/classify_questions.py` | DevAuditor classifier scorer — fills `classifier_label` ([audit/README.md](audit/README.md)) |
@@ -134,11 +134,11 @@ python generate.py --split train --llm --batch-size 10 --max-items 200 \
   --model qwen2.5:3b-instruct-q4_K_M
 
 # full val — checkpoint har 50 batch (kamtar disk I/O)
-python generate.py --split val --llm --batch-size 10 --workers 1 \
+python generate.py --split val --llm --batch-size 10 --llm-parallel 4 \
   --model qwen2.5:3b-instruct-q4_K_M --checkpoint-every 50
 
 # checkpoint har 100 batch
-python generate.py --split train --llm --batch-size 10 --workers 1 \
+python generate.py --split train --llm --batch-size 10 --llm-parallel 4 \
   --model qwen2.5:3b-instruct-q4_K_M --checkpoint-every 100
 ```
 
@@ -149,13 +149,13 @@ python generate.py --split train --llm --batch-size 10 --workers 1 \
 | `--llm` | off | Baraye `needs_llm` rows az Ollama caption begir |
 | `--batch-size` | `10` | Chand Q+A toye **yek** LLM prompt |
 | `--model` | `mistral` | Esm model Ollama |
-| `--workers` | `1` | Concurrent API request (hamoon yek model) |
 | `--ollama-host` | `http://localhost:11434` | Base URL Ollama |
 | `--checkpoint-every` | `1` | Har N LLM batch JSON save (`1`, `50`, `100`, …) |
 | `--classifier-checkpoint-every` | `50` | Har N classified question classifier checkpoint save |
 | `--min-consensus` | `0.0` (off) | Drop Q/A pair-hayi ke `answer_consensus` kamtar az in dare |
 | `--no-blacklist-drop` / `--no-fast-path` | off | Blacklist auto-NDV ro khamoosh kon — hame soal ha UNKNOWN→parallel LLM classifier |
-| `--llm-parallel` | `4` | Max concurrent classifier Ollama requests (set `OLLAMA_NUM_PARALLEL` >= this on the server) |
+| `--llm-parallel` | `4` | Max concurrent Ollama requests — classifier **va** LLM caption batches (set `OLLAMA_NUM_PARALLEL` >= this on the server) |
+| `--workers` | = `--llm-parallel` | **Deprecated.** Faghat baraye caption generation `--llm-parallel` ro override mikone (warning chap mishe) |
 | `--no-resume` | off | Ignore classifier + LLM checkpoints (fresh start) |
 | `--output` | `outputs/...` | Override path output JSON |
 
@@ -297,7 +297,7 @@ Typical reasons:
 | `semantic_fail` / `suspicious` | LLM judge returned SUSPICIOUS (caption kept + logged) |
 | `empty_response` / `timeout` | Model returned nothing / timed out |
 
-`answer_mismatch` and `spurious_negation` are **no longer hard reject reasons** — those cases escalate as UNKNOWN to the LLM judge.
+`answer_mismatch` and `spurious_negation` are **no longer hard reject reasons** — those cases escalate as `NO_HARD_ERROR_FOUND` to the LLM judge.
 `relation_mismatch` and `unsupported_facts` are **no longer reject reasons** — they became the `relation_low` / `unsupported_facts_suspect` flags.
 
 If `--llm` finishes with any `needs_llm` left, the process exits with code `1` and prints the log path. Fix the top reason and re-run the same command.
@@ -306,8 +306,13 @@ If `--llm` finishes with any `needs_llm` left, the process exits with code `1` a
 
 - Yek model load mishe (na chand copy).
 - Asli-tarin speedup = `--batch-size` (pack).
-- `--workers 1` safe-tarine; `--workers 2` faghat age OOM nashod.
-- Age concurrent mikhay, Ollama side: `OLLAMA_NUM_PARALLEL` ba `--workers` align bashe.
+- `--llm-parallel` ham classifier ham caption batch ha ro concurrent mifreste; batch-i ke tamoom beshe, slot-esh foran be batch-e ba'di mire.
+- Ollama side: `OLLAMA_NUM_PARALLEL` >= `--llm-parallel` bashe (ghabl az `ollama serve`, too hamoon shell); vagarna request ha queue mishan (dorost, vali bedoon speedup). Age Ollama tray app baz-e, avval bebandesh.
+- `--llm-parallel 1` safe-tarine; age OOM ya `timeout` too `.llm_failures` didi, kamesh kon.
+- Progress line ha `elapsed` va `q/s` (classifier) / `Q+A/s` (captions) chap mikonan — baraye moghayese-ye setting ha.
+- Pilot (60 items, qwen2.5:3b, 8GB): parallel 1 → 4 = classifier ~3×, captions ~1.9×, kol-e run 219s → 110s. Classifier label ha yeksan budan (57/57); ~25% LLM caption ha kalamat-e motefavet dashtan (GPU batching noise, na kahesh-e quality).
+- Baraye reproducibility-e dataset-e nahayi, yek `--llm-parallel` entekhab kon va sabet negah dar (`info.llm.workers` save mishe).
+- Final validation pass (LLM judge) hanuz sequential ast.
 
 ## Output row
 
@@ -335,7 +340,16 @@ If `--llm` finishes with any `needs_llm` left, the process exits with code `1` a
 
 `answer_count` = chand ta az 10 annotator dagigan hamun mode answer ro dadan; `answer_consensus` = `answer_count / total_annotators` (rounded). In annotator agreement ast, na model confidence — ba'dan mitune baraye loss weighting estefade beshe.
 
-`info.llm` (age `--llm`): `model`, `batch_size`, `workers`, `host`, `prompt_version`, `validation`.
+`info.llm` (age `--llm`): `model`, `batch_size`, `workers` (= caption concurrency used, i.e. `--llm-parallel`), `host`, `prompt_version`, `validation`.
+
+`info.versions` (hamishe): bare per-component numbers —
+
+| Key | Source |
+|-----|--------|
+| `classifier_prompt` | `CLASSIFIER_PROMPT_VERSION` (`v20`) |
+| `generation_prompt` | `PROMPT_VERSION` (`v10`) |
+| `llm_validator` | `LLM_VALIDATOR_VERSION` (`v10`) |
+| `fast_validator` | `FAST_VALIDATOR_VERSION` (`v11`) |
 
 Accounting fields (bayad jam beshan):
 
@@ -358,7 +372,7 @@ Accounting fields (bayad jam beshan):
 
 Identity: `input ≈ ocr + low_consensus + duplicate + not_directly_visual + num_samples + dropped_empty + validation_failure` (va `directly_visual ≈ num_samples + dropped_empty + validation_failure`). `validation_flagged_count` va `rule_validation_reject_count` in identity ro **avaz nemikonan** — flag row ro drop nemikone va rule reject faghat row ro be LLM mifreste.
 
-`info.llm.validation` = `{retry_rounds, single_retries, salvage_retry_rounds, salvage_single_retries, tier, validator_version, relation_min_ratio}` — `validator_version` har bar ke ghavanin-e accept/reject-e fast layer avaz beshan bump mishe, pas har output JSON mige ba kodum validator sakhte shode.
+`info.llm.validation` = `{retry_rounds, single_retries, salvage_retry_rounds, salvage_single_retries, tier, fast_validator_version, llm_validator_version, …}` — `fast_validator_version` / `llm_validator_version` (va `info.versions`) har bar ke oon layer avaz beshe bump mishan.
 
 ## QC validators (LLM)
 
@@ -372,10 +386,12 @@ Beyond format checks, accepted LLM captions must pass Tier-1 relation / verbatim
 
 `NOT_DIRECTLY_VISUAL` vaghti ke javab yeki az in se ta ro lazem dare: **reading-e text-e ru-ye tasvir (OCR)**, **nazar/salighe-ye shakhsi**, ya **knowledge-e biruni** (seda-ye heyvan, sazande/brand, keshvar-e flag, breed, gheymat, named place identity, non-visual senses).
 
-### Cascade (v19)
+### Cascade (v20)
 
 1. High-precision blacklist match → `NOT_DIRECTLY_VISUAL` (`visual_filter_source=blacklist`, no LLM).
-2. Else UNKNOWN → flush groups of `--classifier-batch-size` questions; each question is **one** Ollama request with system prompt + **chat-turn few-shots** + that Q (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, `v19_chat_turn_fewshots`). Up to `--llm-parallel` requests run concurrently. `VISUAL` → keep; other three → drop with `non_visual_reason` (`visual_filter_source=llm_classifier`). Parse fail → keep as `DIRECTLY_VISUAL`.
+2. Else UNKNOWN → flush groups of `--classifier-batch-size` questions; each question is **one** Ollama request with system prompt + **chat-turn few-shots** + that Q (`NEEDS_OCR` / `NEEDS_KNOWLEDGE` / `NEEDS_OPINION` / `VISUAL`, `v20`). Up to `--llm-parallel` requests run concurrently. `VISUAL` → keep; other three → drop with `non_visual_reason` (`visual_filter_source=llm_classifier`). Parse fail → keep as `DIRECTLY_VISUAL`.
+
+Capacity / fit questions (e.g. "How many people can fit inside the plane?") → `NEEDS_OPINION`; visible counts (e.g. "How many people are inside the plane?") → `VISUAL`.
 
 Soft cues (bare `old`/`young`, emotion words, intention `trying to`, bare `text`/`license`) **nist** toye hard blacklist — miran be LLM ta visual rescue beshe.
 
@@ -388,7 +404,7 @@ Hazine: aksar soal ha UNKNOWN→LLM (yek request per question). Same few-shot pr
 | Flag | Chi mikone |
 |------|------------|
 | `--classifier-batch-size` | Chand UNKNOWN soal flush beshe be parallel `classify_batch` (default `10`). Har soal = yek Ollama request. |
-| `--llm-parallel` | Max concurrent classifier Ollama requests (default `4`). Set `OLLAMA_NUM_PARALLEL` >= this before `ollama serve`. |
+| `--llm-parallel` | Max concurrent Ollama requests (default `4`) — classifier va LLM caption generation ba ham share mikonan. Set `OLLAMA_NUM_PARALLEL` >= this before `ollama serve`. |
 | `--no-blacklist-drop` / `--no-fast-path` | Blacklist auto-NDV off — hame soal ha be parallel LLM miran. |
 | `--classifier-checkpoint-every` | Save classifier progress every N questions (default `50`). |
 | `--classifier-model` | Model Ollama baraye classifier; default = `--model` |
@@ -407,7 +423,7 @@ Sidecar: `outputs/v2_question_dependent_captions_{split}2014_not_directly_visual
 
 Counts: `info.directly_visual_count`, `info.not_directly_visual_count`, `info.question_classifier.label_counts` (`BLACKLIST_NDV`, …), `info.question_classifier.blacklist_drop_enabled`, `info.question_classifier.parallel`.
 
-Note: `prompt_version` (`v19_chat_turn_fewshots`) avaz shode va checkpoint ba `blacklist_drop_enabled` key mikhore, pas checkpoint-e ghadimi roye resume invalid hast — pak-esh kon ya `--no-resume` bede.
+Note: `prompt_version` (`v20`) avaz shode va checkpoint ba `blacklist_drop_enabled` key mikhore, pas checkpoint-e ghadimi roye resume invalid hast — pak-esh kon ya `--no-resume` bede.
 
 ## Tests + DevAuditor
 

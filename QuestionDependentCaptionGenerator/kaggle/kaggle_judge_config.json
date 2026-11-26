@@ -1,0 +1,41 @@
+{
+  "inputs": {
+    "captions": "/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014/vqa_v2_question_dependent_captions_train2014.json",
+    "expected_rows": 283707,
+    "audit": "audit/DevAuditor/caption_error_audit_manual.json",
+    "resume_progress": "/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014_caption_check_progress/vqa_v2_question_dependent_captions_train2014_caption_check_progress.jsonl",
+    "resume_dir": null
+  },
+  "run": {
+    "mode": "full",
+    "scope": "all",
+    "hours": 11.0,
+    "shutdown_grace_min": 10
+  },
+  "judge": {
+    "model": "qwen2.5:7b-instruct-q4_K_M",
+    "llm_parallel": 8,
+    "batch_size": 10,
+    "num_ctx": 4096,
+    "timeout_s": 300,
+    "retries": 3,
+    "extra_args": []
+  },
+  "regen": {
+    "batch_size": 5,
+    "rounds": 2,
+    "temperature": 0.3,
+    "single_fallback": true
+  },
+  "ollama": {
+    "host": "http://127.0.0.1:11434",
+    "gpus": "auto",
+    "base_port": 11435,
+    "num_parallel": null,
+    "keep_alive": "-1"
+  },
+  "paths": {
+    "output_dir": "/kaggle/working/outputs",
+    "log_dir": "/kaggle/working"
+  }
+}

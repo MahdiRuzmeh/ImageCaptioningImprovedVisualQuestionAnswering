@@ -50,8 +50,9 @@ def load_gold(path: Path) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
 def predicted_good(row: Dict[str, Any]) -> bool:
     """True when validator predicts a good caption (aligns with manual PASS).
 
-    Fast layer is FAIL | UNKNOWN only. A caption is predicted good only when
-    the LLM judge returns PASS (UNKNOWN without a judge label counts as not-good).
+    Fast layer is FAIL | NO_HARD_ERROR_FOUND only. A caption is predicted
+    good only when the LLM judge returns PASS (NO_HARD_ERROR_FOUND without
+    a judge label counts as not-good).
     """
     fast = str(row.get("fast_validator_label") or "").upper()
     if fast == "FAIL":
@@ -110,7 +111,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--llm",
         action="store_true",
-        help="Run batched LLM judge on UNKNOWN captions (requires Ollama)",
+        help=(
+            "Run batched LLM judge on NO_HARD_ERROR_FOUND captions "
+            "(requires Ollama)"
+        ),
     )
     parser.add_argument(
         "--batch-size",

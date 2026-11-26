@@ -1,4 +1,4 @@
-"""Batched LLM PASS/SUSPICIOUS judge for captions the fast validator marked UNKNOWN."""
+"""Batched LLM PASS/SUSPICIOUS judge for captions marked NO_HARD_ERROR_FOUND."""
 
 from __future__ import annotations
 
@@ -375,7 +375,7 @@ def llm_validate_batch(
     *,
     config: Optional[ValidationConfig] = None,
 ) -> List[JudgeResult]:
-    """Run the batched LLM judge on UNKNOWN captions.
+    """Run the batched LLM judge on NO_HARD_ERROR_FOUND captions.
 
     Args:
         client: Object with ``host``, ``model``, ``num_ctx``, ``timeout_s`` attrs

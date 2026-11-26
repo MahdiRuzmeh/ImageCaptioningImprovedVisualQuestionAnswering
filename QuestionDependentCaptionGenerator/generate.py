@@ -23,6 +23,7 @@ import argparse
 import json
 import os
 import tempfile
+import time
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -45,8 +46,9 @@ from question_classifier import (
 from validation import (
     CAPTION_STATUS_MANUAL,
     CAPTION_STATUS_READY,
+    FAST_VALIDATOR_VERSION,
     FLAG_SUSPICIOUS,
-    VALIDATOR_VERSION,
+    LLM_VALIDATOR_VERSION,
     ValidationConfig,
     ValidationLogWriter,
     _VALIDATION_FAIL_REASONS,
@@ -739,7 +741,15 @@ def apply_llm_fallbacks(
 
     last_outcome: Dict[int, ItemOutcome] = {}
     done_batches = 0
+    done_items = 0
     total_batches = len(batches_pairs)
+    # Wall-clock for this run only (resumed captions are not counted in rates).
+    started = time.perf_counter()
+
+    def _timing() -> str:
+        elapsed = time.perf_counter() - started
+        rate = done_items / elapsed if elapsed > 0 else 0.0
+        return f"elapsed {elapsed:.1f}s, {rate:.2f} Q+A/s"
     print(
         f"Starting LLM captioning: {total_batches} batches "
         f"(first batch may take a while if Ollama is loading the model)...",
@@ -801,7 +811,8 @@ def apply_llm_fallbacks(
         )
 
     def _on_batch(batch_i: int, outcomes: List[ItemOutcome]) -> None:
-        nonlocal done_batches, validation_retry_count, validation_failure_count
+        nonlocal done_batches, done_items
+        nonlocal validation_retry_count, validation_failure_count
         ok_n = 0
         r, f = count_validation_stats(outcomes)
         validation_retry_count += r
@@ -812,11 +823,12 @@ def apply_llm_fallbacks(
             if outcome.caption is not None:
                 ok_n += 1
         done_batches += 1
+        done_items += len(outcomes)
         still = sum(1 for r in rows if r["rule"] == "needs_llm")
         print(
             f"  LLM batch {batch_i + 1}/{total_batches} done "
             f"(accepted {ok_n}/{len(outcomes)}, "
-            f"{still} needs_llm left)",
+            f"{still} needs_llm left; {_timing()})",
             flush=True,
         )
         if checkpoint_every > 0 and done_batches % checkpoint_every == 0:
@@ -830,6 +842,11 @@ def apply_llm_fallbacks(
         on_batch_done=_on_batch,
         on_batch_start=_on_batch_start,
         single_retries=single_retries,
+    )
+    print(
+        f"LLM captioning done this run: {done_items} Q+A in "
+        f"{done_batches} batches (parallel={workers}; {_timing()})",
+        flush=True,
     )
 
     leftover = [i for i, r in enumerate(rows) if r["rule"] == "needs_llm"]
@@ -955,8 +972,13 @@ def final_validation_pass(
     config: Optional[ValidationConfig] = None,
     log_writer: Optional[ValidationLogWriter] = None,
     use_llm: bool = True,
+    parallel: int = 1,
 ) -> Tuple[List[Dict[str, Any]], int, int, List[Dict[str, Any]], ValidationStats]:
     """Validate every caption once more via fast + batched LLM judge.
+
+    Every caption gets the fast validator. Only captions without a
+    ``caption_status`` (rule-based ones) go to the LLM judge; LLM captions
+    were already judged when they were generated.
 
     Returns:
         (kept_rows, dropped_count, flagged_count, failed_rows, stats)
@@ -968,6 +990,13 @@ def final_validation_pass(
         client=client,
         use_llm=use_llm and client is not None,
         log_writer=log_writer,
+        parallel=parallel,
+        progress_every=50,
+    )
+    print(
+        f"Final validation: fast-checked {len(rows)} captions; reused the "
+        f"generation-time LLM verdict for {stats.llm_already_judged_count}.",
+        flush=True,
     )
     flagged = sum(1 for r in kept if r.get("validation_flags"))
     return kept, len(failed), flagged, failed, stats
@@ -1043,6 +1072,12 @@ def write_output_json(
         "process_ended_at": ended_at,
         "process_duration_seconds": duration_seconds(started_at, ended_at),
         "rule_counts": dict(rule_counts),
+    }
+    info["versions"] = {
+        "classifier_prompt": CLASSIFIER_PROMPT_VERSION,
+        "generation_prompt": PROMPT_VERSION,
+        "llm_validator": LLM_VALIDATOR_VERSION,
+        "fast_validator": FAST_VALIDATOR_VERSION,
     }
     if classifier_meta:
         info["question_classifier"] = classifier_meta
@@ -1216,8 +1251,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--workers",
         type=int,
-        default=1,
-        help="Concurrent API request be hamoon Ollama (default 1, 8GB safe)",
+        default=None,
+        help=(
+            "Deprecated: override --llm-parallel for caption generation only "
+            "(default: same as --llm-parallel)"
+        ),
     )
     parser.add_argument(
         "--ollama-host",
@@ -1271,8 +1309,9 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=4,
         help=(
-            "Max concurrent classifier Ollama requests "
-            "(default 4; set OLLAMA_NUM_PARALLEL >= this on the server)"
+            "Max concurrent Ollama requests for the classifier and for LLM "
+            "caption generation (default 4; set OLLAMA_NUM_PARALLEL >= this "
+            "on the server)"
         ),
     )
     parser.add_argument(
@@ -1327,7 +1366,7 @@ def main() -> None:
             f"WARNING: --batch-size={args.batch_size} > 10 increases "
             "cross-item contamination risk; prefer <=10."
         )
-    if args.workers < 1:
+    if args.workers is not None and args.workers < 1:
         raise ValueError("--workers must be >= 1")
     if args.checkpoint_every < 1:
         raise ValueError("--checkpoint-every must be >= 1")
@@ -1339,6 +1378,17 @@ def main() -> None:
         raise ValueError("--llm-parallel must be >= 1")
     if not 0.0 <= args.min_consensus <= 1.0:
         raise ValueError("--min-consensus must be between 0.0 and 1.0")
+    # Caption generation shares --llm-parallel with the classifier;
+    # --workers is kept only as a deprecated override.
+    caption_parallel = (
+        args.workers if args.workers is not None else args.llm_parallel
+    )
+    if args.workers is not None:
+        print(
+            f"WARNING: --workers is deprecated; caption generation uses "
+            f"--workers={args.workers} instead of "
+            f"--llm-parallel={args.llm_parallel}."
+        )
 
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -1512,7 +1562,7 @@ def main() -> None:
         llm_meta = {
             "model": args.model,
             "batch_size": args.batch_size,
-            "workers": args.workers,
+            "workers": caption_parallel,
             "host": args.ollama_host,
             "prompt_version": PROMPT_VERSION,
             "num_ctx": 4096,
@@ -1523,8 +1573,9 @@ def main() -> None:
                 "single_retries": 1,
                 "salvage_retry_rounds": 1,
                 "salvage_single_retries": 1,
-                "tier": "fast_three_class+batch_llm_judge",
-                "validator_version": VALIDATOR_VERSION,
+                "tier": "fast_fail_no_hard_error_found+batch_llm_judge",
+                "fast_validator_version": FAST_VALIDATOR_VERSION,
+                "llm_validator_version": LLM_VALIDATOR_VERSION,
                 "overlap_fail_threshold": validation_config.overlap_fail_threshold,
                 "overlap_pass_threshold": validation_config.overlap_pass_threshold,
                 "min_words": validation_config.min_words,
@@ -1549,7 +1600,7 @@ def main() -> None:
                     rows,
                     client=ollama_client,
                     batch_size=args.batch_size,
-                    workers=args.workers,
+                    workers=caption_parallel,
                     checkpoint_every=args.checkpoint_every,
                     output_path=output_path,
                     questions_json=questions_json,
@@ -1649,6 +1700,7 @@ def main() -> None:
             config=validation_config,
             log_writer=val_log,
             use_llm=args.llm,
+            parallel=args.llm_parallel,
         )
     )
     val_log.close()
@@ -1660,7 +1712,8 @@ def main() -> None:
         print(f"Validation suspicious sidecar -> {suspicious_sidecar}")
 
     validation_meta = {
-        "validator_version": VALIDATOR_VERSION,
+        "fast_validator_version": FAST_VALIDATOR_VERSION,
+        "llm_validator_version": LLM_VALIDATOR_VERSION,
         **validation_config.__dict__,
         **val_stats.to_dict(),
         "validation_log": str(val_log_path.resolve()),

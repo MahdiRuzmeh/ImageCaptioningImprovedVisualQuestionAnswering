@@ -9,7 +9,8 @@ from pathlib import Path
 
 from llm_client import OllamaClient
 from validation import (
-    VALIDATOR_VERSION,
+    FAST_VALIDATOR_VERSION,
+    LLM_VALIDATOR_VERSION,
     ValidationConfig,
     ValidationLogWriter,
     validate_rows,
@@ -36,12 +37,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--llm",
         action="store_true",
-        help="Run batched LLM judge on UNKNOWN captions (requires Ollama)",
+        help=(
+            "Run batched LLM judge on NO_HARD_ERROR_FOUND captions "
+            "(requires Ollama)"
+        ),
     )
     parser.add_argument(
         "--no-llm",
         action="store_true",
-        help="Fast validator only; UNKNOWN rows are dropped",
+        help="Fast validator only; NO_HARD_ERROR_FOUND rows are dropped",
     )
     parser.add_argument(
         "--batch-size",
@@ -53,7 +57,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--overlap-fail",
         type=float,
         default=0.30,
-        help="Overlap ratio below this → soft flag overlap_too_low / UNKNOWN (default: 0.30)",
+        help=(
+            "Overlap ratio below this → soft flag overlap_too_low / "
+            "NO_HARD_ERROR_FOUND (default: 0.30)"
+        ),
     )
     parser.add_argument(
         "--overlap-pass",
@@ -128,11 +135,16 @@ def main(argv: list[str] | None = None) -> int:
 
     info["num_samples"] = len(kept)
     info["validation"] = {
-        "validator_version": VALIDATOR_VERSION,
+        "fast_validator_version": FAST_VALIDATOR_VERSION,
+        "llm_validator_version": LLM_VALIDATOR_VERSION,
         **config.__dict__,
         **stats.to_dict(),
         "validation_log": str(log_path),
     }
+    prev_versions = dict(info.get("versions") or {})
+    prev_versions["fast_validator"] = FAST_VALIDATOR_VERSION
+    prev_versions["llm_validator"] = LLM_VALIDATOR_VERSION
+    info["versions"] = prev_versions
     if sidecar:
         info["validation"]["validation_failed_sidecar"] = str(sidecar)
     if suspicious:
@@ -147,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"Validated {len(rows)} rows: kept {len(kept)}, failed {len(failed)} "
         f"(fast fail={stats.fast_fail_count}, "
-        f"unknown={stats.fast_unknown_count}; "
+        f"no_hard_error={stats.fast_no_hard_error_found_count}; "
         f"llm pass={stats.llm_pass_count}, "
         f"suspicious={stats.llm_suspicious_count})"
     )

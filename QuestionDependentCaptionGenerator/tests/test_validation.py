@@ -25,7 +25,7 @@ from validation.tokens import numeric_equivalents
 
 
 class TestFastValidator(unittest.TestCase):
-    """Fast FAIL / UNKNOWN cases (no PASS)."""
+    """Fast FAIL / NO_HARD_ERROR_FOUND cases (no PASS)."""
 
     def test_fail_empty(self) -> None:
         r = fast_validate("What color?", "red", "")
@@ -48,7 +48,7 @@ class TestFastValidator(unittest.TestCase):
         self.assertIn("too_short", r.reasons)
 
     def test_fail_counterexample_echo(self) -> None:
-        """High overlap must not UNKNOWN-clean when caption echoes the question."""
+        """High overlap must not clear FAIL when caption echoes the question."""
         r = fast_validate(
             "How many flags do you see",
             "1",
@@ -90,7 +90,7 @@ class TestFastValidator(unittest.TestCase):
             "overcast",
             "It is not sunny but overcast outside.",
         )
-        self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
+        self.assertEqual(r.verdict, FastVerdict.NO_HARD_ERROR_FOUND)
         self.assertNotIn("spurious_negation", r.reasons)
 
     def test_ones_on_top_paraphrase_unknown(self) -> None:
@@ -100,7 +100,7 @@ class TestFastValidator(unittest.TestCase):
             "ones on top",
             "The newer bananas are on top.",
         )
-        self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
+        self.assertEqual(r.verdict, FastVerdict.NO_HARD_ERROR_FOUND)
         self.assertNotIn("answer_mismatch", r.reasons)
 
     def test_unknown_borderline_overlap(self) -> None:
@@ -111,7 +111,7 @@ class TestFastValidator(unittest.TestCase):
             "The animals are eating.",
             config=cfg,
         )
-        self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
+        self.assertEqual(r.verdict, FastVerdict.NO_HARD_ERROR_FOUND)
 
     def test_overlap_too_low_is_unknown_not_fail(self) -> None:
         cfg = ValidationConfig(overlap_fail_threshold=0.90, overlap_pass_threshold=0.95)
@@ -121,7 +121,7 @@ class TestFastValidator(unittest.TestCase):
             "No clouds are present.",
             config=cfg,
         )
-        self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
+        self.assertEqual(r.verdict, FastVerdict.NO_HARD_ERROR_FOUND)
         self.assertIn(FLAG_OVERLAP_TOO_LOW, r.flags)
 
     def test_answer_forty_accepts_word(self) -> None:
@@ -168,7 +168,7 @@ class TestFastValidator(unittest.TestCase):
             "yes",
             "The giraffes are standing.",
         )
-        self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
+        self.assertEqual(r.verdict, FastVerdict.NO_HARD_ERROR_FOUND)
         self.assertIn("quantifier_incomplete", r.flags)
 
     def test_any_existence_not_quantifier_incomplete(self) -> None:
@@ -183,7 +183,7 @@ class TestFastValidator(unittest.TestCase):
             "yes",
             "There are flowers on the shower curtain.",
         )
-        self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
+        self.assertEqual(r.verdict, FastVerdict.NO_HARD_ERROR_FOUND)
         self.assertNotIn("quantifier_incomplete", r.flags)
 
     def test_unknown_cake_layers_omitted_noun(self) -> None:
@@ -192,7 +192,7 @@ class TestFastValidator(unittest.TestCase):
             "7",
             "There are seven layers.",
         )
-        self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
+        self.assertEqual(r.verdict, FastVerdict.NO_HARD_ERROR_FOUND)
 
     def test_unknown_animals_eating_action_paraphrase(self) -> None:
         r = fast_validate(
@@ -200,7 +200,7 @@ class TestFastValidator(unittest.TestCase):
             "eating",
             "The animals are eating.",
         )
-        self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
+        self.assertEqual(r.verdict, FastVerdict.NO_HARD_ERROR_FOUND)
 
 
 class TestLexicalJudgeOverride(unittest.TestCase):
@@ -280,7 +280,7 @@ class TestOverlap(unittest.TestCase):
             "2",
             "Two cookies can be seen.",
         )
-        self.assertEqual(r.verdict, FastVerdict.UNKNOWN)
+        self.assertEqual(r.verdict, FastVerdict.NO_HARD_ERROR_FOUND)
         self.assertNotIn("answer_mismatch", r.reasons)
 
     def test_digit_map_covers_forty(self) -> None:
@@ -366,7 +366,7 @@ class TestLlmJudgeParse(unittest.TestCase):
         self.assertEqual(stats.llm_suspicious_count, 1)
 
     def test_validate_rows_unknown_without_llm_is_manual(self) -> None:
-        """Well-formed captions are UNKNOWN → SUSPICIOUS when no LLM."""
+        """Well-formed captions are NO_HARD_ERROR_FOUND → SUSPICIOUS when no LLM."""
         rows = [
             {
                 "question_id": 1,
@@ -381,8 +381,82 @@ class TestLlmJudgeParse(unittest.TestCase):
         self.assertEqual(len(failed), 0)
         self.assertEqual(len(kept), 1)
         self.assertEqual(kept[0]["caption_status"], "Need to Manual validate")
-        self.assertEqual(stats.fast_unknown_count, 1)
+        self.assertEqual(stats.fast_no_hard_error_found_count, 1)
         self.assertEqual(stats.llm_suspicious_count, 1)
+
+
+class TestFinalPassReusesVerdicts(unittest.TestCase):
+    """Final pass: LLM judge only for rows without a caption_status."""
+
+    def _rows(self):
+        def row(qid, rule, status=None, flags=None):
+            r = {
+                "question_id": qid,
+                "image_id": qid,
+                "question": "What color are the dishes?",
+                "answer": "pink",
+                "caption": "The dishes are pink.",
+                "rule": rule,
+            }
+            if status:
+                r["caption_status"] = status
+            if flags:
+                r["validation_flags"] = flags
+            return r
+
+        return [
+            row(1, "llm_fallback", "Ready to Use"),
+            row(2, "llm_fallback", "Need to Manual validate", ["suspicious"]),
+            row(3, "what_color"),
+            row(4, "what_color"),
+            row(5, "what_color"),
+        ]
+
+    def test_only_unjudged_rows_reach_llm(self) -> None:
+        from unittest import mock
+
+        judged: list = []
+
+        def fake_judge(client, items, config=None):
+            judged.extend(item.index for item in items)
+            return [
+                mock.Mock(index=item.index, verdict=LlmVerdict.PASS)
+                for item in items
+            ]
+
+        with mock.patch("validation.pipeline.llm_validate_batch", fake_judge):
+            kept, failed, stats = validate_rows(
+                self._rows(), client=object(), use_llm=True, parallel=3
+            )
+
+        self.assertEqual(sorted(judged), [2, 3, 4])  # row positions 2..4
+        self.assertEqual(failed, [])
+        self.assertEqual(stats.llm_already_judged_count, 2)
+        status = {r["question_id"]: r["caption_status"] for r in kept}
+        self.assertEqual(status[1], "Ready to Use")
+        self.assertEqual(status[2], "Need to Manual validate")
+        self.assertEqual(status[3], "Ready to Use")
+        self.assertIn("suspicious", kept[1]["validation_flags"])
+        self.assertEqual(stats.llm_pass_count, 4)
+        self.assertEqual(stats.llm_suspicious_count, 1)
+
+    def test_parallel_matches_sequential(self) -> None:
+        from unittest import mock
+
+        def fake_judge(client, items, config=None):
+            return [
+                mock.Mock(
+                    index=item.index,
+                    verdict=LlmVerdict.PASS if item.index % 2 else LlmVerdict.SUSPICIOUS,
+                )
+                for item in items
+            ]
+
+        rows = [dict(r, question_id=i) for i, r in enumerate(self._rows()[2:] * 20)]
+        with mock.patch("validation.pipeline.llm_validate_batch", fake_judge):
+            seq, _, _ = validate_rows(rows, client=object(), parallel=1)
+            par, _, _ = validate_rows(rows, client=object(), parallel=8)
+        self.assertEqual(seq, par)
 
 
 class TestValidationLog(unittest.TestCase):
@@ -407,7 +481,7 @@ class TestValidationLog(unittest.TestCase):
                     source="llm_fallback",
                 ),
             ],
-            fast_verdict="UNKNOWN",
+            fast_verdict="NO_HARD_ERROR_FOUND",
             fast_reasons=["relation_low"],
             llm_verdict="PASS",
             final_verdict="PASS",
@@ -450,7 +524,7 @@ class TestValidationLog(unittest.TestCase):
                     question="Q",
                     answer="no",
                     rule="llm_fallback",
-                    fast_verdict="UNKNOWN",
+                    fast_verdict="NO_HARD_ERROR_FOUND",
                     llm_verdict="SUSPICIOUS",
                     final_verdict="SUSPICIOUS",
                     validation_flags=["suspicious"],

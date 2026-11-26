@@ -36,21 +36,22 @@ def validate_generated_batch(
     batch_captions: Optional[Sequence[Optional[str]]] = None,
     use_llm: bool = True,
 ) -> List[CaptionValidation]:
-    """Fast-validate each caption; batched LLM judge for UNKNOWN items.
+    """Fast-validate each caption; batched LLM judge for NO_HARD_ERROR_FOUND.
 
     Args:
-        client: Ollama client (for LLM judge on UNKNOWN items).
+        client: Ollama client (for LLM judge on NO_HARD_ERROR_FOUND items).
         items: (question, answer, caption) per batch slot.
         config: Validation thresholds.
         batch_pairs: Full batch Q+A for contamination checks.
         batch_captions: Parallel captions for contamination checks.
-        use_llm: When False, UNKNOWN → ok with reason ``needs_semantic_review``.
+        use_llm: When False, NO_HARD_ERROR_FOUND → ok with reason
+            ``needs_semantic_review``.
 
     Returns:
         One :class:`CaptionValidation` per input item.
 
-        Fast FAIL → ``ok=False`` (hard reject). UNKNOWN → LLM judge;
-        LLM PASS → ``ok=True``; LLM non-PASS → ``ok=True`` with reason
+        Fast FAIL → ``ok=False`` (hard reject). NO_HARD_ERROR_FOUND → LLM
+        judge; LLM PASS → ``ok=True``; LLM non-PASS → ``ok=True`` with reason
         ``suspicious`` (kept, not dropped).
     """
     cfg = config or ValidationConfig()
@@ -68,7 +69,7 @@ def validate_generated_batch(
             self_index=i,
         )
         fast_results.append(fast)
-        if fast.verdict == FastVerdict.UNKNOWN:
+        if fast.verdict == FastVerdict.NO_HARD_ERROR_FOUND:
             unknown_positions.append(i)
 
     llm_pass: dict[int, bool] = {}

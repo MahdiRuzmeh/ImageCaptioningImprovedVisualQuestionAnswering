@@ -4,7 +4,7 @@ Dataset generation always labels questions:
 
     DIRECTLY_VISUAL | NOT_DIRECTLY_VISUAL
 
-Cascade (v19+):
+Cascade (v20+):
 
 1. **Fast checker (blacklist)** — high-precision ``_NON_VISUAL_CANDIDATE_RE``
    match → ``NOT_DIRECTLY_VISUAL`` (``visual_filter_source=blacklist``), no LLM.
@@ -32,13 +32,16 @@ import json
 import os
 import re
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-CLASSIFIER_PROMPT_VERSION = "v19_chat_turn_fewshots"
+# Bare version written to caption JSON ``info.versions.classifier_prompt``.
+# v20: capacity-fit few-shot ("how many can fit") → NEEDS_OPINION.
+CLASSIFIER_PROMPT_VERSION = "v20"
 
 QUESTION_LABELS = (
     "DIRECTLY_VISUAL",
@@ -120,6 +123,8 @@ _SYSTEM_PROMPT = (
     "choose NEEDS_OCR.\n"
     "- If the answer depends on personal judgment, speculation, or "
     "subjective interpretation, choose NEEDS_OPINION.\n"
+    "- Counting how many people or objects are visible is VISUAL; "
+    "estimating how many could fit or capacity is NEEDS_OPINION.\n"
     "- When unsure, choose VISUAL.\n"
     "\n"
     "Return ONLY the label."
@@ -193,6 +198,8 @@ _FEW_SHOT_PAIRS: List[Tuple[str, str]] = [
     ("Is this meal healthy?", "NEEDS_OPINION"),
     ("Is the dog lying down?", "VISUAL"),
     ("Is this outfit fashionable?", "NEEDS_OPINION"),
+    ("How many people can fit inside the plane?", "NEEDS_OPINION"),
+    ("How many people are inside the plane?", "VISUAL"),
     ("Could this be a wedding?", "VISUAL"),
     ("What type of vehicle is shown?", "VISUAL"),
     ("Is there snow on the mountain?", "VISUAL"),
@@ -874,6 +881,17 @@ def filter_non_visual_questions(
     newly_classified = 0
     # Buffer of (row, qid, question) awaiting a parallel LLM flush.
     llm_buffer: List[Tuple[Dict, Optional[int], str]] = []
+    # Wall-clock for this run only (resumed items are not counted in rates).
+    started = time.perf_counter()
+
+    def _timing() -> str:
+        elapsed = time.perf_counter() - started
+        rate = newly_classified / elapsed if elapsed > 0 else 0.0
+        llm_rate = llm_calls / elapsed if elapsed > 0 else 0.0
+        return (
+            f"elapsed {elapsed:.1f}s, {rate:.2f} q/s, "
+            f"{llm_rate:.2f} LLM q/s"
+        )
 
     def _apply_llm_label(
         row: Dict,
@@ -955,7 +973,8 @@ def filter_non_visual_questions(
             if done == 1 or done % progress_every == 0 or done == n_total:
                 print(
                     f"  classify progress: {len(classified_ids)}/{n_total} "
-                    f"(LLM calls: {llm_calls}, buffered: {len(llm_buffer)})",
+                    f"(LLM calls: {llm_calls}, buffered: {len(llm_buffer)}; "
+                    f"{_timing()})",
                     flush=True,
                 )
 
@@ -992,6 +1011,13 @@ def filter_non_visual_questions(
         except KeyboardInterrupt:
             _maybe_save_checkpoint("in_progress", force=True)
             raise
+        if newly_classified:
+            print(
+                f"  classify done this run: {newly_classified} questions "
+                f"(LLM calls: {llm_calls}, parallel={classifier.parallel}; "
+                f"{_timing()})",
+                flush=True,
+            )
 
     if classifier is not None and checkpoint_path is not None:
         if newly_classified or len(classified_ids) == n_total:
