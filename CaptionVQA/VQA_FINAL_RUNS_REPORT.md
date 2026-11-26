@@ -140,15 +140,18 @@ Expected by answer type for the caption ensemble: yes/no ~86.2, number ~52.5, ot
 | Submission | Phase | Overall | Yes/no | Number | Other |
 |---|---|---:|---:|---:|---:|
 | T3 ensemble | test-dev | 72.87 | 88.35 | 53.86 | 63.99 |
-| T3 seed 0 | test-dev | not submitted | | | |
-| T3 seed 1 | test-dev | not submitted | | | |
+| T3 seed 0 | test-dev | 72.13 | 87.68 | 52.99 | 63.21 |
+| T3 seed 1 | test-dev | 72.13 | 87.62 | 53.43 | 63.15 |
 | T4 ensemble (baseline) | test-dev | 69.28 | 85.94 | 49.99 | 59.43 |
+| T4 seed 0 (baseline) | test-dev | 68.30 | 85.13 | 48.43 | 58.45 |
+| T4 seed 1 (baseline) | test-dev | 68.31 | 85.19 | 49.10 | 58.26 |
 | **T3 ensemble** | **test-standard** | **73.16** | **88.33** | **54.41** | **64.25** |
 | T4 ensemble (baseline) | test-standard | 69.56 | 86.14 | 49.81 | 59.65 |
 | Base paper, Baseline + Att + Cap | test-standard | 70.67 | 86.63 | 48.23 | 59.98 |
 
 Both final models scored about 2.5 points above the expectation in section 4.3, with the caption gain unchanged
-(+3.6 on test-standard vs +3.0 on our val). Full discussion: `VQA_FINAL_REPORT.md`.
+(+3.6 on test-standard vs +3.0 on our val). Single models on test-dev (added 2026-11-26): captions 72.13 ± 0.00,
+baseline 68.31 ± 0.01 (mean ± sd of 2 seeds), gain +3.82; ensembling adds +0.74 / +0.97. Full discussion: `VQA_FINAL_REPORT.md`.
 
 **How to submit:**
 1. On eval.ai, open the VQA challenge → Participate (create a team).

@@ -1,5 +1,8 @@
 # Image Captioning Improved Visual Question Answering
 
+> **Final setup and results (2026-11):** MCAN + question-dependent BLIP-large captions reach **73.16** on VQA v2 test-standard (baseline 69.56). See [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md), the paper source in [`manuscript/`](manuscript/) and [`CaptionVQA/VQA_FINAL_REPORT.md`](CaptionVQA/VQA_FINAL_REPORT.md). The sections below describe the original project layout.
+
+
 Implementation of the two-stage pipeline from *Image captioning improved visual question answering* (Sharma & Jalal, 2021).
 
 | Project | Role |

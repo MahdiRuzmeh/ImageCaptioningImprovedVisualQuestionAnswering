@@ -138,8 +138,8 @@ test questions, and the **caption gain carried over unchanged** (+3.0 → +3.6).
 
 ## 5. Limitations
 
-- **Two seeds.** The official numbers are 2-seed ensembles. Single-seed results and a third seed would give a mean ± std on the
-  official test.
+- **Two seeds.** The official test-standard numbers are 2-seed ensembles. The single models were submitted to test-dev
+  (2026-11-26): captions 72.13 / 72.13, baseline 68.30 / 68.31 (gain +3.82). A third seed would give a more reliable std.
 - **COCO pretraining of BLIP.** BLIP-large was pretrained on COCO captions (Karpathy split), which include some val2014 images. Those are
   generic image descriptions, not VQA answers, and test2015 images are not part of it.
 - **Captioner strength.** A stronger captioner explains part of the gain over the paper. Every comparison in this work keeps the VQA
@@ -151,7 +151,6 @@ test questions, and the **caption gain carried over unchanged** (+3.0 → +3.6).
 
 | Step | Expected effect | Cost |
 |---|---|---|
-| Submit the single-seed files to test-dev (mean ± std on the official server) | completes the statistics | no GPU |
 | Third seed for both final models | mean ± std over 3 seeds, slightly better ensemble | ~10 GPU h |
 | Fine-tuned BLIP-2 captioner | possibly more right captions (zero-shot BLIP-2 already knows 9.8% of the answers BLIP-base misses) | ~1 week |
 

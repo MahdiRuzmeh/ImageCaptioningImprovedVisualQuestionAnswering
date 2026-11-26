@@ -1,0 +1,695 @@
+{
+ "data_flow": {
+  "train2014_questions": 443757,
+  "first_pass": {
+   "classifier_model": "qwen2.5:3b-instruct-q4_K_M",
+   "classifier_prompt": "v20",
+   "generator_model": "qwen2.5:3b-instruct-q4_K_M",
+   "generation_prompt": "v10",
+   "blacklist_not_visual": 21272,
+   "ocr_excluded": 15824,
+   "duplicates": 88,
+   "dropped_empty": 8,
+   "validation_failures": 250,
+   "caption_records": 406315
+  },
+  "reclassification": {
+   "model": "qwen2.5:3b-instruct-q4_K_M",
+   "prompt": "v20",
+   "rows_before": 406315,
+   "rows_after": 283707,
+   "labels": {
+    "DIRECTLY_VISUAL": 283707,
+    "NOT_DIRECTLY_VISUAL": 122608,
+    "NEEDS_OPINION": 48468,
+    "NEEDS_KNOWLEDGE": 62631,
+    "NEEDS_OCR": 11509,
+    "PARSE_FAIL_KEEP": 32
+   }
+  },
+  "screening_and_repair": {
+   "model": "qwen2.5:7b-instruct-q4_K_M",
+   "judge_prompt": "j2",
+   "regen_prompt": "r2+genv10",
+   "regen_rounds": 2,
+   "regen_temperature": 0.3,
+   "judged": 283707,
+   "initial": {
+    "ok": 250987,
+    "WRONG": 28153,
+    "GRAMMAR_ISSUE_ONLY": 4567
+   },
+   "initial_wrong_reasons": {
+    "meaning_changed": 13577,
+    "answer_missing": 7376,
+    "answer_contradicted": 3156,
+    "added_facts": 1832,
+    "unrelated": 2212
+   },
+   "regenerated": 28153,
+   "fixed": 26476,
+   "still_wrong": 1677,
+   "final": {
+    "ok": 277318,
+    "GRAMMAR_ISSUE_ONLY": 4712,
+    "WRONG": 1677
+   },
+   "suspicious_flag": 30585,
+   "suspicious_reasons": {
+    "extra_words": 29970,
+    "polarity_flip": 778
+   }
+  },
+  "file_verdicts": {
+   "ok": 277318,
+   "GRAMMAR_ISSUE_ONLY": 4712,
+   "WRONG": 1677
+  },
+  "captioner_training_rows (verdict == ok)": 277318,
+  "ok_rows_with_suspicious_flag": 29844,
+  "ok_images": 79568,
+  "wrong_share_of_screened_pct": 0.5911027926699024
+ },
+ "crossfit": {
+  "fold_seed": 0,
+  "train2014_images_per_fold": {
+   "0": 41391,
+   "1": 41392
+  },
+  "val2014_images_per_fold": {
+   "0": 20251,
+   "1": 20253
+  },
+  "train_val_image_overlap": 0,
+  "qd_images_without_fold": 0,
+  "qd_images_in_val2014": 0,
+  "folds": {
+   "0": {
+    "rows": 138557,
+    "images": 39750,
+    "training_rows": 137069,
+    "selection_rows": 1488,
+    "selection_images": 411,
+    "train_selection_image_overlap": 0,
+    "images_from_other_fold": 0
+   },
+   "1": {
+    "rows": 138761,
+    "images": 39818,
+    "training_rows": 137261,
+    "selection_rows": 1500,
+    "selection_images": 429,
+    "train_selection_image_overlap": 0,
+    "images_from_other_fold": 0
+   }
+  },
+  "vqa_questions_checked": 658111,
+  "questions_per_(split, caption_model)": {
+   "train->g0": 221747,
+   "train->g1": 222010,
+   "val->g0": 108011,
+   "val->g1": 106343
+  },
+  "questions_captioned_by_a_model_trained_on_that_image": 0,
+  "test2015_questions": 447793,
+  "test2015_images": 81434,
+  "test2015_images_in_qd": 0,
+  "test2015_images_in_train_or_val2014": 0,
+  "test2015_per_caption_model": {
+   "0": 40931,
+   "1": 40503
+  }
+ },
+ "splits": {
+  "questions": {
+   "train": 643110,
+   "dev": 5000,
+   "test": 10001
+  },
+  "images": {
+   "train": 120508,
+   "dev": 879,
+   "test": 1900
+  },
+  "image_overlap": {
+   "train-dev": 0,
+   "train-test": 0,
+   "dev-test": 0
+  },
+  "answers_rebuilt_from_train_only": 3091,
+  "matches_development_runs": true,
+  "answers_rebuilt_final_train": 3148,
+  "matches_final_captions_run": true,
+  "matches_final_baseline_run": true,
+  "test_questions_with_empty_majority_answer": [
+   {
+    "question_id": 475660002,
+    "question": "What letter is in red on the communist sign?",
+    "answers": [
+     "a",
+     "a",
+     "a",
+     "a",
+     "a",
+     "a",
+     "a",
+     "a",
+     "a",
+     "a"
+    ]
+   }
+  ]
+ },
+ "bootstrap": {
+  "questions": 10001,
+  "images": 1900,
+  "resamples": 5000,
+  "models": {
+   "base": {
+    "name": "MCAN, no captions",
+    "seed_mean": 66.39,
+    "seed0": 66.62,
+    "seed1": 66.16,
+    "ensemble": 67.27
+   },
+   "blip_base": {
+    "name": "MCAN + BLIP-base captions + dropout",
+    "seed_mean": 68.31,
+    "seed0": 68.56,
+    "seed1": 68.07,
+    "ensemble": 68.97
+   },
+   "large": {
+    "name": "MCAN + BLIP-large captions + dropout",
+    "seed_mean": 69.76,
+    "seed0": 69.71,
+    "seed1": 69.81,
+    "ensemble": 70.27
+   }
+  },
+  "contrasts": [
+   {
+    "a": "large",
+    "b": "base",
+    "view": "seed_mean",
+    "type": "overall",
+    "n": 10001,
+    "images": 1900,
+    "diff": 3.37,
+    "ci_image_clustered": [
+     2.83,
+     3.92
+    ],
+    "ci_question_level": [
+     2.84,
+     3.87
+    ]
+   },
+   {
+    "a": "large",
+    "b": "base",
+    "view": "seed_mean",
+    "type": "yes/no",
+    "n": 3721,
+    "images": 1582,
+    "diff": 2.44,
+    "ci_image_clustered": [
+     1.6,
+     3.3
+    ],
+    "ci_question_level": [
+     1.6,
+     3.29
+    ]
+   },
+   {
+    "a": "large",
+    "b": "base",
+    "view": "seed_mean",
+    "type": "number",
+    "n": 1359,
+    "images": 874,
+    "diff": 3.01,
+    "ci_image_clustered": [
+     1.27,
+     4.82
+    ],
+    "ci_question_level": [
+     1.28,
+     4.68
+    ]
+   },
+   {
+    "a": "large",
+    "b": "base",
+    "view": "seed_mean",
+    "type": "other",
+    "n": 4921,
+    "images": 1751,
+    "diff": 4.17,
+    "ci_image_clustered": [
+     3.39,
+     4.92
+    ],
+    "ci_question_level": [
+     3.5,
+     4.87
+    ]
+   },
+   {
+    "a": "large",
+    "b": "base",
+    "view": "ensemble",
+    "type": "overall",
+    "n": 10001,
+    "images": 1900,
+    "diff": 3.0,
+    "ci_image_clustered": [
+     2.35,
+     3.65
+    ],
+    "ci_question_level": [
+     2.41,
+     3.61
+    ]
+   },
+   {
+    "a": "large",
+    "b": "base",
+    "view": "ensemble",
+    "type": "yes/no",
+    "n": 3721,
+    "images": 1582,
+    "diff": 1.85,
+    "ci_image_clustered": [
+     0.85,
+     2.84
+    ],
+    "ci_question_level": [
+     0.88,
+     2.8
+    ]
+   },
+   {
+    "a": "large",
+    "b": "base",
+    "view": "ensemble",
+    "type": "number",
+    "n": 1359,
+    "images": 874,
+    "diff": 2.96,
+    "ci_image_clustered": [
+     0.87,
+     5.17
+    ],
+    "ci_question_level": [
+     0.92,
+     5.02
+    ]
+   },
+   {
+    "a": "large",
+    "b": "base",
+    "view": "ensemble",
+    "type": "other",
+    "n": 4921,
+    "images": 1751,
+    "diff": 3.89,
+    "ci_image_clustered": [
+     2.99,
+     4.78
+    ],
+    "ci_question_level": [
+     3.09,
+     4.74
+    ]
+   },
+   {
+    "a": "blip_base",
+    "b": "base",
+    "view": "seed_mean",
+    "type": "overall",
+    "n": 10001,
+    "images": 1900,
+    "diff": 1.92,
+    "ci_image_clustered": [
+     1.42,
+     2.42
+    ],
+    "ci_question_level": [
+     1.46,
+     2.4
+    ]
+   },
+   {
+    "a": "blip_base",
+    "b": "base",
+    "view": "seed_mean",
+    "type": "yes/no",
+    "n": 3721,
+    "images": 1582,
+    "diff": 1.36,
+    "ci_image_clustered": [
+     0.61,
+     2.11
+    ],
+    "ci_question_level": [
+     0.58,
+     2.09
+    ]
+   },
+   {
+    "a": "blip_base",
+    "b": "base",
+    "view": "seed_mean",
+    "type": "number",
+    "n": 1359,
+    "images": 874,
+    "diff": 2.67,
+    "ci_image_clustered": [
+     0.94,
+     4.44
+    ],
+    "ci_question_level": [
+     1.11,
+     4.32
+    ]
+   },
+   {
+    "a": "blip_base",
+    "b": "base",
+    "view": "seed_mean",
+    "type": "other",
+    "n": 4921,
+    "images": 1751,
+    "diff": 2.14,
+    "ci_image_clustered": [
+     1.47,
+     2.83
+    ],
+    "ci_question_level": [
+     1.52,
+     2.8
+    ]
+   },
+   {
+    "a": "blip_base",
+    "b": "base",
+    "view": "ensemble",
+    "type": "overall",
+    "n": 10001,
+    "images": 1900,
+    "diff": 1.7,
+    "ci_image_clustered": [
+     1.08,
+     2.31
+    ],
+    "ci_question_level": [
+     1.14,
+     2.27
+    ]
+   },
+   {
+    "a": "blip_base",
+    "b": "base",
+    "view": "ensemble",
+    "type": "yes/no",
+    "n": 3721,
+    "images": 1582,
+    "diff": 0.75,
+    "ci_image_clustered": [
+     -0.21,
+     1.71
+    ],
+    "ci_question_level": [
+     -0.2,
+     1.65
+    ]
+   },
+   {
+    "a": "blip_base",
+    "b": "base",
+    "view": "ensemble",
+    "type": "number",
+    "n": 1359,
+    "images": 874,
+    "diff": 1.19,
+    "ci_image_clustered": [
+     -0.94,
+     3.33
+    ],
+    "ci_question_level": [
+     -0.75,
+     3.17
+    ]
+   },
+   {
+    "a": "blip_base",
+    "b": "base",
+    "view": "ensemble",
+    "type": "other",
+    "n": 4921,
+    "images": 1751,
+    "diff": 2.57,
+    "ci_image_clustered": [
+     1.76,
+     3.37
+    ],
+    "ci_question_level": [
+     1.8,
+     3.34
+    ]
+   },
+   {
+    "a": "large",
+    "b": "blip_base",
+    "view": "seed_mean",
+    "type": "overall",
+    "n": 10001,
+    "images": 1900,
+    "diff": 1.45,
+    "ci_image_clustered": [
+     0.94,
+     1.96
+    ],
+    "ci_question_level": [
+     0.98,
+     1.9
+    ]
+   },
+   {
+    "a": "large",
+    "b": "blip_base",
+    "view": "seed_mean",
+    "type": "yes/no",
+    "n": 3721,
+    "images": 1582,
+    "diff": 1.08,
+    "ci_image_clustered": [
+     0.33,
+     1.82
+    ],
+    "ci_question_level": [
+     0.35,
+     1.84
+    ]
+   },
+   {
+    "a": "large",
+    "b": "blip_base",
+    "view": "seed_mean",
+    "type": "number",
+    "n": 1359,
+    "images": 874,
+    "diff": 0.33,
+    "ci_image_clustered": [
+     -1.3,
+     1.97
+    ],
+    "ci_question_level": [
+     -1.24,
+     1.88
+    ]
+   },
+   {
+    "a": "large",
+    "b": "blip_base",
+    "view": "seed_mean",
+    "type": "other",
+    "n": 4921,
+    "images": 1751,
+    "diff": 2.03,
+    "ci_image_clustered": [
+     1.36,
+     2.7
+    ],
+    "ci_question_level": [
+     1.4,
+     2.67
+    ]
+   },
+   {
+    "a": "large",
+    "b": "blip_base",
+    "view": "ensemble",
+    "type": "overall",
+    "n": 10001,
+    "images": 1900,
+    "diff": 1.3,
+    "ci_image_clustered": [
+     0.74,
+     1.87
+    ],
+    "ci_question_level": [
+     0.76,
+     1.82
+    ]
+   },
+   {
+    "a": "large",
+    "b": "blip_base",
+    "view": "ensemble",
+    "type": "yes/no",
+    "n": 3721,
+    "images": 1582,
+    "diff": 1.09,
+    "ci_image_clustered": [
+     0.22,
+     2.0
+    ],
+    "ci_question_level": [
+     0.22,
+     1.99
+    ]
+   },
+   {
+    "a": "large",
+    "b": "blip_base",
+    "view": "ensemble",
+    "type": "number",
+    "n": 1359,
+    "images": 874,
+    "diff": 1.77,
+    "ci_image_clustered": [
+     -0.07,
+     3.58
+    ],
+    "ci_question_level": [
+     -0.05,
+     3.55
+    ]
+   },
+   {
+    "a": "large",
+    "b": "blip_base",
+    "view": "ensemble",
+    "type": "other",
+    "n": 4921,
+    "images": 1751,
+    "diff": 1.32,
+    "ci_image_clustered": [
+     0.58,
+     2.08
+    ],
+    "ci_question_level": [
+     0.6,
+     2.07
+    ]
+   }
+  ]
+ },
+ "official": {
+  "captions": {
+   "seed0": {
+    "yes/no": 87.68,
+    "number": 52.99,
+    "other": 63.21,
+    "overall": 72.13
+   },
+   "seed1": {
+    "yes/no": 87.62,
+    "number": 53.43,
+    "other": 63.15,
+    "overall": 72.13
+   },
+   "mean": {
+    "overall": 72.13,
+    "yes/no": 87.65,
+    "number": 53.21,
+    "other": 63.18
+   },
+   "sd": {
+    "overall": 0.0,
+    "yes/no": 0.042,
+    "number": 0.311,
+    "other": 0.042
+   },
+   "ensemble_test_dev": {
+    "yes/no": 88.35,
+    "number": 53.86,
+    "other": 63.99,
+    "overall": 72.87
+   },
+   "ensemble_test_standard": {
+    "yes/no": 88.33,
+    "number": 54.41,
+    "other": 64.25,
+    "overall": 73.16
+   }
+  },
+  "baseline": {
+   "seed0": {
+    "yes/no": 85.13,
+    "number": 48.43,
+    "other": 58.45,
+    "overall": 68.3
+   },
+   "seed1": {
+    "yes/no": 85.19,
+    "number": 49.1,
+    "other": 58.26,
+    "overall": 68.31
+   },
+   "mean": {
+    "overall": 68.305,
+    "yes/no": 85.16,
+    "number": 48.765,
+    "other": 58.355
+   },
+   "sd": {
+    "overall": 0.007,
+    "yes/no": 0.042,
+    "number": 0.474,
+    "other": 0.134
+   },
+   "ensemble_test_dev": {
+    "yes/no": 85.94,
+    "number": 49.99,
+    "other": 59.43,
+    "overall": 69.28
+   },
+   "ensemble_test_standard": {
+    "yes/no": 86.14,
+    "number": 49.81,
+    "other": 59.65,
+    "overall": 69.56
+   }
+  },
+  "gain_single_mean": {
+   "overall": 3.82,
+   "yes/no": 2.49,
+   "number": 4.45,
+   "other": 4.83
+  },
+  "gain_ensemble_test_dev": {
+   "overall": 3.59,
+   "yes/no": 2.41,
+   "number": 3.87,
+   "other": 4.56
+  },
+  "ensemble_minus_single_mean": {
+   "captions": 0.74,
+   "baseline": 0.97
+  }
+ }
+}
