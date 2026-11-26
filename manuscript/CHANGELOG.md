@@ -1,5 +1,15 @@
 # Manuscript changelog
 
+## Version 2 — 2026-11-26
+
+- Keywords replaced: Visual question answering; Image captioning; Image captioning improved visual question answering;
+  Question-dependent image captioning.
+- Abstract and Introduction state the three contributions: the question-dependent caption dataset and task, the
+  BLIP-Large question-dependent captioner, and the question-dependent-caption-improved VQA model.
+- Section 3 rewritten as the dataset generation pipeline in four steps (classification, generation, validation,
+  revalidation with Qwen2.5-7B), each with its rules, prompts and counts; Table 1 and Fig. 1 (flow chart) redrawn.
+- Tables: thin grid borders and a shaded header row (pandoc's default table style has none).
+
 ## Version 1 — 2026-11-26
 
 Starting point: the supervisor's draft "QD_Caption_VQA_Manuscript_Revised_V2.docx" (converted with pandoc; text, structure and

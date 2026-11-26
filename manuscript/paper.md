@@ -1,6 +1,6 @@
 ---
 title: "Cross-Fitted Question-Dependent Image Captions for Visual Question Answering: A Controlled Study with BLIP and MCAN"
-subtitle: "Manuscript version 1 (2026-11-26)"
+subtitle: "Manuscript version 2 (2026-11-26)"
 author: "[Authors to be confirmed]"
 ---
 
@@ -8,9 +8,9 @@ University of Tabriz, Tabriz, Iran | [Department and corresponding author email 
 
 # Abstract
 
-Visual question answering (VQA) requires an answer grounded in the image and conditioned on the question. Generic image representations may omit or obscure evidence specific to the question. We investigate a two-stage framework in which a question-conditioned image caption serves as an auxiliary semantic sequence for a VQA model. A synthetic corpus of 277,318 question-dependent caption records, derived from VQA v2 training annotations and screened with local language models, is used to fine-tune a pretrained BLIP-Large captioner. To prevent target-answer leakage into downstream training, captioners are trained on two image-disjoint folds and caption only the opposite fold; validation and test captions are generated from image and question alone. Caption tokens are fused with region features in an MCAN co-attention network, and caption dropout reduces dependence on inaccurate descriptions. On the official VQA v2 test-standard, two-seed ensembles with and without captions obtain 73.16% and 69.56%, an improvement of 3.60 percentage points; on test-dev the improvement is 3.59 points for the ensembles and 3.82 points for the mean of the single models (72.13% vs. 68.31%). On an internal development set, replacing BLIP-base with BLIP-Large improves VQA accuracy by 1.45 points (95% image-clustered bootstrap interval 0.94 to 1.96). Analyses of caption perturbations and an auxiliary reliability gate identify both benefits and limitations of caption-based evidence. The findings support question-dependent textual evidence as a complementary input to a region-based VQA model; they do not establish state-of-the-art performance or superiority over generic captions, for which a matched control is reported separately (Section 6.5).
+Visual question answering (VQA) requires an answer grounded in the image and conditioned on the question. A generic image caption may omit exactly the detail that a question asks about. We study **question-dependent image captioning**, the task of describing an image with respect to a given question, and its use as evidence for VQA. Our contributions are threefold. (i) We build a new **question-dependent caption dataset** of 277,318 image–question–caption triples from VQA v2 training annotations, which defines the question-dependent captioning task: questions are classified as directly visual or not, captions are generated from question and answer with rules and a local language model, validated automatically, and revalidated and repaired with a larger language model. (ii) We design a **question-dependent image captioner** by fine-tuning BLIP-Large with the question as prompt; two captioners trained on image-disjoint folds ensure that no caption used to train the VQA model comes from a captioner that saw the image. (iii) We design a **question-dependent-caption-improved VQA model** that fuses the caption tokens with image region features in an MCAN co-attention network, with caption dropout against wrong captions. On the official VQA v2 test-standard, two-seed ensembles with and without captions reach 73.16% and 69.56%, an improvement of 3.60 percentage points; on test-dev the improvement is 3.59 points for the ensembles and 3.82 points for the single models (72.13% vs. 68.31%). On an internal development set, replacing BLIP-base with BLIP-Large improves VQA accuracy by 1.45 points (95% image-clustered bootstrap interval 0.94 to 1.96). Analyses of caption perturbations and an auxiliary reliability gate show both the benefits and the limits of caption-based evidence. The results do not establish state-of-the-art performance or superiority over generic captions, for which a matched control is reported separately (Section 6.5).
 
-Keywords: visual question answering; question-dependent image captioning; BLIP; cross-fitting; multimodal fusion; caption dropout; VQA v2.
+Keywords: Visual question answering; Image captioning; Image captioning improved visual question answering; Question-dependent image captioning.
 
 # 1. Introduction
 
@@ -18,7 +18,13 @@ Visual question answering is a multimodal task in which the system must infer an
 
 Previous caption-enhanced VQA studies have explored the connection between captioning and answering [4,5]. A caption that is independent of the question, however, need not describe the detail that the answer requires. This motivates conditioning generation on the question and using its output as auxiliary evidence rather than as a replacement for image features. When reference answers are used to construct synthetic caption targets, an additional methodological concern arises: captions generated for downstream training examples may encode memorised answer supervision if the captioner has already been trained on those images.
 
-This study investigates three questions: (i) whether question-conditioned captions improve a controlled image–question VQA baseline, (ii) whether improvements in caption answer preservation translate into VQA improvements, and (iii) how wrong captions influence the downstream model. The work uses a large synthetic training corpus, image-disjoint cross-fitting, sequence-level caption fusion and controlled comparisons on the official VQA v2 benchmark. The main contribution is empirical and methodological rather than a new pretrained vision-language architecture.
+This study investigates three questions: (i) whether question-conditioned captions improve a controlled image–question VQA baseline, (ii) whether improvements in caption answer preservation translate into VQA improvements, and (iii) how wrong captions influence the downstream model. Our contributions are:
+
+1. **A question-dependent caption dataset and task.** We introduce question-dependent image captioning as a task and build a dataset of 277,318 image–question–caption triples from VQA v2 with a four-step pipeline: question classification, caption generation, automatic validation, and revalidation with a larger language model (Section 3).
+2. **A question-dependent image captioner.** We fine-tune BLIP-Large with the question as prompt and train two captioners on image-disjoint folds (cross-fitting), so that captions for VQA training never come from a captioner that saw the image (Sections 3.3 and 4.1).
+3. **A question-dependent-caption-improved VQA model.** Caption tokens are fused with region features in MCAN, with caption dropout for robustness; on the official VQA v2 test-standard the captions add 3.60 points to an identical model without captions (Sections 4.2–6).
+
+The contribution is empirical and methodological rather than a new pretrained vision-language architecture.
 
 # 2. Related work
 
@@ -26,47 +32,51 @@ VQA systems have evolved from attention over detected objects [2] to deeper netw
 
 Pretrained vision-language systems offer strong starting points for caption generation. BLIP [7] supports image-conditioned language generation, and BLIP-2 [8] connects frozen vision encoders and large language models through a learned query module. In this work, BLIP is adapted to question-dependent captioning with answer-derived synthetic targets. BLIP-2 is investigated only in a zero-shot screening experiment; it is not treated as a fair fine-tuned architecture comparison.
 
-# 3. Synthetic question-dependent caption supervision
+# 3. Question-dependent caption dataset
 
-The supervision pipeline first converts reference answers into question-specific textual targets and then filters the resulting corpus. The following subsections define the target construction, document its quality-control stages, and describe the image-disjoint protocol used to generate downstream captions.
+We define **question-dependent image captioning** as the task of generating, from an image $I$ and a question $q$ about it, one declarative sentence that states what the image shows about $q$. No such dataset exists for VQA v2, so we build one from its training annotations: each target caption is written from the question and its human answer, and the captioner later learns to produce it from the image and the question alone.
 
 ## 3.1. Task and target construction
 
-Let $I$ denote an image, $q$ a question, $a$ the majority human answer and $t$ a synthetic target caption. The target-generation process maps $(q, a)$ to a short declarative statement $t$ intended to preserve the answer and the question-specific proposition. For example, "What color is the train?" with answer "blue" yields "The train is blue." The target is not an independently human-written caption, and it is never supplied to the VQA model. The captioner instead learns $p(t \mid I, q)$ and generates a new description from image and question only.
+Let $a$ denote the majority human answer and $t$ the target caption. The construction maps $(q, a)$ to a short declarative statement that keeps the question's subject and relation and states the answer. For example, "What color is the train?" with answer "blue" yields "The train is blue."; "Is the man wearing a hat?" with answer "no" yields "The man is not wearing a hat." The target is not an independently human-written caption, and it is never supplied to the VQA model. The captioner instead learns $p(t \mid I, q)$ and generates a new description from image and question only.
 
-Let the answer annotation set for image–question pair $i$ be $\mathcal{A}_i$ and let $G$ denote the rule/local-language-model transformation:
+Let the ten annotated answers of image–question pair $i$ be $\mathcal{A}_i$ and let $G$ denote the rule/language-model transformation:
 
 $$a_i^{*} = \operatorname{mode}(\mathcal{A}_i), \qquad t_i = G(q_i, a_i^{*}) \qquad (1)$$
 
-Rules cover four question families (what colour, how many, what is … doing, who; 67,259 records); the remaining 216,448 records are written by a local language model. Question classification excludes questions judged not directly answerable from the image (opinion, external knowledge) and OCR-dependent questions from the caption-supervision subset. The filtering applies to captioner supervision only: the VQA experiments use the complete standard train2014 and val2014 question sets.
+## 3.2. Dataset generation pipeline
 
-## 3.2. Corpus construction and quality control
+The pipeline has four steps (Fig. 1, Table 1). All language-model steps run locally with Ollama on 4-bit quantised Qwen2.5 instruction models [11]: `qwen2.5:3b-instruct-q4_K_M` for steps 1–3 and the larger `qwen2.5:7b-instruct-q4_K_M` for step 4, on two T4 GPUs with one model server per GPU. The language models see only text (question and answers), never the image. Before step 1, OCR-dependent questions are removed with a keyword filter (15,824; e.g. questions about written text, brands, numbers on signs or the time on a clock) and repeated image–question–answer triples are removed (88).
 
-All language-model steps ran locally with Ollama on 4-bit quantised Qwen2.5 instruction models [11]. Question classification and caption generation used `qwen2.5:3b-instruct-q4_K_M` (classifier prompt v20, generation prompt v10, fast validator v11, language-model validator v10). The first pass produced 406,315 caption records from the 443,757 train2014 questions (Table 1). A parsing failure in that run had let undecided questions pass as visual, so all 406,315 questions were re-classified with the same 3B model rather than regenerating every caption; 283,707 records remained.
+**Step 1: question classification.** A caption can only be learned from the image if the answer is visible. The 3B model therefore labels each question as directly visual or as not directly visual, with three reasons: the answer needs reading text (OCR), external knowledge (e.g. "What sport is this team famous for?"), or an opinion (e.g. "Is this a nice room?"). A list of non-visual markers removes obvious cases (21,272), and the model labels every remaining question with a few-shot prompt (version v20). The 143,880 questions that are not directly visual are excluded from caption supervision; they remain in the VQA training data.
 
-Each retained caption was then judged by the larger `qwen2.5:7b-instruct-q4_K_M` (judge prompt j2) for a missing or contradicted answer, changed meaning, added unsupported facts or unrelated content. Captions judged WRONG were regenerated (prompt r2 with generation prompt v10, temperature 0.3, at most two rounds) and judged again. A record keeps the verdict `ok` only if the 7B judge accepts it; records whose only problem is grammar receive the separate verdict GRAMMAR_ISSUE_ONLY. The captioner is trained on the `ok` records only. These verdicts are automated quality-control labels, not human-verified ground truth: the 1,677 residual WRONG labels are 0.59% of the screened corpus, not an independently measured error rate.
+**Step 2: caption generation.** For each remaining question the majority answer $a^{*}$ is taken from the ten human answers. Four frequent question families with a fixed answer form are written with high-precision templates (67,259 captions): "what color is …", "how many …", "what is … doing", and "who …". Every other pair (216,448) is written by the 3B model, five pairs per request, with a system prompt (version v10) that asks for one natural declarative sentence that contains the answer, keeps the subject and relation of the question, adds no fact that is not in the question or the answer, affirms the statement for "yes" and negates it for "no", with few-shot examples.
 
-A separate heuristic flag ("suspicious": extra words not supported by question and answer, or a yes/no polarity flip) marks 29,844 of the `ok` records. These records passed the 7B judge and were kept.
+**Step 3: automatic validation.** Every caption, from a template or from the model, passes a rule-based validator (fast validator v11). It rejects a caption that is empty, contains brackets, quotes or a question mark, has fewer than 3 or more than 30 words, repeats the question, has the wrong yes/no polarity, contradicts a quantifier of the question ("all", "both"), or contains words of another pair from the same request; a low word overlap with the question is only flagged. Every caption without a hard error is then judged by the 3B model as a validator (version v10, ten captions per request): it passes when it is grammatical, expresses the answer and adds no facts. A rejected caption is regenerated up to two times, first together with its request and then on its own; 250 captions that still failed and 8 empty results were dropped, leaving 283,707 captions. Captions the 3B validator found doubtful were kept and marked for step 4.
+
+**Step 4: revalidation with a larger model.** Because a 3B model is a weak judge (used as a judge on a hand-labelled set of 298 captions, it found 85% of the wrong captions but only 56% of the captions it called wrong were wrong), all 283,707 captions are judged again by the 7B model (judge prompt j2, ten per request, temperature 0, JSON-schema output). The verdict is `ok`, `GRAMMAR_ISSUE_ONLY` (correct meaning, imperfect grammar) or `WRONG`, with a reason: answer missing, answer contradicted, meaning changed, unrelated, or added facts. The judge prompt was calibrated on the same 298 hand-labelled captions before the full run (first version: 84.4% precision and 76.5% recall for wrong captions; the prompt was then revised to j2). Each WRONG caption is regenerated by the 7B model (five per request, temperature 0.3, with the judge's reason as a hint), checked with the step-3 rules and judged again, for at most two rounds. Finally, a rule-based check without a language model marks captions that contain a content word or number found in neither the question nor the answer, or whose polarity looks flipped ("suspicious"); it does not change any verdict.
+
+The captioner is trained only on the 277,318 `ok` captions (79,568 images). The 4,712 `GRAMMAR_ISSUE_ONLY` and the 1,677 remaining `WRONG` captions are not used. The 1,677 residual WRONG labels are 0.59% of the judged captions; these are automated verdicts, not a human-measured error rate. Of the `ok` captions, 29,844 carry the "suspicious" mark; the 7B judge accepted them and they are used.
 
 $$\mathcal{D}_{QD} = \{(I_i, q_i, t_i) : d_i = 1,\ u_i = \texttt{ok}\} \qquad (2)$$
 
-where $d_i$ is the visual-question decision and $u_i$ the final judge verdict.
+where $d_i$ is the step-1 decision (directly visual) and $u_i$ the final step-4 verdict.
 
-| Stage | Model / version | Records |
+| Step | Model / version | Records |
 |---|---|--:|
-| train2014 questions | — | 443,757 |
-| Excluded in the first pass: not visual (blacklist) 21,272; OCR 15,824; duplicates 88; empty 8; failed validation 250 | 3B | — |
-| Caption records after the first pass | 3B, prompts v20 / v10 | 406,315 |
-| Re-classified as not directly visual (opinion 48,468; knowledge 62,631; OCR 11,509) | 3B, v20 | −122,608 |
-| Retained after re-classification | | 283,707 |
-| Initial judge verdicts: ok / WRONG / GRAMMAR_ISSUE_ONLY | 7B, j2 | 250,987 / 28,153 / 4,567 |
-| WRONG regenerated: repaired / still WRONG | 7B, r2 | 26,476 / 1,677 |
+| VQA v2 train2014 questions | — | 443,757 |
+| OCR keyword filter (−15,824) and repeated triples (−88) | rules | 427,845 |
+| 1. Classification: not directly visual (OCR, knowledge, opinion) removed (−143,880) | 3B, v20 | 283,965 |
+| 2. Caption generation: templates / language model | rules; 3B, v10 | 67,259 / 216,448 |
+| 3. Validation and regeneration: failed (−250), empty (−8) | rules + 3B, v11 / v10 | 283,707 |
+| 4. 7B judge: ok / WRONG / GRAMMAR_ISSUE_ONLY | 7B, j2 | 250,987 / 28,153 / 4,567 |
+| 4. Regeneration of WRONG (≤ 2 rounds): repaired / still WRONG | 7B | 26,476 / 1,677 |
 | Final verdicts: ok / GRAMMAR_ISSUE_ONLY / WRONG | | 277,318 / 4,712 / 1,677 |
-| **Captioner training corpus (verdict ok)** | | **277,318 records, 79,568 images** |
+| **Captioner training data (verdict ok)** | | **277,318 captions, 79,568 images** |
 
-Table: **Table 1. Corpus construction (from the provenance block of the released corpus file).** Initial WRONG reasons: meaning changed 13,577; answer missing 7,376; answer contradicted 3,156; unrelated 2,212; added facts 1,832. The increase of GRAMMAR_ISSUE_ONLY from 4,567 to 4,712 comes from regenerated captions.
+Table: **Table 1. Dataset generation (counts from the provenance block of the released dataset file).** Reasons of the initial WRONG verdicts: meaning changed 13,577; answer missing 7,376; answer contradicted 3,156; unrelated 2,212; added facts 1,832. GRAMMAR_ISSUE_ONLY grows from 4,567 to 4,712 through regenerated captions.
 
-![**Fig. 1.** Corpus construction and automated quality control. The final `ok` set is the captioner training corpus; it is not an independently certified error-free corpus.](figures/fig1_data_flow.png){width=6.6in}
+![**Fig. 1.** Question-dependent caption dataset generation. Steps 1–3 use Qwen2.5-3B, step 4 revalidates every caption with Qwen2.5-7B. Only captions with the final verdict ok train the captioner.](figures/fig1_data_flow.png){width=6.6in}
 
 ## 3.3. Image-disjoint cross-fitting
 
@@ -373,7 +383,7 @@ Author contributions: [To be agreed and completed by the authors.] Funding: [To 
 
 [13] Chen, X., Fang, H., Lin, T.-Y., Vedantam, R., Gupta, S., Dollár, P., and Zitnick, C. L. Microsoft COCO Captions: Data collection and evaluation server. arXiv:1504.00325 (2015).
 
-# Author checklist — status for version 1 (remove before submission)
+# Author checklist — status for version 2 (remove before submission)
 
 Resolved in this version (evidence: `manuscript/VERIFICATION.md`, `manuscript/evidence/paper_evidence.md`):
 
@@ -388,7 +398,7 @@ Resolved in this version (evidence: `manuscript/VERIFICATION.md`, `manuscript/ev
 Still open:
 
 - Archive the dated EvalAI screenshots and leaderboard observation with the result files.
-- Full prompt texts of the 7B judge (j2) and regeneration (r2) steps: the code of this step is not yet in the repository.
+- Decide whether the full prompt texts (classifier v20, generation v10, validator v10, judge j2, regeneration r2) go into a supplementary appendix; they are in the repository (`QuestionDependentCaptionGenerator/`).
 - Small blinded human audit of a random corpus sample.
 - Generic-caption and null-caption controls (Table 11), after supervisor approval.
 - Final author list, affiliations, repository URL.

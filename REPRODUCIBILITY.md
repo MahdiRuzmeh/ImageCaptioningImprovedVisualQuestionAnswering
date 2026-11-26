@@ -18,9 +18,15 @@ listed per step.
 
 ## 1. QD caption corpus (local, Ollama)
 
-`QuestionDependentCaptionGenerator/`: `generate.py` (classification, rules + `qwen2.5:3b-instruct-q4_K_M`, validation),
-re-classification with the same model, then screening/repair with `qwen2.5:7b-instruct-q4_K_M` (judge prompt j2, regeneration r2).
-Counts: `manuscript/evidence/paper_evidence.md` §1.
+`QuestionDependentCaptionGenerator/` (details: its `README.md`, `kaggle/README.md`, `caption_errors/README.md`):
+
+| Step | Code | Kaggle (2 × T4, one Ollama server per GPU) |
+|---|---|---|
+| 1–3: classification, generation, validation (`qwen2.5:3b-instruct-q4_K_M`) | `generate.py`, `question_classifier.py`, `caption_rules.py`, `llm_prompts.py`, `validation/` | `python -u /tmp/repo/QuestionDependentCaptionGenerator/kaggle/kaggle_runner.py` |
+| question classification re-run (same model) | `reclassify_captions.py` | `kaggle/kaggle_reclassify_runner.py` |
+| 4: revalidation and repair (`qwen2.5:7b-instruct-q4_K_M`, judge j2, regeneration r2) | `caption_errors/` | `kaggle/kaggle_judge_runner.py` (calibrate first, then `run.mode = "full"`) |
+
+The runners clone this repository and check out `master`. Counts: `manuscript/evidence/paper_evidence.md` §1.
 
 ## 2. Cross-fitted BLIP-large captioners (2 notebooks)
 

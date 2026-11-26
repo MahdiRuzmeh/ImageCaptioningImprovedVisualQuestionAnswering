@@ -106,32 +106,41 @@ def fig_data_flow(ev):
     f = ev["data_flow"]
     s = f["screening_and_repair"]
     fp = f["first_pass"]
-    fig, ax = canvas(7.2, 3.3)
-    y = 21
-    b1 = box(ax, 1, y, 11, 8, f"VQA v2 train2014\nquestions\n{f['train2014_questions']:,}", GREY)
-    b2 = box(ax, 15, y, 13, 8, f"Classification,\ngeneration, fast check\n(Qwen2.5-3B)\n{fp['caption_records']:,}", BLUE)
-    b3 = box(ax, 31, y, 12, 8, f"Re-classification\n(parse-failure fix,\nQwen2.5-3B)\n{f['reclassification']['rows_after']:,}", BLUE)
-    b4 = box(ax, 46, y, 12, 8, f"Semantic screening\n(Qwen2.5-7B)\nok {s['initial']['ok']:,}\nWRONG {s['initial']['WRONG']:,}", ORANGE)
-    b5 = box(ax, 61, y, 10.5, 8, f"Regenerate\nWRONG (≤ 2\nrounds, 7B)\nfixed {s['fixed']:,}", ORANGE, fs=7.0)
-    for a, b in ((b1, b2), (b2, b3), (b3, b4), (b4, b5)):
-        arrow(ax, R(a), L(b))
-    ax.text(21.5, 18.5, f"excluded: not visual {fp['blacklist_not_visual']:,}, OCR {fp['ocr_excluded']:,},\n"
-            f"duplicates/empty {fp['duplicates'] + fp['dropped_empty']}, failed checks {fp['validation_failures']}",
-            ha="center", va="top", fontsize=6.2, color=INK2)
-    lab = f["reclassification"]["labels"]
-    ax.text(37, 18.5, f"not visual {lab['NOT_DIRECTLY_VISUAL']:,}\n(opinion {lab['NEEDS_OPINION']:,},\nknowledge "
-            f"{lab['NEEDS_KNOWLEDGE']:,},\nOCR {lab['NEEDS_OCR']:,})", ha="center", va="top", fontsize=6.2, color=INK2)
     fin = s["final"]
-    c1 = box(ax, 18, 2, 21, 7.5, f"ok: {fin['ok']:,} rows\n{f['ok_images']:,} images\n→ captioner training",
+    not_visual = fp["blacklist_not_visual"] + f["reclassification"]["labels"]["NOT_DIRECTLY_VISUAL"]
+    after_filter = f["train2014_questions"] - fp["ocr_excluded"] - fp["duplicates"]
+    visual = after_filter - not_visual
+    dropped = fp["validation_failures"] + fp["dropped_empty"]
+    fig, ax = canvas(7.4, 4.6)
+    # row 1: input and steps 1-3 (3B)
+    y1, h1 = 30, 10
+    b0 = box(ax, 0.5, y1, 12, h1, f"VQA v2\ntrain2014\nquestions\n{f['train2014_questions']:,}", GREY)
+    b1 = box(ax, 15, y1, 13.5, h1, f"Step 1  classification\ndirectly visual?\n(Qwen2.5-3B)\n{visual:,} kept", BLUE)
+    b2 = box(ax, 32, y1, 14.5, h1, f"Step 2  generation\nfrom question + answer\ntemplates {67259:,}\nQwen2.5-3B {216448:,}", BLUE)
+    b3 = box(ax, 50, y1, 14.5, h1, f"Step 3  validation\nrules + Qwen2.5-3B judge\nwrong → regenerate (≤ 2)\n{s['judged']:,} captions", BLUE)
+    for a, b in ((b0, b1), (b1, b2), (b2, b3)):
+        arrow(ax, R(a), L(b))
+    ax.text(6.2, y1 - 1.5, f"OCR keyword filter −{fp['ocr_excluded']:,}\nrepeated −{fp['duplicates']}", ha="center",
+            va="top", fontsize=6.1, color=INK2)
+    ax.text(21.7, y1 - 1.5, f"not directly visual −{not_visual:,}\n(OCR, external knowledge,\nopinion)", ha="center",
+            va="top", fontsize=6.1, color=INK2)
+    ax.text(58.4, y1 - 2.5, f"still failing / empty −{dropped}", ha="left", va="top", fontsize=6.1, color=INK2)
+    # row 2: step 4 (7B)
+    y2, h2 = 12, 10
+    j = box(ax, 50, y2, 14.5, h2, f"Step 4  revalidation\nQwen2.5-7B judge\nok {s['initial']['ok']:,}\nWRONG {s['initial']['WRONG']:,}", ORANGE)
+    r = box(ax, 32, y2, 14.5, h2, f"regenerate WRONG\nQwen2.5-7B, ≤ 2 rounds\n+ step-3 rules, judge again\nrepaired {s['fixed']:,}", ORANGE)
+    arrow(ax, Bo(b3), T(j))
+    arrow(ax, L(j), R(r), ORANGE, text="WRONG", fs=6.2)
+    ok = box(ax, 12, y2, 16.5, h2, f"final verdict ok\n{fin['ok']:,} captions\n{f['ok_images']:,} images\n→ captioner training",
              GREEN, bold=True)
-    c2 = box(ax, 42, 2, 13, 7.5, f"GRAMMAR_ISSUE_ONLY\n{fin['GRAMMAR_ISSUE_ONLY']:,}\nnot used", GREY)
-    c3 = box(ax, 58, 2, 13, 7.5, f"still WRONG\n{fin['WRONG']:,} ({f['wrong_share_of_screened_pct']:.2f}%)\nnot used", GREY)
-    arrow(ax, Bo(b5), T(c3), rad=0)
-    arrow(ax, (52, y), T(c2))
-    arrow(ax, (49, y), (35, 9.5), rad=-0.1)
-    arrow(ax, (62, y), (37, 9.5), rad=-0.15)
-    ax.text(1, 6, f"{f['ok_rows_with_suspicious_flag']:,} ok rows carry a\nheuristic 'suspicious' flag\n"
-            "(extra words / polarity);\nkept after the 7B judge", fontsize=6.2, color=INK2, va="center")
+    arrow(ax, L(r), R(ok), GREEN, text="repaired", fs=6.2)
+    arrow(ax, (50, y2 + h2 - 1.5), (28.5, y2 + h2 - 1.5), GREEN, rad=0.4, text="ok", fs=6.2, toff=(0, 4.6))
+    g = box(ax, 50, 0.6, 14.5, 7.5, f"GRAMMAR_ISSUE_ONLY {fin['GRAMMAR_ISSUE_ONLY']:,}\nstill WRONG {fin['WRONG']:,}\nnot used", GREY, fs=6.6)
+    arrow(ax, Bo(j), T(g))
+    ax.text(0.5, 4.2, f"rule check without a model marks\n{f['ok_rows_with_suspicious_flag']:,} ok captions 'suspicious'\n"
+            "(extra words / polarity);\nverdicts unchanged, captions used", fontsize=6.0, color=INK2, va="center")
+    ax.text(36, 44.3, "The language models read only text (question and answers), never the image.", ha="center",
+            fontsize=6.5, color=INK2)
     save(fig, "fig1_data_flow")
 
 

@@ -48,8 +48,10 @@ captioners) and add up exactly:
 - **Suspicious flag:** 30,585 rows carry a heuristic flag (extra words 29,970, polarity flip 778); 29,844 of them are `ok` and are used.
 - **Prompts and rules:** classifier prompt v20, generation prompt v10, fast validator v11, LLM validator v10
   (`QuestionDependentCaptionGenerator/`: `question_classifier.py`, `llm_prompts.py`, `validation/`); the fast validator rules are
-  3–30 words, word-overlap fail < 0.3 / pass ≥ 0.5, relation ratio ≥ 0.5. **Missing from the repository:** the code and prompt
-  texts of the 7B judge (j2) and regeneration (r2) step.
+  3–30 words, word-overlap fail < 0.3 / pass ≥ 0.5, relation ratio ≥ 0.5. The 7B judge (j2) and regeneration (r2)
+  prompts and code are in `QuestionDependentCaptionGenerator/caption_errors/` (`judge.py`, `regenerate.py`, `suspicious.py`,
+  `judge_captions.py`), run on Kaggle with `kaggle/kaggle_judge_runner.py`; calibration set:
+  `audit/DevAuditor/caption_error_audit_manual.json` (298 hand-labelled captions).
 
 ## 4. Mathematical description vs. code
 

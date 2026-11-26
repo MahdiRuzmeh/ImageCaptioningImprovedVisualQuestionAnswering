@@ -4,7 +4,7 @@ Kaggle notebook (GPU T4 x2, Internet ON), one cell, then
 "Save Version -> Save & Run All (Commit)":
 
     !git clone https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git /tmp/repo
-    !git -C /tmp/repo checkout feat/kaggle-runner
+    !git -C /tmp/repo checkout master
     !python -u /tmp/repo/QuestionDependentCaptionGenerator/kaggle/kaggle_judge_runner.py
 
 All settings live in kaggle_judge_config.json (next to this file):

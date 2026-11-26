@@ -71,7 +71,7 @@ NUM_PARALLEL=4           NUM_PARALLEL=4
 | Key | Default | Meaning |
 |---|---|---|
 | `repo.url` | this repo | Used only when the script is pasted into a cell. |
-| `repo.branch` | `feat/kaggle-runner` | Same as above. |
+| `repo.branch` | `master` | Same as above. |
 | `repo.clone_dir` | `/tmp/repo` | Same as above. |
 | `inputs.questions` | `/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/v2_OpenEnded_mscoco_train2014_questions.json` | Absolute path to the VQA questions JSON. |
 | `inputs.annotations` | `/kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/v2_mscoco_train2014_annotations.json` | Absolute path to the VQA annotations JSON. |
@@ -95,7 +95,7 @@ NUM_PARALLEL=4           NUM_PARALLEL=4
 There are two ways to change a setting:
 
 - **Permanently:** edit `kaggle_config.json`, commit, and push to
-  `feat/kaggle-runner`.
+  `master`.
 - **For one notebook only:** write a small override file in the cell and pass
   it with `--config`. It only needs the keys you change:
 
@@ -141,7 +141,7 @@ Your original dataset is never changed and stays as a backup.
 ## One-time setup
 
 1. **Code:** the repo is public, so you don't upload any code. The notebook
-   clones it and checks out `feat/kaggle-runner`. Push any code or config
+   clones it and checks out `master`. Push any code or config
    change to that branch before you start a run.
 2. **VQA JSONs:** the config expects them in your dataset
    `mahdirouzmeh/questiondependentcaptions`. If they're in a different
@@ -175,7 +175,7 @@ Your original dataset is never changed and stays as a backup.
 
    ```
    !git clone https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git /tmp/repo
-   !git -C /tmp/repo checkout feat/kaggle-runner
+   !git -C /tmp/repo checkout master
    !python -u /tmp/repo/QuestionDependentCaptionGenerator/kaggle/kaggle_runner.py --dry-run
    ```
 
@@ -281,7 +281,7 @@ Each question is its own Ollama request, as in the first run. A window of
 
 ```
 !git clone https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git /tmp/repo
-!git -C /tmp/repo checkout feat/kaggle-runner
+!git -C /tmp/repo checkout master
 !python -u /tmp/repo/QuestionDependentCaptionGenerator/kaggle/kaggle_reclassify_runner.py --dry-run
 ```
 
@@ -318,7 +318,7 @@ Notebook (GPU T4 x2, Internet ON), one cell, then **Save Version → Save & Run 
 
 ```
 !git clone https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git /tmp/repo
-!git -C /tmp/repo checkout feat/kaggle-runner
+!git -C /tmp/repo checkout master
 !python -u /tmp/repo/QuestionDependentCaptionGenerator/kaggle/kaggle_judge_runner.py
 ```
 

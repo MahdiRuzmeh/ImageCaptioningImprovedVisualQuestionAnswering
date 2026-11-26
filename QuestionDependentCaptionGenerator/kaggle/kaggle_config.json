@@ -1,7 +1,7 @@
 {
   "repo": {
     "url": "https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git",
-    "branch": "feat/kaggle-runner",
+    "branch": "master",
     "clone_dir": "/tmp/repo"
   },
   "inputs": {
