@@ -325,19 +325,19 @@ BLIP-Large captions also increase reliance on the text: shuffled captions give 6
 
 ## 6.5. Controls: generic captions and caption capacity
 
-The gain in Table 5 shows that the chosen question-dependent captions improve the no-caption baseline. It does not show that conditioning on the question is what helps, nor that the extra parameters are irrelevant. Two matched controls address this on the development protocol (643,110 training questions, development set, same MCAN, caption dropout 0.3, two seeds):
+The gain in Table 5 shows that the chosen question-dependent captions improve the no-caption baseline. It does not show that conditioning on the question is what helps, nor that the extra parameters are irrelevant. Two controls use exactly the final protocol of Table 5 (MCAN, caption dropout 0.3, all 658,111 train2014 + val2014 questions, 10 epochs, seeds 0 and 1, official test-dev; no test-standard submission):
 
-- **Generic captions:** BLIP-Large fine-tuned on generic COCO captions [13] with the same cross-fitted folds, schedule and checkpoint protocol, producing one question-independent caption per image.
-- **Null caption (capacity control):** the caption branch is kept but every question receives the same fixed caption, so the model has the same active parameters without caption content.
+- **Generic captions:** `Salesforce/blip-image-captioning-large` as released, without any training of ours, writes one question-independent caption per image (beam 3, prefix "a picture of"), which is given to every question of that image. Our question-dependent captioner starts from the same checkpoint, so the two caption sets differ only in our fine-tuning on the question-dependent dataset and in the question prompt. This checkpoint was fine-tuned on COCO captions of the Karpathy split [7,13], which contains the train2014 and most val2014 images but no test2015 image; this exposure is shared by both captioners and favours, if anything, the generic captions on the training images.
+- **Fixed caption (capacity control):** the caption branch is kept but every question receives the same fixed caption, so the model has the same active parameters without caption content.
 
-| Captions given to MCAN | Development set | Yes/no | Number | Other | Δ vs. no captions (95% CI) |
+| Captions given to MCAN | Single models (mean of 2 seeds) | 2-seed ensemble | Yes/no | Number | Other |
 |---|--:|--:|--:|--:|--:|
-| None (baseline) | 66.39 | | | | — |
-| Null caption, same parameters | [pending] | | | | [pending] |
-| Generic BLIP-Large (COCO captions) | [pending] | | | | [pending] |
-| Question-dependent BLIP-Large (ours) | 69.76 | 85.99 | 51.55 | 62.52 | +3.37 (+2.83, +3.92) |
+| None (baseline) | 68.31 | 69.28 | 85.94 | 49.99 | 59.43 |
+| Fixed caption, same parameters | [pending] | [pending] | | | |
+| Generic BLIP-Large (no fine-tuning, one caption per image) | [pending] | [pending] | | | |
+| Question-dependent BLIP-Large (ours) | 72.13 | 72.87 | 88.35 | 53.86 | 63.99 |
 
-Table: **Table 11. Matched caption controls (development set, seed means, %).** [To be completed when the control runs finish; no test-standard submission is planned for the controls.]
+Table: **Table 11. Caption controls on the official VQA v2 test-dev (%).** Answer-type columns refer to the ensembles. [To be completed when the control runs finish.]
 
 # 7. Discussion and limitations
 
@@ -400,5 +400,5 @@ Still open:
 - Archive the dated EvalAI screenshots and leaderboard observation with the result files.
 - Decide whether the full prompt texts (classifier v20, generation v10, validator v10, judge j2, regeneration r2) go into a supplementary appendix; they are in the repository (`QuestionDependentCaptionGenerator/`).
 - Small blinded human audit of a random corpus sample.
-- Generic-caption and null-caption controls (Table 11), after supervisor approval.
+- Generic-caption and fixed-caption controls (Table 11), after supervisor approval.
 - Final author list, affiliations, repository URL.
