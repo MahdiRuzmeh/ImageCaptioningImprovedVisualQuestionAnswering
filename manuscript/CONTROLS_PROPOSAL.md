@@ -26,7 +26,7 @@ Results go into Table 11 of the manuscript.
 | Notebook | Settings / inputs | Command (cell) | Output |
 |---|---|---|---|
 | G1: generic captions, train + val | GPU T4 × 2, internet on; inputs: `mnhlfuch/vqa-v2` | `PART=trainval bash scripts/kaggle_generic_captions.sh` | `generic_captions/captions_crossfit_generic.json` |
-| G2: generic captions, test2015 | same + the dataset with test2015 images and `v2_OpenEnded_mscoco_test2015_questions.json` (as in T2) | `PART=test2015 bash scripts/kaggle_generic_captions.sh` | `generic_captions/captions_test2015_generic.json` |
+| G2: generic captions, test2015 | GPU T4 × 2, internet on; `mnhlfuch/vqa-v2` if it holds both the test2015 images and `v2_OpenEnded_mscoco_test2015_questions.json` (447,793 questions; maps each image caption to its questions); otherwise also the dataset with that file (as in T2/T3) | `PART=test2015 bash scripts/kaggle_generic_captions.sh` | `generic_captions/captions_test2015_generic.json` |
 | G3: final VQA + generic captions | inputs as T3, but attach G1 and G2 outputs instead of the QD caption outputs | `MODE=crossfit FINAL=1 SEEDS="0 1" CONFIG=configs/blip_final.yaml CAPTION_DROPOUT=0.3 CAPTIONS_FILE=captions_crossfit_generic.json CAPTIONS_TEST_FILE=captions_test2015_generic.json RUN=vqa_final_generic bash scripts/kaggle_vqa_strong.sh` | `vqa_final_generic_blip_s0/s1_test2015.json`, `vqa_final_generic_ensemble_test2015.json` → EvalAI test-dev |
 
 Each notebook starts with
