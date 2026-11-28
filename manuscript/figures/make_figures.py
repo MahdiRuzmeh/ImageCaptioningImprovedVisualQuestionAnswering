@@ -259,7 +259,9 @@ def fig_official(ev):
     a.set_title("(a) test-standard, 2-seed ensembles", loc="left")
     a.legend(frameon=False, fontsize=6.2, loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=2)
     o = ev["official"]
-    rows = [("test-dev, single seeds (mean)", o["gain_single_mean"]["overall"]),
+    # Finglish: az miangin-e gerd-nashode (72.130 − 68.305 = 3.825 → 3.83, half-up), na 3.82-e float
+    single = round(o["captions"]["mean"]["overall"] - o["baseline"]["mean"]["overall"] + 1e-9, 2)
+    rows = [("test-dev, single seeds (mean)", single),
             ("test-dev, ensembles", o["gain_ensemble_test_dev"]["overall"]),
             ("test-standard, ensembles", round(cap["test-standard"]["overall"] - base["test-standard"]["overall"], 2))]
     for i, (nm, v) in enumerate(rows):
@@ -323,6 +325,44 @@ def fig_perturb():
     save(fig, "fig8_perturbations")
 
 
+def fig_examples():
+    """Real development-set examples: image, generic vs question-dependent caption, answers and predictions."""
+    import textwrap
+    ex = load(REPO / "manuscript/evidence/examples.json")["examples"]
+    img_dir = REPO / "dataset/val2014"
+    fig = plt.figure(figsize=(7.4, 5.6))
+    for row, e in enumerate(ex):
+        top = 1 - row * 0.5
+        ax = fig.add_axes([0.01, top - 0.47, 0.30, 0.44])
+        ax.axis("off")
+        p = img_dir / e["image_file"]
+        if p.exists():
+            ax.imshow(plt.imread(p))
+        ax.set_title(f"({'ab'[row]}) VQA v2 val2014, image {e['image_id']}", fontsize=7.4, loc="left")
+        tx = fig.add_axes([0.33, top - 0.47, 0.66, 0.44])
+        tx.axis("off")
+        y = 0.97
+        tx.text(0, y, "Generic caption (one per image):", fontsize=7.2, fontweight="bold", color=INK2, va="top")
+        tx.text(0.47, y, textwrap.fill(f"“{e['generic_caption']}”", 52), fontsize=7.2, color=INK, va="top")
+        y -= 0.13
+        for it in e["items"]:
+            ok_qd = all(s >= 0.9 for s in it["qd_score"])
+            tx.text(0, y, f"Q: {it['question']}", fontsize=7.4, fontweight="bold", color=INK, va="top")
+            y -= 0.085
+            lines = [("Reference answer", f"{it['majority']}  (ten answers: {', '.join(it['answers'])})", INK2),
+                     ("QD caption", f"“{it['qd_caption']}”", BLUE),
+                     ("Baseline, seed 0 / 1", " / ".join(it["baseline_pred"]), INK2),
+                     ("QD-caption model, seed 0 / 1", " / ".join(it["qd_pred"]) + ("   ✓" if ok_qd else "   ✗ (wrong caption)"),
+                      GREEN if ok_qd else ORANGE)]
+            for lab, val, col in lines:
+                tx.text(0.02, y, lab + ":", fontsize=6.8, color=INK2, va="top")
+                wrapped = textwrap.fill(val, 56)
+                tx.text(0.47, y, wrapped, fontsize=6.8, color=col, va="top")
+                y -= 0.03 + 0.045 * (wrapped.count("\n") + 1)
+            y -= 0.03
+    save(fig, "fig9_examples")
+
+
 def main():
     ev = load(REPO / "manuscript/evidence/paper_evidence.json")
     fig_data_flow(ev)
@@ -333,6 +373,7 @@ def main():
     fig_official(ev)
     fig_transitions()
     fig_perturb()
+    fig_examples()
 
 
 if __name__ == "__main__":

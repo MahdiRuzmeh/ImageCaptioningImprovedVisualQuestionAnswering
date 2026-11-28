@@ -1,5 +1,23 @@
 # Manuscript changelog
 
+## Version 3 — 2026-11-28
+
+Supervisor comments VQA_Comments30, items 3, 4, 6, 9, 10 and 11 (other items unchanged on purpose).
+- Generic-caption control done (Table 11/12): test-dev ensemble 70.09 vs 72.87 (QD) and 69.28 (none); QD − generic +2.94 (single),
+  +2.78 (ensemble). Abstract, discussion and conclusion state the result. Fixed-caption control: row pending.
+- Human review protocol (Section 3.2, Eq. 2a, Table 1b pending): blinded 300 + 200 sample, five criteria, two reviewers
+  on 100 items, weighted error. Code: `QuestionDependentCaptionGenerator/audit/human_review/`.
+- Formulas (item 6): tie rule of the mode; filters and acceptance (Eq. 2); fold function and π for val2014/test2015
+  (Eq. 4); loss domain incl. [SEP] (Eq. 7); best-of-beam (Eq. 8); dimensions, question encoder, layer order (Eqs. 9–12);
+  caption dropout as masking (Eq. 14); soft target separated from the metric (Eq. 16a), BCE normalisation (16b);
+  seed indices and class → answer text (Eq. 17); AnswerHit/polarity counterexamples; denominator of Eq. 22.
+- Table 6 (item 9): test-standard only; original MCAN added (value to be checked); no test-dev number ranked against
+  other papers.
+- Table 13 (item 10): computational cost with the values available from the run logs; inference timing pending.
+- Fig. 9: two real development-set examples (generic vs QD caption, answers, predictions; success and failure).
+- Item 11: Results introduction; +3.83 used consistently (unrounded); table rows no longer split across pages and
+  header rows repeat; "DRAFT" header/footer removed; internal checklist moved to CHECKLIST.md.
+
 ## Version 2 — 2026-11-26
 
 - Keywords replaced: Visual question answering; Image captioning; Image captioning improved visual question answering;

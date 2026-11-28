@@ -1,0 +1,52 @@
+final_train: true
+seed: 0
+train_questions_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Questions/v2_OpenEnded_mscoco_train2014_questions.json
+train_annotations_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Annotations/v2_mscoco_train2014_annotations.json
+val_questions_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Questions/v2_OpenEnded_mscoco_val2014_questions.json
+val_annotations_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Annotations/v2_mscoco_val2014_annotations.json
+train_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/train2014
+val_images_dir: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Images/val2014
+exclude_captioner_images: false
+train_include_val: true
+qd_captions_json: /kaggle/input/datasets/mahdirouzmeh/questiondependentcaptions/vqa_v2_question_dependent_captions_train2014.json
+num_train_questions: null
+val_rng_replay_row_range:
+- 0
+- 264318
+num_dev_questions: 5000
+num_test_questions: 10000
+work_dir: /kaggle/working/vqa_final_generic
+crossfit_folds_json: data/crossfit_folds.json
+caption_requests_json: /kaggle/working/vqa_final_generic/caption_requests.json
+captions_json: /kaggle/working/vqa_final_generic/captions/captions_crossfit.json
+answer_min_count: 9
+word_min_count: 1
+max_question_len: 14
+max_caption_len: 24
+max_regions: 37
+region_dim: 2048
+model: mcan
+glove_path: /kaggle/input/datasets/takuok/glove840b300dtxt/glove.840B.300d.txt
+word_dim: 300
+hidden_dim: 512
+num_heads: 8
+ff_dim: 2048
+num_layers: 6
+dropout: 0.1
+optimizer: adam
+epochs: 10
+batch_size: 64
+learning_rate: 0.0001
+warmup_epochs: 2
+lr_decay_epochs:
+- 10
+- 12
+lr_decay_factor: 0.2
+weight_decay: 0.0
+grad_clip: 5.0
+caption_dropout: 0.3
+caption_gate: false
+features_dir: /tmp/vqa_strong_features
+test2015_questions_json: /kaggle/input/datasets/mnhlfuch/vqa-v2/VQA v2/VQA v2/Questions/v2_OpenEnded_mscoco_test2015_questions.json
+test2015_features_dir: /kaggle/input/datasets/mehdirouzmeh/butd-test2015/butd_test2015
+captions_test2015_json: /kaggle/input/datasets/mahyarouzmeh/blip-large-generic-caption-test-2015/generic_captions/captions_test2015_generic.json

@@ -35,7 +35,27 @@ def main() -> None:
         extra += ["--reference-doc", args.reference]
     pypandoc.convert_file(str(src), "docx", format="markdown", outputfile=str(out), extra_args=extra)
     style_tables(out)
+    clean_header_footer(out)
     print("->", out)
+
+
+def clean_header_footer(path: Path) -> None:
+    """The reference style carries "MANUSCRIPT DRAFT" / "Draft for author review": keep the running title and page number only."""
+    import re
+    import shutil
+    import zipfile
+
+    tmp = path.with_suffix(".tmp.docx")
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if re.match(r"word/(header|footer)\d*\.xml$", item.filename):
+                x = data.decode("utf-8")
+                x = x.replace("  |  MANUSCRIPT DRAFT", "")
+                x = re.sub(r"(<w:t[^>]*>)Draft for author review[^<]*(</w:t>)", r"\1\2", x)
+                data = x.encode("utf-8")
+            zout.writestr(item, data)
+    shutil.move(tmp, path)
 
 
 def style_tables(path: Path) -> None:
@@ -58,6 +78,12 @@ def style_tables(path: Path) -> None:
             el.set(qn("w:color"), "8C8C8C")
             borders.append(el)
         tbl_pr.append(borders)
+        for r, row in enumerate(table.rows):
+            # Finglish: radif beyn-e do safhe nashkane; header-e jadval dar har safhe tekrar beshe
+            tr_pr = row._tr.get_or_add_trPr()
+            tr_pr.append(OxmlElement("w:cantSplit"))
+            if r == 0:
+                tr_pr.append(OxmlElement("w:tblHeader"))
         for cell in table.rows[0].cells:
             tc_pr = cell._tc.get_or_add_tcPr()
             shd = OxmlElement("w:shd")

@@ -29,6 +29,13 @@ Results go into Table 11 of the manuscript.
 | G2: generic captions, test2015 | GPU T4 × 2, internet on; `mnhlfuch/vqa-v2` if it holds both the test2015 images and `v2_OpenEnded_mscoco_test2015_questions.json` (447,793 questions; maps each image caption to its questions); otherwise also the dataset with that file (as in T2/T3) | `PART=test2015 bash scripts/kaggle_generic_captions.sh` | `generic_captions/captions_test2015_generic.json` |
 | G3: final VQA + generic captions | inputs as T3, but attach G1 and G2 outputs instead of the QD caption outputs | `MODE=crossfit FINAL=1 SEEDS="0 1" CONFIG=configs/blip_final.yaml CAPTION_DROPOUT=0.3 CAPTIONS_FILE=captions_crossfit_generic.json CAPTIONS_TEST_FILE=captions_test2015_generic.json RUN=vqa_final_generic bash scripts/kaggle_vqa_strong.sh` | `vqa_final_generic_blip_s0/s1_test2015.json`, `vqa_final_generic_ensemble_test2015.json` → EvalAI test-dev |
 
+## Notebook steps (C2, fixed caption)
+
+| Notebook | Settings / inputs | Command (cell) | Output |
+|---|---|---|---|
+| N1: fixed captions | **CPU** (no GPU), internet on; `mnhlfuch/vqa-v2` (+ the dataset with `v2_OpenEnded_mscoco_test2015_questions.json` if it is not in vqa-v2) | `bash scripts/kaggle_fixed_captions.sh` | `fixed_captions/captions_crossfit_fixed.json`, `captions_test2015_fixed.json` |
+| N2: final VQA + fixed caption | copy of G3 (same 8 inputs, `qd-butd-packed` version 1), but attach the N1 output instead of the two generic caption datasets | `MODE=crossfit FINAL=1 SEEDS="0 1" CONFIG=configs/blip_final.yaml CAPTION_DROPOUT=0.3 CAPTIONS_FILE=captions_crossfit_fixed.json CAPTIONS_TEST_FILE=captions_test2015_fixed.json RUN=vqa_final_fixed bash scripts/kaggle_vqa_strong.sh` | `vqa_final_fixed_blip_s0/s1_test2015.json`, `vqa_final_fixed_ensemble_test2015.json` → EvalAI test-dev |
+
 Each notebook starts with
 `!git clone -b master --depth 1 https://github.com/MahdiRuzmeh/ImageCaptioningImprovedVisualQuestionAnswering.git /kaggle/working/repo`
 and `%cd /kaggle/working/repo/CaptionVQA`, then `!<command>`. G1 and G2 can run at the same time on two accounts.

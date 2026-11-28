@@ -1,0 +1,4417 @@
+{
+ "meta": {
+  "seed": 20261128,
+  "population": {
+   "unflagged": 247474,
+   "flagged": 29844
+  },
+  "sample": {
+   "unflagged": 300,
+   "flagged": 200
+  },
+  "overlap_items": 100
+ },
+ "items": [
+  {
+   "item": 1,
+   "question_id": 321491024,
+   "image_id": 321491,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:made"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 2,
+   "question_id": 318533001,
+   "image_id": 318533,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 3,
+   "question_id": 166972000,
+   "image_id": 166972,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 4,
+   "question_id": 509528001,
+   "image_id": 509528,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 5,
+   "question_id": 224503003,
+   "image_id": 224503,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:boys'"
+   ],
+   "rule": "what_color"
+  },
+  {
+   "item": 6,
+   "question_id": 529019012,
+   "image_id": 529019,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 7,
+   "question_id": 406743000,
+   "image_id": 406743,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 8,
+   "question_id": 476960001,
+   "image_id": 476960,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 9,
+   "question_id": 372671002,
+   "image_id": 372671,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 10,
+   "question_id": 151864000,
+   "image_id": 151864,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:cup"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 11,
+   "question_id": 69693000,
+   "image_id": 69693,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 12,
+   "question_id": 369179005,
+   "image_id": 369179,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 13,
+   "question_id": 188949006,
+   "image_id": 188949,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 14,
+   "question_id": 554316000,
+   "image_id": 554316,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 15,
+   "question_id": 4624000,
+   "image_id": 4624,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:sheep"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 16,
+   "question_id": 249058004,
+   "image_id": 249058,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 17,
+   "question_id": 38546008,
+   "image_id": 38546,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 18,
+   "question_id": 497097002,
+   "image_id": 497097,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 19,
+   "question_id": 286120003,
+   "image_id": 286120,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 20,
+   "question_id": 266038008,
+   "image_id": 266038,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:closed"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 21,
+   "question_id": 344830010,
+   "image_id": 344830,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "polarity_flip"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 22,
+   "question_id": 70087003,
+   "image_id": 70087,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 23,
+   "question_id": 256154001,
+   "image_id": 256154,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 24,
+   "question_id": 323396003,
+   "image_id": 323396,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 25,
+   "question_id": 229041002,
+   "image_id": 229041,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:female,cow"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 26,
+   "question_id": 535165013,
+   "image_id": 535165,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:sky"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 27,
+   "question_id": 1166003,
+   "image_id": 1166,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:outside"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 28,
+   "question_id": 363716002,
+   "image_id": 363716,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 29,
+   "question_id": 18495000,
+   "image_id": 18495,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 30,
+   "question_id": 320192004,
+   "image_id": 320192,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:wearing"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 31,
+   "question_id": 89202000,
+   "image_id": 89202,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 32,
+   "question_id": 336159005,
+   "image_id": 336159,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:wearing"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 33,
+   "question_id": 368983000,
+   "image_id": 368983,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 34,
+   "question_id": 199112001,
+   "image_id": 199112,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 35,
+   "question_id": 299333000,
+   "image_id": 299333,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 36,
+   "question_id": 308612000,
+   "image_id": 308612,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:daytime,confirmed"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 37,
+   "question_id": 150636019,
+   "image_id": 150636,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:red"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 38,
+   "question_id": 529433003,
+   "image_id": 529433,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:sheep,foreground"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 39,
+   "question_id": 204509027,
+   "image_id": 204509,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 40,
+   "question_id": 319645001,
+   "image_id": 319645,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:displayed"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 41,
+   "question_id": 117721000,
+   "image_id": 117721,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 42,
+   "question_id": 141893003,
+   "image_id": 141893,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 43,
+   "question_id": 382341004,
+   "image_id": 382341,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 44,
+   "question_id": 561789002,
+   "image_id": 561789,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 45,
+   "question_id": 329245004,
+   "image_id": 329245,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 46,
+   "question_id": 181155000,
+   "image_id": 181155,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 47,
+   "question_id": 735001,
+   "image_id": 735,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:candle"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 48,
+   "question_id": 545566004,
+   "image_id": 545566,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 49,
+   "question_id": 349658000,
+   "image_id": 349658,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 50,
+   "question_id": 566439008,
+   "image_id": 566439,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:during,day"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 51,
+   "question_id": 181047006,
+   "image_id": 181047,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:knife,table"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 52,
+   "question_id": 418352000,
+   "image_id": 418352,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 53,
+   "question_id": 77686001,
+   "image_id": 77686,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 54,
+   "question_id": 439911004,
+   "image_id": 439911,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:due,force"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 55,
+   "question_id": 38771001,
+   "image_id": 38771,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 56,
+   "question_id": 181149000,
+   "image_id": 181149,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:made,brick"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 57,
+   "question_id": 181682000,
+   "image_id": 181682,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 58,
+   "question_id": 305638007,
+   "image_id": 305638,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 59,
+   "question_id": 553865001,
+   "image_id": 553865,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 60,
+   "question_id": 88241005,
+   "image_id": 88241,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:dogs'"
+   ],
+   "rule": "what_color"
+  },
+  {
+   "item": 61,
+   "question_id": 460417000,
+   "image_id": 460417,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 62,
+   "question_id": 544780001,
+   "image_id": 544780,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 63,
+   "question_id": 78494001,
+   "image_id": 78494,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 64,
+   "question_id": 441883001,
+   "image_id": 441883,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 65,
+   "question_id": 9119001,
+   "image_id": 9119,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 66,
+   "question_id": 304950004,
+   "image_id": 304950,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:phone"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 67,
+   "question_id": 198375002,
+   "image_id": 198375,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:used"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 68,
+   "question_id": 310242000,
+   "image_id": 310242,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:parked,brick,surface"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 69,
+   "question_id": 523166003,
+   "image_id": 523166,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 70,
+   "question_id": 39570001,
+   "image_id": 39570,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:man"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 71,
+   "question_id": 168454002,
+   "image_id": 168454,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:contains"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 72,
+   "question_id": 369703014,
+   "image_id": 369703,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:sky"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 73,
+   "question_id": 6293002,
+   "image_id": 6293,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:because"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 74,
+   "question_id": 373765000,
+   "image_id": 373765,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 75,
+   "question_id": 58580004,
+   "image_id": 58580,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 76,
+   "question_id": 4762002,
+   "image_id": 4762,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 77,
+   "question_id": 574052002,
+   "image_id": 574052,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 78,
+   "question_id": 102630000,
+   "image_id": 102630,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:doll"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 79,
+   "question_id": 412613007,
+   "image_id": 412613,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:facing"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 80,
+   "question_id": 170636001,
+   "image_id": 170636,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:both"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 81,
+   "question_id": 482672000,
+   "image_id": 482672,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 82,
+   "question_id": 273904010,
+   "image_id": 273904,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 83,
+   "question_id": 500077017,
+   "image_id": 500077,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:contains"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 84,
+   "question_id": 457861001,
+   "image_id": 457861,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 85,
+   "question_id": 503014001,
+   "image_id": 503014,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 86,
+   "question_id": 206398003,
+   "image_id": 206398,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:giraffe"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 87,
+   "question_id": 551597002,
+   "image_id": 551597,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 88,
+   "question_id": 510592019,
+   "image_id": 510592,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 89,
+   "question_id": 197121006,
+   "image_id": 197121,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:wearing"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 90,
+   "question_id": 360157001,
+   "image_id": 360157,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 91,
+   "question_id": 377716002,
+   "image_id": 377716,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:building"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 92,
+   "question_id": 248854007,
+   "image_id": 248854,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 93,
+   "question_id": 192867006,
+   "image_id": 192867,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 94,
+   "question_id": 104588002,
+   "image_id": 104588,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:bicycle"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 95,
+   "question_id": 23315003,
+   "image_id": 23315,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 96,
+   "question_id": 440666000,
+   "image_id": 440666,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 97,
+   "question_id": 19941002,
+   "image_id": 19941,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:tree"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 98,
+   "question_id": 382741008,
+   "image_id": 382741,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 99,
+   "question_id": 274786002,
+   "image_id": 274786,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:horse"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 100,
+   "question_id": 92729012,
+   "image_id": 92729,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:cats"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 101,
+   "question_id": 102706000,
+   "image_id": 102706,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:treat,injury"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 102,
+   "question_id": 269022002,
+   "image_id": 269022,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 103,
+   "question_id": 207184000,
+   "image_id": 207184,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:shapes"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 104,
+   "question_id": 35107001,
+   "image_id": 35107,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 105,
+   "question_id": 115374012,
+   "image_id": 115374,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 106,
+   "question_id": 219355002,
+   "image_id": 219355,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 107,
+   "question_id": 300021002,
+   "image_id": 300021,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 108,
+   "question_id": 309948005,
+   "image_id": 309948,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:phone"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 109,
+   "question_id": 93384001,
+   "image_id": 93384,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:daytime"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 110,
+   "question_id": 15438000,
+   "image_id": 15438,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 111,
+   "question_id": 305538000,
+   "image_id": 305538,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 112,
+   "question_id": 136565002,
+   "image_id": 136565,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 113,
+   "question_id": 442069001,
+   "image_id": 442069,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 114,
+   "question_id": 342296006,
+   "image_id": 342296,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 115,
+   "question_id": 548451007,
+   "image_id": 548451,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:man"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 116,
+   "question_id": 400343004,
+   "image_id": 400343,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:gaming,platform"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 117,
+   "question_id": 282946002,
+   "image_id": 282946,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 118,
+   "question_id": 59165003,
+   "image_id": 59165,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 119,
+   "question_id": 336966004,
+   "image_id": 336966,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 120,
+   "question_id": 232389023,
+   "image_id": 232389,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 121,
+   "question_id": 53170001,
+   "image_id": 53170,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 122,
+   "question_id": 309364015,
+   "image_id": 309364,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 123,
+   "question_id": 393487005,
+   "image_id": 393487,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 124,
+   "question_id": 533179002,
+   "image_id": 533179,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 125,
+   "question_id": 427853001,
+   "image_id": 427853,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:shaped"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 126,
+   "question_id": 509691006,
+   "image_id": 509691,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 127,
+   "question_id": 29402001,
+   "image_id": 29402,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 128,
+   "question_id": 356112002,
+   "image_id": 356112,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:competition"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 129,
+   "question_id": 175227002,
+   "image_id": 175227,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:pizza"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 130,
+   "question_id": 523937004,
+   "image_id": 523937,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 131,
+   "question_id": 253556001,
+   "image_id": 253556,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 132,
+   "question_id": 118934001,
+   "image_id": 118934,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:wearing"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 133,
+   "question_id": 208974001,
+   "image_id": 208974,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 134,
+   "question_id": 548711000,
+   "image_id": 548711,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 135,
+   "question_id": 345944003,
+   "image_id": 345944,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 136,
+   "question_id": 61575003,
+   "image_id": 61575,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:pole"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 137,
+   "question_id": 517597000,
+   "image_id": 517597,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 138,
+   "question_id": 487090018,
+   "image_id": 487090,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 139,
+   "question_id": 472392001,
+   "image_id": 472392,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 140,
+   "question_id": 40720001,
+   "image_id": 40720,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 141,
+   "question_id": 563110002,
+   "image_id": 563110,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 142,
+   "question_id": 241554002,
+   "image_id": 241554,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 143,
+   "question_id": 28311011,
+   "image_id": 28311,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 144,
+   "question_id": 475146000,
+   "image_id": 475146,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 145,
+   "question_id": 303484001,
+   "image_id": 303484,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:surfer"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 146,
+   "question_id": 362340002,
+   "image_id": 362340,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:dog"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 147,
+   "question_id": 119868001,
+   "image_id": 119868,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:covered"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 148,
+   "question_id": 365430000,
+   "image_id": 365430,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 149,
+   "question_id": 525124000,
+   "image_id": 525124,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 150,
+   "question_id": 453664001,
+   "image_id": 453664,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 151,
+   "question_id": 326357000,
+   "image_id": 326357,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 152,
+   "question_id": 369631003,
+   "image_id": 369631,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:inside"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 153,
+   "question_id": 489070000,
+   "image_id": 489070,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:stopping"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 154,
+   "question_id": 38543004,
+   "image_id": 38543,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:worn"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 155,
+   "question_id": 133436014,
+   "image_id": 133436,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 156,
+   "question_id": 271301009,
+   "image_id": 271301,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 157,
+   "question_id": 87812001,
+   "image_id": 87812,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:front,building"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 158,
+   "question_id": 568984017,
+   "image_id": 568984,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 159,
+   "question_id": 18811002,
+   "image_id": 18811,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 160,
+   "question_id": 577107031,
+   "image_id": 577107,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 161,
+   "question_id": 163107003,
+   "image_id": 163107,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:horse"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 162,
+   "question_id": 461673001,
+   "image_id": 461673,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 163,
+   "question_id": 528019002,
+   "image_id": 528019,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:anything"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 164,
+   "question_id": 485106002,
+   "image_id": 485106,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 165,
+   "question_id": 363867000,
+   "image_id": 363867,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:upright"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 166,
+   "question_id": 94717000,
+   "image_id": 94717,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 167,
+   "question_id": 572413006,
+   "image_id": 572413,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 168,
+   "question_id": 100626002,
+   "image_id": 100626,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 169,
+   "question_id": 229002004,
+   "image_id": 229002,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:contains"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 170,
+   "question_id": 123980002,
+   "image_id": 123980,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:people,swimming"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 171,
+   "question_id": 480272009,
+   "image_id": 480272,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 172,
+   "question_id": 420922001,
+   "image_id": 420922,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 173,
+   "question_id": 246755003,
+   "image_id": 246755,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:happening"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 174,
+   "question_id": 361389004,
+   "image_id": 361389,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:carries"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 175,
+   "question_id": 233369005,
+   "image_id": 233369,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 176,
+   "question_id": 386250004,
+   "image_id": 386250,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 177,
+   "question_id": 514232003,
+   "image_id": 514232,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:wearing"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 178,
+   "question_id": 253031004,
+   "image_id": 253031,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 179,
+   "question_id": 134858003,
+   "image_id": 134858,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:people"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 180,
+   "question_id": 181519007,
+   "image_id": 181519,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 181,
+   "question_id": 228356003,
+   "image_id": 228356,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 182,
+   "question_id": 81322001,
+   "image_id": 81322,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:ridden"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 183,
+   "question_id": 335362023,
+   "image_id": 335362,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 184,
+   "question_id": 272100002,
+   "image_id": 272100,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:two,leaves"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 185,
+   "question_id": 36425005,
+   "image_id": 36425,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 186,
+   "question_id": 477459002,
+   "image_id": 477459,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 187,
+   "question_id": 428550000,
+   "image_id": 428550,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 188,
+   "question_id": 132015004,
+   "image_id": 132015,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:giraffe"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 189,
+   "question_id": 486627001,
+   "image_id": 486627,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 190,
+   "question_id": 418042002,
+   "image_id": 418042,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 191,
+   "question_id": 51198003,
+   "image_id": 51198,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 192,
+   "question_id": 304710002,
+   "image_id": 304710,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 193,
+   "question_id": 350077044,
+   "image_id": 350077,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 194,
+   "question_id": 43782001,
+   "image_id": 43782,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 195,
+   "question_id": 250516001,
+   "image_id": 250516,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:worn,least,person"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 196,
+   "question_id": 127056001,
+   "image_id": 127056,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 197,
+   "question_id": 287167002,
+   "image_id": 287167,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 198,
+   "question_id": 96845017,
+   "image_id": 96845,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 199,
+   "question_id": 433968003,
+   "image_id": 433968,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 200,
+   "question_id": 200103022,
+   "image_id": 200103,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 201,
+   "question_id": 124723001,
+   "image_id": 124723,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 202,
+   "question_id": 6998001,
+   "image_id": 6998,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 203,
+   "question_id": 291897001,
+   "image_id": 291897,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 204,
+   "question_id": 79971002,
+   "image_id": 79971,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:bloomed"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 205,
+   "question_id": 463464005,
+   "image_id": 463464,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 206,
+   "question_id": 502616002,
+   "image_id": 502616,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:cow"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 207,
+   "question_id": 99753000,
+   "image_id": 99753,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 208,
+   "question_id": 479372043,
+   "image_id": 479372,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:made,wood"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 209,
+   "question_id": 266031001,
+   "image_id": 266031,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 210,
+   "question_id": 387599003,
+   "image_id": 387599,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 211,
+   "question_id": 137832002,
+   "image_id": 137832,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 212,
+   "question_id": 126910003,
+   "image_id": 126910,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 213,
+   "question_id": 372199000,
+   "image_id": 372199,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 214,
+   "question_id": 223932002,
+   "image_id": 223932,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 215,
+   "question_id": 185777000,
+   "image_id": 185777,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:kitchen"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 216,
+   "question_id": 334098109,
+   "image_id": 334098,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 217,
+   "question_id": 221803001,
+   "image_id": 221803,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 218,
+   "question_id": 535844002,
+   "image_id": 535844,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 219,
+   "question_id": 564826026,
+   "image_id": 564826,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 220,
+   "question_id": 43350000,
+   "image_id": 43350,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 221,
+   "question_id": 328906002,
+   "image_id": 328906,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:boys"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 222,
+   "question_id": 127400002,
+   "image_id": 127400,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 223,
+   "question_id": 532623005,
+   "image_id": 532623,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 224,
+   "question_id": 205769008,
+   "image_id": 205769,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 225,
+   "question_id": 389474002,
+   "image_id": 389474,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:kept"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 226,
+   "question_id": 474075039,
+   "image_id": 474075,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:inside"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 227,
+   "question_id": 276811000,
+   "image_id": 276811,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:man,hat"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 228,
+   "question_id": 525766000,
+   "image_id": 525766,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 229,
+   "question_id": 256809003,
+   "image_id": 256809,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:giraffes"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 230,
+   "question_id": 507886006,
+   "image_id": 507886,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 231,
+   "question_id": 212070002,
+   "image_id": 212070,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:outside"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 232,
+   "question_id": 228419002,
+   "image_id": 228419,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 233,
+   "question_id": 259543000,
+   "image_id": 259543,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 234,
+   "question_id": 199093000,
+   "image_id": 199093,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 235,
+   "question_id": 263002008,
+   "image_id": 263002,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 236,
+   "question_id": 164178000,
+   "image_id": 164178,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 237,
+   "question_id": 214777013,
+   "image_id": 214777,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 238,
+   "question_id": 428018000,
+   "image_id": 428018,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 239,
+   "question_id": 378137000,
+   "image_id": 378137,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 240,
+   "question_id": 209345000,
+   "image_id": 209345,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:longer"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 241,
+   "question_id": 405931011,
+   "image_id": 405931,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 242,
+   "question_id": 132310001,
+   "image_id": 132310,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 243,
+   "question_id": 471992002,
+   "image_id": 471992,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 244,
+   "question_id": 38900006,
+   "image_id": 38900,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:vegetable"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 245,
+   "question_id": 517881009,
+   "image_id": 517881,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 246,
+   "question_id": 555446000,
+   "image_id": 555446,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:ground"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 247,
+   "question_id": 254250003,
+   "image_id": 254250,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 248,
+   "question_id": 574882005,
+   "image_id": 574882,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:shoe"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 249,
+   "question_id": 38301001,
+   "image_id": 38301,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 250,
+   "question_id": 348451002,
+   "image_id": 348451,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 251,
+   "question_id": 546762002,
+   "image_id": 546762,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 252,
+   "question_id": 488747001,
+   "image_id": 488747,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:outside"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 253,
+   "question_id": 552417001,
+   "image_id": 552417,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 254,
+   "question_id": 70087002,
+   "image_id": 70087,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:sky"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 255,
+   "question_id": 89124001,
+   "image_id": 89124,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:both,men"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 256,
+   "question_id": 312334002,
+   "image_id": 312334,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 257,
+   "question_id": 452087004,
+   "image_id": 452087,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 258,
+   "question_id": 291911004,
+   "image_id": 291911,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:indication"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 259,
+   "question_id": 575354002,
+   "image_id": 575354,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 260,
+   "question_id": 494684000,
+   "image_id": 494684,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 261,
+   "question_id": 472737002,
+   "image_id": 472737,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 262,
+   "question_id": 141519002,
+   "image_id": 141519,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 263,
+   "question_id": 356144014,
+   "image_id": 356144,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_is_doing"
+  },
+  {
+   "item": 264,
+   "question_id": 520123003,
+   "image_id": 520123,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 265,
+   "question_id": 126755000,
+   "image_id": 126755,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:standing"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 266,
+   "question_id": 154107001,
+   "image_id": 154107,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:contains"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 267,
+   "question_id": 119214002,
+   "image_id": 119214,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:daytime"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 268,
+   "question_id": 546041001,
+   "image_id": 546041,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 269,
+   "question_id": 456545004,
+   "image_id": 456545,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:worn"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 270,
+   "question_id": 473254010,
+   "image_id": 473254,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 271,
+   "question_id": 4931002,
+   "image_id": 4931,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:plate"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 272,
+   "question_id": 319412016,
+   "image_id": 319412,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:additional"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 273,
+   "question_id": 578295004,
+   "image_id": 578295,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 274,
+   "question_id": 547297000,
+   "image_id": 547297,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 275,
+   "question_id": 555273001,
+   "image_id": 555273,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 276,
+   "question_id": 327241001,
+   "image_id": 327241,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 277,
+   "question_id": 496322002,
+   "image_id": 496322,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 278,
+   "question_id": 368118012,
+   "image_id": 368118,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 279,
+   "question_id": 74993020,
+   "image_id": 74993,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 280,
+   "question_id": 108020003,
+   "image_id": 108020,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 281,
+   "question_id": 24591014,
+   "image_id": 24591,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 282,
+   "question_id": 337156005,
+   "image_id": 337156,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 283,
+   "question_id": 404159003,
+   "image_id": 404159,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 284,
+   "question_id": 27490000,
+   "image_id": 27490,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 285,
+   "question_id": 4796000,
+   "image_id": 4796,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 286,
+   "question_id": 331457001,
+   "image_id": 331457,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 287,
+   "question_id": 115374004,
+   "image_id": 115374,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 288,
+   "question_id": 307758004,
+   "image_id": 307758,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 289,
+   "question_id": 184159000,
+   "image_id": 184159,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:features"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 290,
+   "question_id": 47599000,
+   "image_id": 47599,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 291,
+   "question_id": 495182008,
+   "image_id": 495182,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 292,
+   "question_id": 247858013,
+   "image_id": 247858,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 293,
+   "question_id": 139416009,
+   "image_id": 139416,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 294,
+   "question_id": 297665007,
+   "image_id": 297665,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 295,
+   "question_id": 381492002,
+   "image_id": 381492,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:playing"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 296,
+   "question_id": 137115001,
+   "image_id": 137115,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 297,
+   "question_id": 147505004,
+   "image_id": 147505,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 298,
+   "question_id": 431712004,
+   "image_id": 431712,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 299,
+   "question_id": 301129002,
+   "image_id": 301129,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 300,
+   "question_id": 54614000,
+   "image_id": 54614,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:vehicle"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 301,
+   "question_id": 128421005,
+   "image_id": 128421,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 302,
+   "question_id": 205432002,
+   "image_id": 205432,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 303,
+   "question_id": 132517002,
+   "image_id": 132517,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:pots"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 304,
+   "question_id": 562863004,
+   "image_id": 562863,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:plane"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 305,
+   "question_id": 233379006,
+   "image_id": 233379,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 306,
+   "question_id": 499636000,
+   "image_id": 499636,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 307,
+   "question_id": 282840004,
+   "image_id": 282840,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:suitcase"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 308,
+   "question_id": 258450002,
+   "image_id": 258450,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 309,
+   "question_id": 91948000,
+   "image_id": 91948,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:clothing"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 310,
+   "question_id": 230617000,
+   "image_id": 230617,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 311,
+   "question_id": 293159001,
+   "image_id": 293159,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:players,match"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 312,
+   "question_id": 342340045,
+   "image_id": 342340,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 313,
+   "question_id": 346990000,
+   "image_id": 346990,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:indicating,space"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 314,
+   "question_id": 544614011,
+   "image_id": 544614,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:plane"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 315,
+   "question_id": 318501006,
+   "image_id": 318501,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:nighttime"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 316,
+   "question_id": 405752002,
+   "image_id": 405752,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:appliance"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 317,
+   "question_id": 372829001,
+   "image_id": 372829,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 318,
+   "question_id": 535234002,
+   "image_id": 535234,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_is_doing"
+  },
+  {
+   "item": 319,
+   "question_id": 491229006,
+   "image_id": 491229,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 320,
+   "question_id": 399973027,
+   "image_id": 399973,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:occurring"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 321,
+   "question_id": 277998004,
+   "image_id": 277998,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 322,
+   "question_id": 348790007,
+   "image_id": 348790,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:during"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 323,
+   "question_id": 579332003,
+   "image_id": 579332,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 324,
+   "question_id": 124622008,
+   "image_id": 124622,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 325,
+   "question_id": 56800005,
+   "image_id": 56800,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:both,individuals"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 326,
+   "question_id": 213366000,
+   "image_id": 213366,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 327,
+   "question_id": 329558012,
+   "image_id": 329558,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 328,
+   "question_id": 132874002,
+   "image_id": 132874,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:dogs"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 329,
+   "question_id": 332463002,
+   "image_id": 332463,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 330,
+   "question_id": 35763004,
+   "image_id": 35763,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 331,
+   "question_id": 535289003,
+   "image_id": 535289,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 332,
+   "question_id": 97483001,
+   "image_id": 97483,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:completely"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 333,
+   "question_id": 348865001,
+   "image_id": 348865,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:patterns"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 334,
+   "question_id": 29345004,
+   "image_id": 29345,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 335,
+   "question_id": 420524000,
+   "image_id": 420524,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:olive"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 336,
+   "question_id": 328088001,
+   "image_id": 328088,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:someone"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 337,
+   "question_id": 451803001,
+   "image_id": 451803,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:attached"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 338,
+   "question_id": 478609004,
+   "image_id": 478609,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 339,
+   "question_id": 164010000,
+   "image_id": 164010,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 340,
+   "question_id": 385085000,
+   "image_id": 385085,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 341,
+   "question_id": 157434000,
+   "image_id": 157434,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:outside"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 342,
+   "question_id": 40551002,
+   "image_id": 40551,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_is_doing"
+  },
+  {
+   "item": 343,
+   "question_id": 71719005,
+   "image_id": 71719,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:floats"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 344,
+   "question_id": 386540003,
+   "image_id": 386540,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:computer"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 345,
+   "question_id": 85623002,
+   "image_id": 85623,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:woman"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 346,
+   "question_id": 413092001,
+   "image_id": 413092,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:attire"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 347,
+   "question_id": 491660031,
+   "image_id": 491660,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 348,
+   "question_id": 533158000,
+   "image_id": 533158,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:single"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 349,
+   "question_id": 70659004,
+   "image_id": 70659,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:man"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 350,
+   "question_id": 181612002,
+   "image_id": 181612,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 351,
+   "question_id": 150435166,
+   "image_id": 150435,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:woman"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 352,
+   "question_id": 253290001,
+   "image_id": 253290,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:made"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 353,
+   "question_id": 268065004,
+   "image_id": 268065,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:bike"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 354,
+   "question_id": 259988003,
+   "image_id": 259988,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 355,
+   "question_id": 370783003,
+   "image_id": 370783,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 356,
+   "question_id": 160810001,
+   "image_id": 160810,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 357,
+   "question_id": 58911002,
+   "image_id": 58911,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_is_doing"
+  },
+  {
+   "item": 358,
+   "question_id": 98944003,
+   "image_id": 98944,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:contains"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 359,
+   "question_id": 251219002,
+   "image_id": 251219,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 360,
+   "question_id": 121000000,
+   "image_id": 121000,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:people"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 361,
+   "question_id": 100316000,
+   "image_id": 100316,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 362,
+   "question_id": 187432000,
+   "image_id": 187432,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 363,
+   "question_id": 366009024,
+   "image_id": 366009,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 364,
+   "question_id": 153340001,
+   "image_id": 153340,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:row"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 365,
+   "question_id": 5962002,
+   "image_id": 5962,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:people"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 366,
+   "question_id": 54262001,
+   "image_id": 54262,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 367,
+   "question_id": 284494002,
+   "image_id": 284494,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 368,
+   "question_id": 459641000,
+   "image_id": 459641,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 369,
+   "question_id": 265114001,
+   "image_id": 265114,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:man"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 370,
+   "question_id": 63334030,
+   "image_id": 63334,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:oaks"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 371,
+   "question_id": 368626000,
+   "image_id": 368626,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 372,
+   "question_id": 338317002,
+   "image_id": 338317,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:holding"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 373,
+   "question_id": 373317000,
+   "image_id": 373317,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:while,other",
+    "polarity_flip"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 374,
+   "question_id": 382662003,
+   "image_id": 382662,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 375,
+   "question_id": 13092001,
+   "image_id": 13092,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:building"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 376,
+   "question_id": 101906038,
+   "image_id": 101906,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 377,
+   "question_id": 95380002,
+   "image_id": 95380,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 378,
+   "question_id": 474424003,
+   "image_id": 474424,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 379,
+   "question_id": 378868004,
+   "image_id": 378868,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:dog"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 380,
+   "question_id": 149833000,
+   "image_id": 149833,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:single"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 381,
+   "question_id": 174263002,
+   "image_id": 174263,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:under"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 382,
+   "question_id": 244065005,
+   "image_id": 244065,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 383,
+   "question_id": 265622163,
+   "image_id": 265622,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:both"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 384,
+   "question_id": 214518001,
+   "image_id": 214518,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 385,
+   "question_id": 297570004,
+   "image_id": 297570,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 386,
+   "question_id": 65456052,
+   "image_id": 65456,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 387,
+   "question_id": 513978005,
+   "image_id": 513978,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 388,
+   "question_id": 515296000,
+   "image_id": 515296,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 389,
+   "question_id": 431014003,
+   "image_id": 431014,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 390,
+   "question_id": 377572002,
+   "image_id": 377572,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 391,
+   "question_id": 247034010,
+   "image_id": 247034,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 392,
+   "question_id": 127856004,
+   "image_id": 127856,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person,wearing"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 393,
+   "question_id": 87847010,
+   "image_id": 87847,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 394,
+   "question_id": 343815001,
+   "image_id": 343815,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:taken"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 395,
+   "question_id": 257065001,
+   "image_id": 257065,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:child"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 396,
+   "question_id": 58403005,
+   "image_id": 58403,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:covered"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 397,
+   "question_id": 164687004,
+   "image_id": 164687,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 398,
+   "question_id": 250043001,
+   "image_id": 250043,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 399,
+   "question_id": 422850000,
+   "image_id": 422850,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:horse"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 400,
+   "question_id": 481402002,
+   "image_id": 481402,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 401,
+   "question_id": 164040000,
+   "image_id": 164040,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:depicted"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 402,
+   "question_id": 52281000,
+   "image_id": 52281,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 403,
+   "question_id": 477587003,
+   "image_id": 477587,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 404,
+   "question_id": 541676001,
+   "image_id": 541676,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 405,
+   "question_id": 512844030,
+   "image_id": 512844,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:bat"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 406,
+   "question_id": 542720005,
+   "image_id": 542720,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 407,
+   "question_id": 440285022,
+   "image_id": 440285,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 408,
+   "question_id": 581181004,
+   "image_id": 581181,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 409,
+   "question_id": 107386013,
+   "image_id": 107386,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:outside"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 410,
+   "question_id": 555921002,
+   "image_id": 555921,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 411,
+   "question_id": 239022016,
+   "image_id": 239022,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:boy"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 412,
+   "question_id": 423734013,
+   "image_id": 423734,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 413,
+   "question_id": 501926003,
+   "image_id": 501926,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:multiple"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 414,
+   "question_id": 22360012,
+   "image_id": 22360,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 415,
+   "question_id": 158000003,
+   "image_id": 158000,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 416,
+   "question_id": 38558001,
+   "image_id": 38558,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 417,
+   "question_id": 305916001,
+   "image_id": 305916,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:held"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 418,
+   "question_id": 165727003,
+   "image_id": 165727,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:worn"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 419,
+   "question_id": 355875002,
+   "image_id": 355875,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 420,
+   "question_id": 372303000,
+   "image_id": 372303,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:indoors"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 421,
+   "question_id": 203870006,
+   "image_id": 203870,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:car"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 422,
+   "question_id": 222006005,
+   "image_id": 222006,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 423,
+   "question_id": 230129003,
+   "image_id": 230129,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:kitchen"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 424,
+   "question_id": 125735001,
+   "image_id": 125735,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:horse"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 425,
+   "question_id": 429735006,
+   "image_id": 429735,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 426,
+   "question_id": 266030001,
+   "image_id": 266030,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 427,
+   "question_id": 221915005,
+   "image_id": 221915,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:giraffe"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 428,
+   "question_id": 222639002,
+   "image_id": 222639,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:water"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 429,
+   "question_id": 284846001,
+   "image_id": 284846,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 430,
+   "question_id": 290522001,
+   "image_id": 290522,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 431,
+   "question_id": 456481001,
+   "image_id": 456481,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:contains"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 432,
+   "question_id": 396330006,
+   "image_id": 396330,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 433,
+   "question_id": 325362004,
+   "image_id": 325362,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 434,
+   "question_id": 420634005,
+   "image_id": 420634,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 435,
+   "question_id": 379732000,
+   "image_id": 379732,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 436,
+   "question_id": 133730002,
+   "image_id": 133730,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 437,
+   "question_id": 517830016,
+   "image_id": 517830,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:vehicle"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 438,
+   "question_id": 44353004,
+   "image_id": 44353,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 439,
+   "question_id": 310671002,
+   "image_id": 310671,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:arranged"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 440,
+   "question_id": 52870002,
+   "image_id": 52870,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 441,
+   "question_id": 439678001,
+   "image_id": 439678,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:people"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 442,
+   "question_id": 338651000,
+   "image_id": 338651,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:chocolate"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 443,
+   "question_id": 473003001,
+   "image_id": 473003,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 444,
+   "question_id": 47202002,
+   "image_id": 47202,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_is_doing"
+  },
+  {
+   "item": 445,
+   "question_id": 36816007,
+   "image_id": 36816,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:players"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 446,
+   "question_id": 134835004,
+   "image_id": 134835,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 447,
+   "question_id": 523742001,
+   "image_id": 523742,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 448,
+   "question_id": 402683006,
+   "image_id": 402683,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 449,
+   "question_id": 539710003,
+   "image_id": 539710,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:closed"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 450,
+   "question_id": 265594002,
+   "image_id": 265594,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:held"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 451,
+   "question_id": 396326002,
+   "image_id": 396326,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 452,
+   "question_id": 481355015,
+   "image_id": 481355,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:standing"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 453,
+   "question_id": 145135003,
+   "image_id": 145135,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 454,
+   "question_id": 200133003,
+   "image_id": 200133,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:cow"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 455,
+   "question_id": 132585002,
+   "image_id": 132585,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:slice"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 456,
+   "question_id": 94381009,
+   "image_id": 94381,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 457,
+   "question_id": 233477019,
+   "image_id": 233477,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 458,
+   "question_id": 172163002,
+   "image_id": 172163,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:cat"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 459,
+   "question_id": 504851002,
+   "image_id": 504851,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 460,
+   "question_id": 272740000,
+   "image_id": 272740,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 461,
+   "question_id": 419173007,
+   "image_id": 419173,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 462,
+   "question_id": 135741001,
+   "image_id": 135741,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 463,
+   "question_id": 70295004,
+   "image_id": 70295,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:gentleman"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 464,
+   "question_id": 352421000,
+   "image_id": 352421,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 465,
+   "question_id": 221120003,
+   "image_id": 221120,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 466,
+   "question_id": 132500000,
+   "image_id": 132500,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 467,
+   "question_id": 431598000,
+   "image_id": 431598,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 468,
+   "question_id": 458762001,
+   "image_id": 458762,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:both"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 469,
+   "question_id": 191061001,
+   "image_id": 191061,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 470,
+   "question_id": 178476002,
+   "image_id": 178476,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:incorrectly"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 471,
+   "question_id": 110084005,
+   "image_id": 110084,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 472,
+   "question_id": 251249000,
+   "image_id": 251249,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 473,
+   "question_id": 416279001,
+   "image_id": 416279,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "polarity_flip"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 474,
+   "question_id": 496766004,
+   "image_id": 496766,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "how_many"
+  },
+  {
+   "item": 475,
+   "question_id": 244132001,
+   "image_id": 244132,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 476,
+   "question_id": 464615001,
+   "image_id": 464615,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 477,
+   "question_id": 316343014,
+   "image_id": 316343,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:man,shirt"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 478,
+   "question_id": 362346002,
+   "image_id": 362346,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:depicted"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 479,
+   "question_id": 176265000,
+   "image_id": 176265,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:zebra"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 480,
+   "question_id": 83468000,
+   "image_id": 83468,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 481,
+   "question_id": 136683002,
+   "image_id": 136683,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:worn"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 482,
+   "question_id": 540459005,
+   "image_id": 540459,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 483,
+   "question_id": 533224001,
+   "image_id": 533224,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:different"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 484,
+   "question_id": 324232001,
+   "image_id": 324232,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 485,
+   "question_id": 3000004,
+   "image_id": 3000,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:holding"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 486,
+   "question_id": 286101001,
+   "image_id": 286101,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:clouds"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 487,
+   "question_id": 182189001,
+   "image_id": 182189,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 488,
+   "question_id": 578523002,
+   "image_id": 578523,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 489,
+   "question_id": 333431011,
+   "image_id": 333431,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:thrown,air"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 490,
+   "question_id": 112253028,
+   "image_id": 112253,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 491,
+   "question_id": 58660002,
+   "image_id": 58660,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 492,
+   "question_id": 267443002,
+   "image_id": 267443,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 493,
+   "question_id": 526232001,
+   "image_id": 526232,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:outside"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 494,
+   "question_id": 207475002,
+   "image_id": 207475,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:person"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 495,
+   "question_id": 484246003,
+   "image_id": 484246,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:giraffe"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 496,
+   "question_id": 301129006,
+   "image_id": 301129,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:close"
+   ],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 497,
+   "question_id": 63022001,
+   "image_id": 63022,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "llm_fallback"
+  },
+  {
+   "item": 498,
+   "question_id": 400926001,
+   "image_id": 400926,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:dog"
+   ],
+   "rule": "how_many"
+  },
+  {
+   "item": 499,
+   "question_id": 265196003,
+   "image_id": 265196,
+   "group": "unflagged",
+   "suspicious_reasons": [],
+   "rule": "what_color"
+  },
+  {
+   "item": 500,
+   "question_id": 550129002,
+   "image_id": 550129,
+   "group": "flagged",
+   "suspicious_reasons": [
+    "extra_words:eaten"
+   ],
+   "rule": "llm_fallback"
+  }
+ ]
+}

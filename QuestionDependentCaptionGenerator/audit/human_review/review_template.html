@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caption Review</title>
+<style>
+  :root { --bg:#fafaf8; --card:#fff; --ink:#151515; --ink2:#5a5955; --line:#dcdad4; --yes:#1a9e6e; --no:#d4542a; --acc:#2a6fc9; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, "Segoe UI", sans-serif; }
+  header { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; z-index:2; }
+  header input { padding:5px 8px; border:1px solid var(--line); border-radius:6px; font:inherit; }
+  button { font:inherit; padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--card); cursor:pointer; }
+  button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
+  main { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:18px; padding:16px; max-width:1300px; margin:auto; }
+  @media (max-width:900px) { main { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  img { width:100%; max-height:70vh; object-fit:contain; border-radius:6px; background:#eee; }
+  .q { font-size:18px; font-weight:600; margin:2px 0 8px; }
+  .cap { font-size:18px; padding:8px 10px; border-left:4px solid var(--acc); background:#f1f5fc; margin:10px 0; }
+  .muted { color:var(--ink2); font-size:13px; }
+  .crit { display:grid; grid-template-columns:1fr auto; gap:6px 10px; align-items:center; padding:8px 0; border-top:1px solid var(--line); }
+  .crit .btns button { min-width:52px; }
+  .crit .btns button.sel-yes { background:var(--yes); color:#fff; border-color:var(--yes); }
+  .crit .btns button.sel-no { background:var(--no); color:#fff; border-color:var(--no); }
+  textarea { width:100%; min-height:54px; font:inherit; border:1px solid var(--line); border-radius:6px; padding:6px; }
+  .nav { display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:10px; background:#fbf1d6; font-size:12px; }
+  .done { color:var(--yes); font-weight:600; }
+</style>
+</head>
+<body>
+<header>
+  <strong>Caption review</strong>
+  <label>Reviewer <input id="reviewer" placeholder="your name" size="14"></label>
+  <span id="progress" class="muted"></span>
+  <span style="flex:1"></span>
+  <button id="export" class="primary">Export labels (JSON)</button>
+  <label class="muted">Import <input id="import" type="file" accept=".json"></label>
+</header>
+<main>
+  <section class="card">
+    <img id="img" alt="image">
+    <div class="muted" id="imgpath"></div>
+  </section>
+  <section class="card">
+    <div class="muted">Item <span id="num"></span> <span id="overlap"></span></div>
+    <div class="q" id="question"></div>
+    <div><span class="muted">Reference (majority) answer:</span> <strong id="answer"></strong></div>
+    <div class="muted">Ten human answers: <span id="answers"></span></div>
+    <div class="cap" id="caption"></div>
+    <div id="criteria"></div>
+    <div class="muted" style="margin-top:8px">Comment (optional)</div>
+    <textarea id="comment"></textarea>
+    <div class="nav">
+      <button id="prev">← Previous</button>
+      <button id="next" class="primary">Next →</button>
+      <label class="muted">Go to <input id="goto" type="number" min="1" style="width:70px"></label>
+      <button id="nextOpen">Next unlabelled</button>
+    </div>
+  </section>
+</main>
+<script>
+const ITEMS = /*ITEMS*/[];
+const OVERLAP = /*OVERLAP*/0;
+const CRITERIA = [
+  ["answer", "1. The caption states the reference answer correctly (the majority answer or an equivalent form)."],
+  ["subject", "2. It keeps the subject and the relation of the question."],
+  ["facts", "3. It adds no fact that is not in the question or the answer (Yes = nothing added)."],
+  ["grammar", "4. It is grammatical and natural English."],
+  ["visual", "5. Looking at the image, the question can be answered (no opinion, outside knowledge or reading text needed)."]
+];
+const KEY = "qd-caption-review-v1";
+let state = { reviewer: "", labels: {} }, cur = 0;
+function load() { try { const s = localStorage.getItem(KEY); if (s) state = JSON.parse(s); } catch (e) {} }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+function complete(it) { const l = state.labels[it.item]; return l && CRITERIA.every(([k]) => l[k] === 1 || l[k] === 0); }
+function render() {
+  const it = ITEMS[cur], l = state.labels[it.item] || {};
+  document.getElementById("img").src = it.image;
+  document.getElementById("imgpath").textContent = it.image.split("/").pop();
+  document.getElementById("num").textContent = `${it.item} / ${ITEMS.length}`;
+  document.getElementById("overlap").innerHTML = it.item <= OVERLAP ? '<span class="badge">reviewed by both reviewers</span>' : "";
+  document.getElementById("question").textContent = it.question;
+  document.getElementById("answer").textContent = it.answer;
+  document.getElementById("answers").textContent = it.answers.join(", ");
+  document.getElementById("caption").textContent = it.caption;
+  document.getElementById("comment").value = l.comment || "";
+  const box = document.getElementById("criteria"); box.innerHTML = "";
+  for (const [k, text] of CRITERIA) {
+    const row = document.createElement("div"); row.className = "crit";
+    row.innerHTML = `<div>${text}</div><div class="btns"><button data-v="1">Yes</button> <button data-v="0">No</button></div>`;
+    row.querySelectorAll("button").forEach(b => {
+      const v = +b.dataset.v;
+      if (l[k] === v) b.className = v ? "sel-yes" : "sel-no";
+      b.onclick = () => { state.labels[it.item] = Object.assign(state.labels[it.item] || {}, { [k]: v }); save(); render(); };
+    });
+    box.appendChild(row);
+  }
+  const n = ITEMS.filter(complete).length;
+  document.getElementById("progress").innerHTML = `${n} / ${ITEMS.length} complete` + (complete(it) ? ' · <span class="done">this item done</span>' : "");
+}
+document.getElementById("comment").oninput = e => {
+  const it = ITEMS[cur]; state.labels[it.item] = Object.assign(state.labels[it.item] || {}, { comment: e.target.value }); save();
+};
+document.getElementById("reviewer").oninput = e => { state.reviewer = e.target.value; save(); };
+document.getElementById("prev").onclick = () => { if (cur > 0) { cur--; render(); } };
+document.getElementById("next").onclick = () => { if (cur < ITEMS.length - 1) { cur++; render(); } };
+document.getElementById("nextOpen").onclick = () => { const i = ITEMS.findIndex(it => !complete(it)); if (i >= 0) { cur = i; render(); } };
+document.getElementById("goto").onchange = e => { const i = +e.target.value - 1; if (i >= 0 && i < ITEMS.length) { cur = i; render(); } };
+document.getElementById("export").onclick = () => {
+  const out = { reviewer: state.reviewer, exported_at: new Date().toISOString(), n_items: ITEMS.length, labels: state.labels };
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: "application/json" }));
+  a.download = `review_labels_${(state.reviewer || "reviewer").replace(/\W+/g, "_")}.json`; a.click();
+};
+document.getElementById("import").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { const d = JSON.parse(await f.text()); state = { reviewer: d.reviewer || "", labels: d.labels || {} }; save(); render(); }
+  catch (err) { alert("Could not read this file: " + err); }
+};
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
+  if (e.key === "ArrowRight") document.getElementById("next").click();
+  if (e.key === "ArrowLeft") document.getElementById("prev").click();
+});
+load();
+document.getElementById("reviewer").value = state.reviewer || "";
+render();
+</script>
+</body>
+</html>

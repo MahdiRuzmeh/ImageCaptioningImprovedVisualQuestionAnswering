@@ -1,6 +1,6 @@
 ---
 title: "Cross-Fitted Question-Dependent Image Captions for Visual Question Answering: A Controlled Study with BLIP and MCAN"
-subtitle: "Manuscript version 2 (2026-11-26)"
+subtitle: "Manuscript version 3 (2026-11-28)"
 author: "[Authors to be confirmed]"
 ---
 
@@ -8,7 +8,7 @@ University of Tabriz, Tabriz, Iran | [Department and corresponding author email 
 
 # Abstract
 
-Visual question answering (VQA) requires an answer grounded in the image and conditioned on the question. A generic image caption may omit exactly the detail that a question asks about. We study **question-dependent image captioning**, the task of describing an image with respect to a given question, and its use as evidence for VQA. Our contributions are threefold. (i) We build a new **question-dependent caption dataset** of 277,318 image–question–caption triples from VQA v2 training annotations, which defines the question-dependent captioning task: questions are classified as directly visual or not, captions are generated from question and answer with rules and a local language model, validated automatically, and revalidated and repaired with a larger language model. (ii) We design a **question-dependent image captioner** by fine-tuning BLIP-Large with the question as prompt; two captioners trained on image-disjoint folds ensure that no caption used to train the VQA model comes from a captioner that saw the image. (iii) We design a **question-dependent-caption-improved VQA model** that fuses the caption tokens with image region features in an MCAN co-attention network, with caption dropout against wrong captions. On the official VQA v2 test-standard, two-seed ensembles with and without captions reach 73.16% and 69.56%, an improvement of 3.60 percentage points; on test-dev the improvement is 3.59 points for the ensembles and 3.82 points for the single models (72.13% vs. 68.31%). On an internal development set, replacing BLIP-base with BLIP-Large improves VQA accuracy by 1.45 points (95% image-clustered bootstrap interval 0.94 to 1.96). Analyses of caption perturbations and an auxiliary reliability gate show both the benefits and the limits of caption-based evidence. The results do not establish state-of-the-art performance or superiority over generic captions, for which a matched control is reported separately (Section 6.5).
+Visual question answering (VQA) requires an answer grounded in the image and conditioned on the question. A generic image caption may omit exactly the detail that a question asks about. We study **question-dependent image captioning**, the task of describing an image with respect to a given question, and its use as evidence for VQA. Our contributions are threefold. (i) We build a new **question-dependent caption dataset** of 277,318 image–question–caption triples from VQA v2 training annotations, which defines the question-dependent captioning task: questions are classified as directly visual or not, captions are generated from question and answer with rules and a local language model, validated automatically, and revalidated and repaired with a larger language model. (ii) We design a **question-dependent image captioner** by fine-tuning BLIP-Large with the question as prompt; two captioners trained on image-disjoint folds ensure that no caption used to train the VQA model comes from a captioner that saw the image. (iii) We design a **question-dependent-caption-improved VQA model** that fuses the caption tokens with image region features in an MCAN co-attention network, with caption dropout against wrong captions. On the official VQA v2 test-standard, two-seed ensembles with and without captions reach 73.16% and 69.56%, an improvement of 3.60 percentage points; on test-dev the improvement is 3.59 points for the ensembles and 3.83 points for the single models (72.13% vs. 68.31%). In a matched control on test-dev, generic captions from the same BLIP-Large checkpoint, without question and without our fine-tuning, reach 70.09% (ensemble): only 0.81 points above the baseline and 2.78 points below the question-dependent captions. Perturbation analyses and real examples show that wrong captions can still mislead the model. The results do not establish state-of-the-art performance.
 
 Keywords: Visual question answering; Image captioning; Image captioning improved visual question answering; Question-dependent image captioning.
 
@@ -44,6 +44,8 @@ Let the ten annotated answers of image–question pair $i$ be $\mathcal{A}_i$ an
 
 $$a_i^{*} = \operatorname{mode}(\mathcal{A}_i), \qquad t_i = G(q_i, a_i^{*}) \qquad (1)$$
 
+The mode is taken over the ten answers after lower-casing and trimming; if two answers are equally frequent, the one given first in the annotation order is used.
+
 ## 3.2. Dataset generation pipeline
 
 The pipeline has four steps (Fig. 1, Table 1). All language-model steps run locally with Ollama on 4-bit quantised Qwen2.5 instruction models [11]: `qwen2.5:3b-instruct-q4_K_M` for steps 1–3 and the larger `qwen2.5:7b-instruct-q4_K_M` for step 4, on two T4 GPUs with one model server per GPU. The language models see only text (question and answers), never the image. Before step 1, OCR-dependent questions are removed with a keyword filter (15,824; e.g. questions about written text, brands, numbers on signs or the time on a clock) and repeated image–question–answer triples are removed (88).
@@ -60,7 +62,7 @@ The captioner is trained only on the 277,318 `ok` captions (79,568 images). The 
 
 $$\mathcal{D}_{QD} = \{(I_i, q_i, t_i) : d_i = 1,\ u_i = \texttt{ok}\} \qquad (2)$$
 
-where $d_i$ is the step-1 decision (directly visual) and $u_i$ the final step-4 verdict.
+where $d_i = 1$ if record $i$ passed all filters (not OCR-dependent, not a repeated triple, directly visual in step 1, and a valid caption after step 3) and $u_i \in \{\texttt{ok}, \texttt{GRAMMAR\_ISSUE\_ONLY}, \texttt{WRONG}\}$ is the final step-4 verdict; only $u_i = \texttt{ok}$ is accepted.
 
 | Step | Model / version | Records |
 |---|---|--:|
@@ -78,13 +80,35 @@ Table: **Table 1. Dataset generation (counts from the provenance block of the re
 
 ![**Fig. 1.** Question-dependent caption dataset generation. Steps 1–3 use Qwen2.5-3B, step 4 revalidates every caption with Qwen2.5-7B. Only captions with the final verdict ok train the captioner.](figures/fig1_data_flow.png){width=6.6in}
 
+**Human review.** The verdicts above are model judgements; the 298 hand-labelled captions were used to tune the judge prompt and are not an independent test. We therefore review a new, blinded sample: 300 captions drawn at random from the 247,474 `ok` captions without the "suspicious" mark and 200 from the 29,844 with it (seed 20261128, drawn before any review). The two groups are shuffled together and the reviewer sees neither the group nor any model verdict. For each caption the reviewer judges five aspects with the image at hand: (1) the reference answer is stated correctly, (2) the subject and relation of the question are kept, (3) no fact is added, (4) the sentence is grammatical, and (5) the question is answerable from the image. A caption is counted as correct when (1)–(3) hold. A second reviewer independently labels the first 100 items, and disagreements are resolved by discussion. Rates are reported with 95% Wilson intervals per group, and the error rate of the whole training set is estimated with the population weights,
+
+$$\hat{e} = \frac{247{,}474}{277{,}318}\,\hat{e}_{0} + \frac{29{,}844}{277{,}318}\,\hat{e}_{1} \qquad (2a)$$
+
+where $\hat{e}_0$ and $\hat{e}_1$ are the error rates of the unflagged and flagged samples (Table 1b). The review measures the remaining noise; it is not used to change the dataset or retrain any model.
+
+| Criterion | Unflagged (n = 300) | Flagged (n = 200) | Weighted training set |
+|---|--:|--:|--:|
+| (1) answer stated correctly | [pending] | [pending] | [pending] |
+| (2) subject and relation kept | [pending] | [pending] | [pending] |
+| (3) no added fact | [pending] | [pending] | [pending] |
+| (4) grammatical | [pending] | [pending] | [pending] |
+| (5) visually answerable | [pending] | [pending] | [pending] |
+| **Correct caption, (1) ∧ (2) ∧ (3)** | [pending] | [pending] | [pending] |
+| Inter-reviewer agreement on 100 items (Cohen's κ, correct) | | | [pending] |
+
+Table: **Table 1b. Blinded human review of the training captions (%, 95% Wilson intervals).** [To be completed.]
+
 ## 3.3. Image-disjoint cross-fitting
 
 The caption corpus is derived exclusively from train2014 annotations. Because a target depends on the reference answer, captioning a downstream training image with a captioner trained on that image would risk leaking memorised answers. The 82,783 train2014 images are therefore split at random (seed 0) into two disjoint folds $F_0$ (41,391 images) and $F_1$ (41,392 images). Captioner $g_0$ is fine-tuned only on corpus records of $F_0$ images and $g_1$ only on $F_1$ (Table 2). Each captioner's checkpoint is selected on the last ~1,500 records of its own fold, split at an image boundary, so selection never uses the other fold. An image in $F_0$ is captioned by $g_1$ and vice versa. For val2014 the same file assigns each image to one captioner (20,251 / 20,253 images); for test2015 the captioner is $g_{\,\mathrm{image\_id} \bmod 2}$ (40,931 / 40,503 images). Neither captioner has seen a val2014 or test2015 image, and no reference answer is passed to caption generation.
 
 $$F_0 \cap F_1 = \varnothing, \qquad \mathcal{D}_k = \{(I_i, q_i, t_i) \in \mathcal{D}_{QD} : I_i \in F_k\} \qquad (3)$$
 
-$$\hat{c}_i = g_{1 - f(I_i)}\big(I_i, q_i;\ \theta_{1 - f(I_i)}\big) \quad \text{for train2014 images} \qquad (4)$$
+Let $f(I) \in \{0, 1\}$ be the fold of a train2014 image and $F_{eval}$ the val2014 and test2015 images, on which neither captioner was trained. The caption of question $i$ is
+
+$$\hat{c}_i = \begin{cases} g_1(I_i, q_i), & I_i \in F_0 \\ g_0(I_i, q_i), & I_i \in F_1 \\ g_{\pi(I_i)}(I_i, q_i), & I_i \in F_{eval} \end{cases} \qquad \pi(I) = \begin{cases} \text{manifest value of } I, & I \in \text{val2014} \\ \mathrm{image\_id}(I) \bmod 2, & I \in \text{test2015} \end{cases} \qquad (4)$$
+
+so a train2014 image is always captioned by the model of the other fold. The function $\pi$ is fixed before captioning: val2014 images take the random split stored in the fold manifest (seed 0, 20,251 / 20,253 images), and test2015 images, which are not in the manifest, use the parity of their image id (40,931 / 40,503 images).
 
 | Captioner | Training images (fold) | Corpus records | Training / selection records | Captions written for |
 |---|---|--:|--:|---|
@@ -115,7 +139,7 @@ The captioner is initialised from `Salesforce/blip-image-captioning-large`, a BL
 
 $$p_\theta(t \mid I, q) = \prod_{j=1}^{m} p_\theta(t_j \mid I, q, t_{1:j-1}) \qquad (5)$$
 
-The loss is label-smoothed cross-entropy over the caption positions only; prompt and padding positions are masked (label −100). With vocabulary size $K$, smoothing $\varepsilon = 0.1$ and $\mathcal{M}$ the set of unmasked caption positions in a batch, the loss is the mean over those positions:
+The decoder input is $[\texttt{[DEC]};\ \text{prompt};\ t;\ \texttt{PAD}]$, with $t$ ending in the end token `[SEP]`. The loss is label-smoothed cross-entropy over the caption positions only: the prompt tokens are context but have no loss (label −100), and padding positions are ignored. With vocabulary size $K$, smoothing $\varepsilon = 0.1$ and $\mathcal{M}$ the set of caption positions (caption tokens and `[SEP]`) of all sequences in a batch, the loss is the mean over $\mathcal{M}$, not a per-sequence mean:
 
 $$\tilde{y}_{j,k} = (1-\varepsilon)\,\mathbf{1}_{\{k = t_j\}} + \varepsilon / K \qquad (6)$$
 
@@ -125,6 +149,8 @@ Each fold is trained for four epochs with AdamW (learning rate 3 × 10⁻⁵, we
 
 $$\hat{c} = \arg\max_{c \in \mathcal{B}_3(I,q)} S_\theta(c), \qquad S_\theta(c) = \frac{1}{|c|} \sum_{j=1}^{|c|} \log p_\theta(c_j \mid I, q, c_{1:j-1}) \qquad (8)$$
 
+Here $\mathcal{B}_3(I, q)$ is the set of three finished sequences returned by beam search (beam width 3, at most 32 tokens). Eq. (8) selects the best of these candidates; it is not the global maximum over all possible captions.
+
 ![**Fig. 4.** Question-conditioned BLIP-Large captioner. The dashed path (target caption, teacher forcing) is used only in training; the loss covers caption tokens only.](figures/fig4_captioner.png){width=6.6in}
 
 ## 4.2. Sequence-level caption integration
@@ -133,13 +159,15 @@ The VQA backbone is MCAN-small [3]: six question-encoder layers and six multimod
 
 $$R \in \mathbb{R}^{37 \times 2048}, \quad V = R W_v + b_v + e_{reg} \in \mathbb{R}^{37 \times d} \qquad (9)$$
 
-$$Q = \mathrm{Enc}_q(q), \quad C = \mathrm{Enc}_c(\hat{c}) + e_{cap}, \quad X^{(0)} = [V; C] \qquad (10)$$
+$$Q = \mathrm{Enc}_q(q) \in \mathbb{R}^{n_q \times d}, \quad C = \mathrm{LSTM}_c(\hat{c}) + e_{cap} \in \mathbb{R}^{n_c \times d}, \quad X^{(0)} = [V; C] \in \mathbb{R}^{(37 + n_c) \times d} \qquad (10)$$
+
+with $n_q \le 14$ question tokens and $n_c \le 24$ caption tokens. $e_{reg}$ and $e_{cap}$ are learned type vectors added to every region token and every caption token. The question encoder $\mathrm{Enc}_q$ is an LSTM over the GloVe vectors followed by six encoder layers, each a self-attention block and a feed-forward block, both with residual connection and post-layer normalisation; its output $Q$ keeps one vector per question token. The caption has its own LSTM ($\mathrm{LSTM}_c$) and is not passed through the question encoder.
 
 Attention is the scaled dot-product primitive with an additive mask $M$ that removes padded positions ($d_h = 64$ per head):
 
 $$\mathrm{Att}(U, K_a, V_a) = \mathrm{softmax}\!\left(\frac{U K_a^{\top}}{\sqrt{d_h}} + M\right) V_a \qquad (11)$$
 
-Each decoder layer applies, with residual connections and post-layer normalisation, self-attention over the fused stream, guided attention from the fused stream (queries) to the encoded question (keys and values), and a feed-forward block:
+Each of the six decoder layers $l = 0, \dots, 5$ applies, in this order and with residual connections and post-layer normalisation, self-attention over the fused stream, guided attention from the fused stream (queries) to the encoded question (keys and values), and a feed-forward block (512 → 2048 → 512). MHA is eight-head attention built from Eq. (11); all intermediate matrices keep the shape $(37 + n_c) \times d$:
 
 $$\begin{aligned} X' &= \mathrm{LN}\big(X^{(l)} + \mathrm{MHA}(X^{(l)}, X^{(l)}, X^{(l)})\big) \\ X'' &= \mathrm{LN}\big(X' + \mathrm{MHA}(X', Q, Q)\big) \\ X^{(l+1)} &= \mathrm{LN}\big(X'' + \mathrm{FFN}(X'')\big) \end{aligned} \qquad (12)$$
 
@@ -149,23 +177,31 @@ Caption words therefore remain individual tokens: every region can attend to eve
 
 ## 4.3. Caption dropout and answer prediction
 
-During training, the whole caption of a question is replaced by padding with probability $p_c = 0.3$, independently per question, so the decoder sees only the regions for that question. This keeps a useful image–question path when the caption is missing or wrong. At evaluation captions are always supplied.
+During training, the whole caption of a question is hidden with probability $p_c = 0.3$, independently per question and drawn anew at every step. This keeps a useful image–question path when the caption is missing or wrong. At evaluation captions are always supplied.
 
 $$m_i \sim \mathrm{Bernoulli}(1 - p_c), \quad p_c = 0.3, \qquad m_i^{eval} = 1 \qquad (13)$$
 
-$$X_i^{(0)} = \begin{cases} [V_i; C_i], & m_i = 1 \\ V_i, & m_i = 0 \end{cases} \qquad (14)$$
+The caption is hidden by masking, not by physically removing it: all its token ids are set to the padding id, so the tensor keeps its shape $(37 + n_c) \times d$, and the additive mask gives these key positions $-\infty$ in every attention and in the AttFlat pooling:
+
+$$M_{ij} = \begin{cases} -\infty, & j \text{ is a padded region or caption token, or a caption token with } m_i = 0 \\ 0, & \text{otherwise} \end{cases} \qquad (14)$$
+
+The masked caption positions therefore receive no attention weight, and the result is equivalent to a model that sees only $V_i$. Masked positions still exist as queries in the decoder, but they are excluded from pooling, so they do not reach the classifier.
 
 The classifier covers the answers that are the majority answer of at least nine training questions: 3,091 answers in the development runs and 3,148 for the final full-data training (identical lists for the caption and baseline models). Each answer receives an independent sigmoid score:
 
 $$z = W_a h + b_a, \qquad s_k = \sigma(z_k) \qquad (15)$$
 
-The soft target $y_{ik}$ of answer $k$ is its VQA accuracy against the ten human answers (Eq. 18). The loss is binary cross-entropy (BCE), the standard VQA loss that treats each answer as an independent yes/no decision; it is summed over the answers and averaged over the $B$ questions of a batch:
+The training target is separate from the evaluation metric, although the code uses the same formula. For question $i$ with normalised human answers $a_{i1}, \dots, a_{i10}$ (normalisation of Section 5.1), the soft target of answer class $k$ with answer text $\alpha_k$ is the leave-one-out score
 
-$$\mathcal{L}_{VQA} = -\frac{1}{B} \sum_{i=1}^{B} \sum_{k=1}^{|\mathcal{A}|} \big[\, y_{ik} \log s_{ik} + (1 - y_{ik}) \log(1 - s_{ik}) \,\big] \qquad (16)$$
+$$y_{ik} = \frac{1}{10} \sum_{j=1}^{10} \min\!\left(1, \frac{1}{3} \sum_{\ell \neq j} \mathbf{1}_{\{\alpha_k = a_{i\ell}\}}\right) \qquad (16a)$$
 
-The reported ensembles average the sigmoid scores of the two seeds, $r \in \{0, 1\}$, and predict the answer with the highest mean:
+so an answer given by 1, 2, 3 or at least 4 annotators gets $y_{ik} = 0.3, 0.6, 0.9$ or $1$; all other classes get 0. (Some implementations use $\min(n_{ik}/3, 1)$ instead; ours does not.) The loss is binary cross-entropy (BCE), the standard VQA loss that treats each answer class as an independent yes/no decision. It is computed on the logits for numerical stability, summed over all classes and divided by the number of questions $B$ in the batch, not by $B \cdot |\mathcal{A}|$:
 
-$$\bar{s}_k = \frac{1}{2} \sum_{r=1}^{2} s_k^{(r)}, \qquad \hat{a} = \arg\max_k \bar{s}_k \qquad (17)$$
+$$\mathcal{L}_{VQA} = -\frac{1}{B} \sum_{i=1}^{B} \sum_{k=1}^{|\mathcal{A}|} \big[\, y_{ik} \log s_{ik} + (1 - y_{ik}) \log(1 - s_{ik}) \,\big] \qquad (16b)$$
+
+The reported ensembles average the sigmoid scores (not the logits, and not votes over final answers) of the models trained with seeds $r \in \{0, 1\}$. The class with the highest mean is chosen, and its answer text $\alpha$ is the prediction:
+
+$$\bar{s}_k = \frac{1}{2} \sum_{r=0}^{1} s_k^{(r)}, \qquad \hat{k} = \arg\max_k \bar{s}_k, \qquad \hat{a} = \alpha_{\hat{k}} \qquad (17)$$
 
 An auxiliary reliability gate was investigated during development (Section 6.4) but is not part of the final model.
 
@@ -214,7 +250,13 @@ $$\mathrm{AnswerHit} = \frac{100}{|\mathcal{O}|} \sum_{i \in \mathcal{O}} H(\hat
 
 $$\mathrm{PolarityAcc} = \frac{100}{|\mathcal{Y}|} \sum_{i \in \mathcal{Y}} \mathbf{1}_{\{P(\hat{c}_i) = a_i^{*}\}} \qquad (21)$$
 
-$\mathcal{O}$ and $\mathcal{Y}$ contain the open and yes/no questions. Both are lexical diagnostics: synonyms and other valid human answers are missed. They are not substitutes for VQA accuracy.
+$\mathcal{O}$ and $\mathcal{Y}$ contain the open and yes/no questions. Both are lexical diagnostics and are not substitutes for VQA accuracy. Counterexamples show their limits:
+
+- *False miss (AnswerHit):* answer "gray", caption "The cat is grey." → $H = 0$, although the caption is correct; the same happens with synonyms ("sofa" / "couch") and with other valid human answers that are not the majority answer.
+- *False hit (AnswerHit):* answer "2", caption "There are 2 dogs and 3 cats." for "How many cats are there?" → $H = 1$, although the caption gives the wrong count for the asked object.
+- *Wrong polarity (Polarity):* answer "yes" to "Is the sky clear?", caption "There are no clouds in the sky." → the negation word gives $P = \text{no}$, although the caption agrees with "yes".
+
+Eq. (18) is only the evaluation metric (computed by the official server for test-dev and test-standard, and by our implementation of the same formula for the development set); the training target of Eq. (16a) uses the same formula but is a separate quantity.
 
 ## 5.2. Statistical procedure
 
@@ -222,15 +264,17 @@ Differences on the development set are paired (same questions, both models). The
 
 # 6. Results
 
+The results are presented in five steps. Section 6.1 gives the official VQA v2 results of the final models with and without question-dependent captions, and Section 6.2 places them among published results. Section 6.3 reports the development ablations that led to the final design, including the choice of captioner. Section 6.4 analyses robustness and errors, with real examples. Section 6.5 reports the controls with generic and fixed captions, and Section 6.6 the computational cost.
+
 ## 6.1. Official VQA v2 evaluation
 
-Table 5 reports the official EvalAI results. The ensembles were submitted to test-standard once each (captions 24 November 2026, baseline 25 November 2026); the four single models were submitted to test-dev only. With the same training data and ensemble size, adding question-dependent captions raises test-standard accuracy from 69.56% to 73.16% (+3.60). On test-dev the gain is +3.59 for the ensembles and +3.82 for the single models. The gains occur in all three answer types and are largest for number and other questions.
+Table 5 reports the official EvalAI results. The ensembles were submitted to test-standard once each (captions 24 November 2026, baseline 25 November 2026); the four single models were submitted to test-dev only. With the same training data and ensemble size, adding question-dependent captions raises test-standard accuracy from 69.56% to 73.16% (+3.60). On test-dev the gain is +3.59 for the ensembles and +3.83 for the single models (72.130 − 68.305 = 3.825). The gains occur in all three answer types and are largest for number and other questions.
 
 | Model | Phase | Overall | Yes/no | Number | Other |
 |---|---|--:|--:|--:|--:|
 | MCAN, seed 0 / seed 1 | test-dev | 68.30 / 68.31 | 85.13 / 85.19 | 48.43 / 49.10 | 58.45 / 58.26 |
 | + QD captions, seed 0 / seed 1 | test-dev | 72.13 / 72.13 | 87.68 / 87.62 | 52.99 / 53.43 | 63.21 / 63.15 |
-| Difference, single-seed means | test-dev | +3.82 | +2.49 | +4.45 | +4.83 |
+| Difference, single-seed means | test-dev | +3.83 | +2.49 | +4.45 | +4.83 |
 | MCAN, 2-seed ensemble | test-dev | 69.28 | 85.94 | 49.99 | 59.43 |
 | + QD captions, 2-seed ensemble | test-dev | 72.87 | 88.35 | 53.86 | 63.99 |
 | Difference, ensembles | test-dev | +3.59 | +2.41 | +3.87 | +4.56 |
@@ -246,22 +290,22 @@ Before submission, the development set predicted about 70.5 and 67.4 for the two
 
 ![**Fig. 6.** Official results. (a) Test-standard accuracy by answer type, with the value reported by Sharma and Jalal [4]. (b) Caption gain over the matched baseline: test-dev single models (mean of two seeds), test-dev ensembles and test-standard ensembles.](figures/fig6_official.png){width=6.6in}
 
-## 6.2. Comparison with previously reported caption-based VQA
+## 6.2. Comparison with previously reported VQA results
 
-Table 6 places the official results among published caption-based systems. The comparison is descriptive rather than a matched ablation, because training data, visual features, pretraining and ensembling differ.
+Table 6 places our official **test-standard** results among published systems. Only test-standard values are compared across papers; our single models were evaluated on test-dev only (Table 5) and are therefore not ranked here. The comparison is descriptive rather than a matched ablation, because the visual features, training data, model size, pretraining and ensembling differ between the papers.
 
-| Method | Overall | Yes/no | Number | Other |
-|---|--:|--:|--:|--:|
-| Sharma & Jalal [4], Baseline + Att | 63.32 | 79.21 | 44.06 | 56.29 |
-| Sharma & Jalal [4], Baseline + Att + Cap | 70.67 | 86.63 | 48.23 | 59.98 |
-| Zhou et al. [5], IC-VQA* | 70.85 | 87.20 | 46.83 | 61.98 |
-| MCAN baseline (ours), 2-seed ensemble | 69.56 | 86.14 | 49.81 | 59.65 |
-| MCAN + QD captions (ours), single models (test-dev mean) | 72.13 | 87.65 | 53.21 | 63.18 |
-| **MCAN + QD captions (ours), 2-seed ensemble** | **73.16** | **88.33** | **54.41** | **64.25** |
+| Method | Model type | Overall | Yes/no | Number | Other |
+|---|---|--:|--:|--:|--:|
+| Yu et al. [3], MCAN (original) | single model† | 70.90 | — | — | — |
+| Sharma & Jalal [4], Baseline + Att | single model | 63.32 | 79.21 | 44.06 | 56.29 |
+| Sharma & Jalal [4], Baseline + Att + Cap | single model | 70.67 | 86.63 | 48.23 | 59.98 |
+| Zhou et al. [5], IC-VQA* | single model | 70.85 | 87.20 | 46.83 | 61.98 |
+| MCAN baseline (ours) | 2-seed ensemble | 69.56 | 86.14 | 49.81 | 59.65 |
+| **MCAN + QD captions (ours)** | 2-seed ensemble | **73.16** | **88.33** | **54.41** | **64.25** |
 
-Table: **Table 6. Previously reported VQA v2 results and ours (%, test-standard unless noted).** Sharma & Jalal values are from Table 6 of the original article [4]. *Zhou et al. report VQA2.0 results in their Table 3; an identical test-standard protocol is not stated.
+Table: **Table 6. Published VQA v2 test-standard results and ours (%).** Sharma & Jalal values are from Table 6 of the original article [4]. †MCAN-large trained on train + val + Visual Genome; its test-dev score is 70.63 [3] [values to be checked against the original table]. *Zhou et al. report VQA2.0 results in their Table 3; an identical test-standard protocol is not stated. The "single model" entries are as reported by the authors.
 
-The caption ensemble exceeds the 70.67% of Sharma and Jalal by 2.49 points, and the single caption models (test-dev) by 1.46 points. It is also numerically above the IC-VQA score [5], whose evaluation protocol would need verification before a direct ranking. These cross-paper comparisons are contextual: differences in visual encoders, training data, downstream architecture, pretraining and ensemble size prevent attributing the whole advantage to the caption method. The controlled internal gain of 3.60 points is the primary evidence.
+Our caption ensemble is 2.49 points above the 70.67% of Sharma and Jalal and numerically above the original MCAN and IC-VQA [5]. These differences are contextual and not a ranking: our model is a two-model ensemble, while the cited results are single models; our MCAN-small uses no Visual Genome questions; and visual encoders, pretraining and training data differ. In particular, our own MCAN-small baseline (69.56, ensemble) stays below the original MCAN-large single model, so the gain over published results should not be attributed to the caption method alone. The controlled internal comparisons (+3.60 on test-standard over the identical model without captions, and the controls in Section 6.5) are the primary evidence.
 
 ## 6.3. Development ablations and captioner selection
 
@@ -315,6 +359,8 @@ For a group $g$ with $n_g$ questions and accuracy $A_g$, its contribution to the
 
 $$\Delta_g = \frac{n_g}{N}\left(A_g^{large} - A_g^{base}\right), \qquad \Delta_{overall} \approx \sum_g \Delta_g \qquad (22)$$
 
+Here $N = 10{,}000$ is the number of labelled questions (the four groups of Table 10), $A_g$ is the mean of the two seeds' VQA accuracy on group $g$, and the one question without a caption label (question 475660002) is excluded. The sum is therefore close to, but not exactly, the overall change on all 10,001 questions.
+
 ![**Fig. 7.** Development accuracy by change in caption correctness for the baseline and both caption models (separately trained VQA models).](figures/fig7_transitions.png){width=6.6in}
 
 The transition analysis shows an association between answer preservation and downstream accuracy: the caption model gains strongly where captions become correct (+18.1 points) and loses where they become wrong (−14.2 points). Since the VQA models are trained separately, this is not an isolated causal intervention on caption content; a test-time caption swap within a fixed model would isolate it.
@@ -323,33 +369,64 @@ BLIP-Large captions also increase reliance on the text: shuffled captions give 6
 
 ![**Fig. 8.** Perturbations on development data. (a) BLIP-base captioner, AnswerHit under input perturbations. (b) VQA accuracy with own and shuffled captions. The panels use different metrics.](figures/fig8_perturbations.png){width=6.6in}
 
+Fig. 9 shows two real images of the development set (val2014; no development model was trained on them), with the generic caption of the released BLIP-Large, the question-dependent caption of our captioner, the reference answers, and the predictions of the development models without captions and with question-dependent captions (seeds 0 and 1). The generic caption is the same for every question of an image and often lacks the asked detail or contradicts it ("a couple of zebras … standing" for three running zebras). The question-dependent captions state the count and the activity, and the caption model answers both questions correctly with both seeds, while the baseline is right with only one seed. Image (b) also shows the failure mode: for "How many surfers do you see?" the caption wrongly says two surfers, and the caption model follows it (2 with both seeds), while the baseline answers 1 correctly.
+
+![**Fig. 9.** Real development-set examples. For each image: the generic caption (one per image, BLIP-Large as released), and for two questions the reference answers, the question-dependent (QD) caption, and the predictions of the development models without captions and with QD captions (seeds 0 / 1). (a) Two successes; (b) one success and one failure caused by a wrong QD caption. The generic-caption VQA model of Table 11 was trained on all val2014 images, so its predictions on these images are not shown.](figures/fig9_examples.png){width=6.6in}
+
 ## 6.5. Controls: generic captions and caption capacity
 
-The gain in Table 5 shows that the chosen question-dependent captions improve the no-caption baseline. It does not show that conditioning on the question is what helps, nor that the extra parameters are irrelevant. Two controls use exactly the final protocol of Table 5 (MCAN, caption dropout 0.3, all 658,111 train2014 + val2014 questions, 10 epochs, seeds 0 and 1, official test-dev; no test-standard submission):
+The gain in Table 5 shows that the question-dependent captions improve the no-caption baseline. Two controls test whether conditioning on the question is what helps, and whether the extra parameters of the caption branch explain part of the gain. Both repeat the final protocol of Table 5 exactly (MCAN-small, BUTD features, caption dropout 0.3, no gate, all 658,111 train2014 + val2014 questions, 10 epochs, seeds 0 and 1, mean-sigmoid ensemble, official test-dev; no test-standard submission):
 
-- **Generic captions:** `Salesforce/blip-image-captioning-large` as released, without any training of ours, writes one question-independent caption per image (beam 3, prefix "a picture of"), which is given to every question of that image. Our question-dependent captioner starts from the same checkpoint, so the two caption sets differ only in our fine-tuning on the question-dependent dataset and in the question prompt. This checkpoint was fine-tuned on COCO captions of the Karpathy split [7,13], which contains the train2014 and most val2014 images but no test2015 image; this exposure is shared by both captioners and favours, if anything, the generic captions on the training images.
-- **Fixed caption (capacity control):** the caption branch is kept but every question receives the same fixed caption, so the model has the same active parameters without caption content.
+- **Generic captions:** `Salesforce/blip-image-captioning-large` as released, without any training of ours, writes one question-independent caption per image (beam 3, prefix "a picture of", 10.2 words on average), which is given to every question of that image. Our question-dependent captioner starts from the same checkpoint, so the two caption sets differ only in our fine-tuning on the question-dependent dataset and in the question prompt. This checkpoint was fine-tuned on COCO captions of the Karpathy split [7,13], which contains the train2014 and most val2014 images but no test2015 image. Both captioners share this exposure; if anything, it favours the generic captions on the training images.
+- **Fixed caption (capacity control):** the caption branch (embedding, LSTM, type vector, decoder tokens) is kept, but every question receives the same fixed caption ("an image."), which carries no information about the image or the question. Unlike an all-padding caption, which the mask of Eq. (14) would remove from the computation, the fixed caption keeps the branch active.
 
-| Captions given to MCAN | Single models (mean of 2 seeds) | 2-seed ensemble | Yes/no | Number | Other |
+| Captions given to MCAN | Params | Single: seed 0 / seed 1 | Single: mean | Ensemble | Yes/no | Number | Other |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| None (baseline) | 56.46 M | 68.30 / 68.31 | 68.31 | 69.28 | 85.94 | 49.99 | 59.43 |
+| Fixed caption, same branch | [pending] | [pending] | [pending] | [pending] | | | |
+| Generic BLIP-Large (one caption per image) | 58.22 M | 69.17 / 69.21 | 69.19 | 70.09 | 86.34 | 51.34 | 60.47 |
+| **Question-dependent BLIP-Large (ours)** | 58.77 M | 72.13 / 72.13 | 72.13 | **72.87** | **88.35** | **53.86** | **63.99** |
+
+Table: **Table 11. Caption controls on the official VQA v2 test-dev (%).** Yes/no, number and other refer to the ensembles. The parameter counts differ only through the word vocabulary (question + caption words). [Fixed-caption row to be completed.]
+
+| Difference (pp, test-dev) | Single models (means) | Ensembles | Yes/no | Number | Other |
 |---|--:|--:|--:|--:|--:|
-| None (baseline) | 68.31 | 69.28 | 85.94 | 49.99 | 59.43 |
-| Fixed caption, same parameters | [pending] | [pending] | | | |
-| Generic BLIP-Large (no fine-tuning, one caption per image) | [pending] | [pending] | | | |
-| Question-dependent BLIP-Large (ours) | 72.13 | 72.87 | 88.35 | 53.86 | 63.99 |
+| Generic captions − baseline | +0.89 | +0.81 | +0.40 | +1.35 | +1.04 |
+| Question-dependent − generic captions | **+2.94** | **+2.78** | +2.01 | +2.52 | +3.52 |
+| Question-dependent captions − baseline | +3.83 | +3.59 | +2.41 | +3.87 | +4.56 |
 
-Table: **Table 11. Caption controls on the official VQA v2 test-dev (%).** Answer-type columns refer to the ensembles. [To be completed when the control runs finish.]
+Table: **Table 12. Paired differences between the caption conditions on test-dev.** Answer-type columns compare the ensembles. Single-model means are computed from the unrounded seed averages (e.g. 72.130 − 68.305 = 3.825, reported as +3.83).
+
+Generic captions help only a little: they recover 23% of the gain of the question-dependent captions over the baseline (0.89 of 3.83 points for single models, 0.81 of 3.59 for ensembles). With identical training, architecture and starting checkpoint, the question-dependent captions are 2.94 (single) and 2.78 (ensemble) points better than the generic ones, with the largest difference on "other" questions (+3.52). The two seeds of each model differ by at most 0.04 points overall, far less than these differences, but two seeds do not give a reliable variance estimate. An image-clustered bootstrap is not possible here, because test-dev answers are not public. Note also that this compares two caption pipelines, a captioner fine-tuned on question-dependent targets with the question as prompt and one that is not, rather than isolating the question input alone.
+
+## 6.6. Computational cost
+
+The two-stage system adds a captioner to the VQA model. Generic captions are written once per image, whereas question-dependent captions are written once per question, about 5.4 times as many on VQA v2. Table 13 separates the offline caption generation from the VQA training and inference. All runs used two NVIDIA T4 GPUs on Kaggle.
+
+| Quantity | Baseline | Generic captions | Question-dependent captions |
+|---|--:|--:|--:|
+| VQA parameters | 56.46 M | 58.22 M | 58.77 M |
+| Captioner parameters | — | ≈ 470 M (BLIP-Large) | ≈ 470 M (BLIP-Large) |
+| Captioner fine-tuning | — | none | 2 folds × 4 epochs [time to be added] |
+| Captions generated (train + val / test2015) | — | 123,287 / 81,434 (per image) | 658,111 / 447,793 (per question) |
+| Caption generation time, 2 × T4 (train + val / test2015) | — | 73 / 53 min (14.5 / 13.2 images/s per GPU, beam 3) | [to be measured] |
+| VQA training time per epoch (one seed per GPU) | 16.8 min | 20.6 min | 20.8 min |
+| VQA training, 10 epochs | 2.8 h | 3.4 h | 3.5 h |
+| End-to-end inference per 1,000 questions, single / ensemble | [to be measured] | [to be measured] | [to be measured] |
+
+Table: **Table 13. Computational cost (two NVIDIA T4 GPUs).** Training times are means over the ten epochs of the final runs. [Remaining entries: one timed run on 1,000 fixed test-dev questions with the same GPU, batch size and settings for all three systems.]
 
 # 7. Discussion and limitations
 
-The improvement supports a modular approach in which language-form visual evidence complements region-based fusion. The consistent internal gains, image-disjoint caption generation, verified manifests and official server evaluation strengthen this evidence. Until the controls in Table 11 are complete, the claim is limited to the question-dependent captions improving the no-caption baseline, not to question conditioning being superior to generic captions.
+The improvement supports a modular approach in which language-form visual evidence complements region-based fusion. The consistent internal gains, image-disjoint caption generation, verified manifests and official server evaluation strengthen this evidence. The generic-caption control (Table 11) shows that most of the gain depends on the captions being question-dependent: generic captions from the same BLIP-Large checkpoint recover only about a quarter of it. This control compares two caption pipelines (fine-tuned with the question as prompt versus released without fine-tuning), so it does not separate the effect of the question input from that of the fine-tuning targets. The fixed-caption control, still pending, will show whether the extra parameters of the caption branch contribute.
 
-The synthetic corpus is not a manually annotated reference dataset. Its quality labels come from 3B and 7B language models that can miss semantic errors or reject correct statements; a small blinded human audit of a random sample would estimate the true error rate. AnswerHit is lexical and the polarity diagnostic depends on negation patterns. The official results are based on two seeds per model; the single-seed spread on test-dev is small but two seeds do not give a reliable variance estimate. The development set was used repeatedly and does not demonstrate independent generalisation; the official benchmark provides the external evaluation. Large counts, text reading and contradictory captions remain weaknesses.
+The synthetic corpus is not a manually annotated reference dataset. Its quality labels come from 3B and 7B language models that can miss semantic errors or reject correct statements; a blinded human review of a stratified random sample (Section 3.2) estimates the true error rate [results to be added]. AnswerHit is lexical and the polarity diagnostic depends on negation patterns. The official results are based on two seeds per model; the single-seed spread on test-dev is small but two seeds do not give a reliable variance estimate. The development set was used repeatedly and does not demonstrate independent generalisation; the official benchmark provides the external evaluation. Large counts, text reading and contradictory captions remain weaknesses.
 
-BLIP and the region detector use external pretrained checkpoints. The BLIP captioning checkpoint was fine-tuned on COCO captions, which include val2014 images, and the detector was trained on Visual Genome, which overlaps with COCO images. Cross-fitting controls the task-specific answer-derived supervision, not every overlap in external pretraining. The two-stage system also costs more at inference: one caption generation (beam 3) per question before the VQA model, and the official results use two VQA models.
+BLIP and the region detector use external pretrained checkpoints. The BLIP captioning checkpoint was fine-tuned on COCO captions, which include val2014 images, and the detector was trained on Visual Genome, which overlaps with COCO images. Cross-fitting controls the task-specific answer-derived supervision, not every overlap in external pretraining. The two-stage system also costs more at inference: one caption generation (beam 3) per question before the VQA model, about 5.4 times as many captions as a per-image generic captioner (Table 13), and the official results use two VQA models.
 
 # 8. Conclusion
 
-This study investigated question-dependent captions as supplementary evidence for visual question answering. Synthetic caption supervision screened by local language models, image-disjoint cross-fitting, a fine-tuned BLIP-Large captioner, sequence-level integration into MCAN and caption dropout constitute the framework. On the official VQA v2 test-standard, the two-seed caption-enabled ensemble reaches 73.16% against 69.56% for the matched no-caption ensemble, and the single models gain 3.82 points on test-dev. Together with the captioner and perturbation experiments, this supports the utility of generated question-conditioned text as evidence for VQA. The matched generic-caption and null-caption controls will establish how much of the gain is due to question conditioning.
+This study investigated question-dependent captions as supplementary evidence for visual question answering. Synthetic caption supervision screened by local language models, image-disjoint cross-fitting, a fine-tuned BLIP-Large captioner, sequence-level integration into MCAN and caption dropout constitute the framework. On the official VQA v2 test-standard, the two-seed caption-enabled ensemble reaches 73.16% against 69.56% for the matched no-caption ensemble, and the single models gain 3.83 points on test-dev. Generic captions from the same starting checkpoint add only 0.81 points on test-dev (ensembles), against 3.59 for the question-dependent captions, so the benefit depends mainly on captions that address the question. The captions remain fallible evidence: a wrong caption can mislead the model, and counting and reading text remain difficult. The fixed-caption capacity control and a human review of the synthetic dataset will complete the evidence.
 
 # Declarations and availability
 
@@ -382,23 +459,3 @@ Author contributions: [To be agreed and completed by the authors.] Funding: [To 
 [12] Krishna, R., Zhu, Y., Groth, O., Johnson, J., Hata, K., Kravitz, J., Chen, S., Kalantidis, Y., Li, L.-J., Shamma, D. A., Bernstein, M. S., and Fei-Fei, L. Visual Genome: Connecting language and vision using crowdsourced dense image annotations. International Journal of Computer Vision 123, 32–73 (2017).
 
 [13] Chen, X., Fang, H., Lin, T.-Y., Vedantam, R., Gupta, S., Dollár, P., and Zitnick, C. L. Microsoft COCO Captions: Data collection and evaluation server. arXiv:1504.00325 (2015).
-
-# Author checklist — status for version 2 (remove before submission)
-
-Resolved in this version (evidence: `manuscript/VERIFICATION.md`, `manuscript/evidence/paper_evidence.md`):
-
-- Ensemble = mean of the two seeds' sigmoid scores (Eq. 17); answer lists identical between the final models (3,148).
-- Cross-fitting: fold disjointness, selection data inside the own fold, 0 questions captioned by a model trained on their image, no val2014/test2015 image in the corpus, answer vocabulary rebuilt from training questions only.
-- Corpus counts reconciled exactly from the corpus provenance block; Qwen model IDs and prompt versions stated; GRAMMAR_ISSUE_ONLY and WRONG records are not used; suspicious-flag overlap reported.
-- Single-seed test-dev results added (Table 5).
-- Sharma & Jalal values confirmed from the original Table 6.
-- 10,000 vs. 10,001 explained (Table 10).
-- Image-clustered bootstrap intervals (Tables 7–8); loss masking, label smoothing, beam score, decoder order, BCE normalisation and ensemble domain checked against the code.
-
-Still open:
-
-- Archive the dated EvalAI screenshots and leaderboard observation with the result files.
-- Decide whether the full prompt texts (classifier v20, generation v10, validator v10, judge j2, regeneration r2) go into a supplementary appendix; they are in the repository (`QuestionDependentCaptionGenerator/`).
-- Small blinded human audit of a random corpus sample.
-- Generic-caption and fixed-caption controls (Table 11), after supervisor approval.
-- Final author list, affiliations, repository URL.
